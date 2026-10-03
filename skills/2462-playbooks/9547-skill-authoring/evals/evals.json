@@ -1,0 +1,67 @@
+{
+  "skill_name": "skill-authoring",
+  "evals": [
+    {
+      "id": 1,
+      "name": "knowledge-query-routes-to-playbook",
+      "prompt": "How should I structure a SKILL.md file for a skill with several reference topics?",
+      "expected_output": "A skill-authoring answer sourced from the playbook content (progressive disclosure: SKILL.md hub + spoke files). The skill serves its distilled body and does NOT run scripts/update.sh or read vendor/SKILL.md.",
+      "files": [],
+      "expectations": [
+        "Output answers from the skill-authoring playbook content (e.g. hub SKILL.md dispatches, spoke files do the work / progressive disclosure)",
+        "The run does NOT run scripts/update.sh or attempt a drift-check / update action (updating is the separate /playbooks:update skill)",
+        "The run does NOT read vendor/SKILL.md for this plain knowledge query"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "skill-tool-one-per-call-and-invocation-reach",
+      "prompt": "When writing a skill that must run both /toolchain:check and /tdd:principles, and that also needs a plugin's :setup skill first, how do Skill-tool calls work?",
+      "expected_output": "States that the Skill tool takes one skill per call (two skills means two calls). For a disable-model-invocation / user-invoked-only target such as a :setup skill, does not instruct Skill-tool invocation — tells the user to run /plugin:setup instead.",
+      "files": [],
+      "expectations": [
+        "Output states that the Skill tool takes one skill per call (a step needing two skills is two calls)",
+        "Output does NOT instruct invoking a disable-model-invocation / user-invoked-only :setup skill via the Skill tool",
+        "Output tells the user (or the authoring guidance says to tell the user) to run the /plugin:setup slash command instead"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "description-caps-and-their-sources",
+      "prompt": "What length limits apply to a skill description and where does the 1,024 number come from?",
+      "expected_output": "Names both caps with their sources: 1,024 characters is the Agent Skills specification's validation limit on the description field, enforced by the spec's skills-ref validator and stated as a Skills API upload requirement, not by Claude Code; 1,536 characters is Claude Code's skill-listing truncation of description plus when_to_use (skillListingMaxDescChars), under a listing budget of 1% of the context window that shortens least-invoked skills first. States that when_to_use extends the one description in the listing and that the key use case goes first because truncation is tail-first. Serves reference/authoring-guidance.md rather than restating the page as an instruction.",
+      "files": [],
+      "expectations": [
+        "Output names 1,024 as the Agent Skills specification validation cap on the description field alone and says Claude Code does not validate it",
+        "Output names 1,536 as Claude Code's listing truncation of description plus when_to_use and names the 1% listing budget that shortens least-invoked skills first",
+        "Output states that when_to_use extends the single description in the listing and that the key use case goes first",
+        "Output does NOT present the 1,024 cap as a Claude Code validation error"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "pre-share-checklist-groups-and-tags",
+      "prompt": "Give me the checklist to run before publishing a skill.",
+      "expected_output": "Serves the pre-share checklist from reference/authoring-checklist.md: three groups (frontmatter and body, scripts, evals and testing), each row tagged mechanical, judgment, or attestation, with mechanical rows naming the skill-quality:check check number that decides them (for example the 500-line cap as check 4 and explicit disable-model-invocation as check 24), and an attestation row for the models the skill was exercised on (haiku, sonnet, opus, fable). Closes by naming /skill-quality:check <skill> as the run that answers the mechanical rows.",
+      "files": [],
+      "expectations": [
+        "Output presents the three groups: frontmatter and body, scripts, evals and testing",
+        "Output tags rows as mechanical, judgment, or attestation, and mechanical rows name the skill-quality:check check number that decides them",
+        "Output includes an attestation row for the models exercised, naming the alias list (haiku, sonnet, opus, fable)",
+        "Output names /skill-quality:check <skill> as the closing step and does NOT claim a script verified a judgment or attestation row"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "fork-context-points-at-invocation-context-rubric",
+      "prompt": "Should I set context: fork on a new read-only audit skill that interviews the user mid-run?",
+      "expected_output": "No. Fork is not the default; the invocation-context rubric owns the choice. Fork pays only for read-only, argument-scoped, no-human-gate skills with heavy isolated reading. A mid-flow interview is an anti-candidate class, so the skill stays inline. A skill that does fork writes background: false unless a skill-specific confirmation chooses async. The answer points at the invocation-context rubric rather than inventing a new rule.",
+      "files": [],
+      "expectations": [
+        "Output refuses context: fork for a skill with a mid-flow interview / confirmation",
+        "Output names the invocation-context rubric as the owner of when fork pays, the anti-candidate classes, and the background: false default",
+        "Output does not treat context: fork as the fleet default"
+      ]
+    }
+  ]
+}

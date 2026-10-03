@@ -1,0 +1,22 @@
+{
+  "name": "wstg-security-testing",
+  "version": "0.2.0",
+  "description": "Web application security testing via the OWASP Web Security Testing Guide (WSTG) \u2014 12 categories, ~109 test cases. Four modes: guide a pentest, self-review your app, build/score a coverage checklist, review a diff against WSTG. Methodology from OWASP/wstg. Authorized/defensive use only.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/wstg-security-testing",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "owasp",
+    "wstg",
+    "security-testing",
+    "pentest",
+    "appsec",
+    "web-security",
+    "code-review",
+    "security"
+  ]
+}

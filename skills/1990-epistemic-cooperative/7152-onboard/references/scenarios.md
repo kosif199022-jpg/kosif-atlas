@@ -1,0 +1,265 @@
+# Preset Scenarios
+
+Fallback scenarios for `/onboard` SCENARIO and QUIZ phases when session data is insufficient (Tier 2). Each protocol has a realistic situation, intervention description, trial prompt, and two quiz questions.
+
+Design note: scenarios anchor on AI-collaboration moments (meta-primary) with familiar everyday-domain fallbacks. Protocol fits are unambiguous; ambiguous cases belong in quiz material.
+
+## Horismos `/bound`
+
+**Situation**: You ask Claude to edit a long email draft. You're fine with typo fixes and smoother phrasing, but paragraph reorganization and tone changes feel like decisions you want to own. Right now there's no explicit boundary — Claude might change anything.
+
+**Intervention**: `/bound` first shows the relevant whole provisional decision map, including what you already settled, AI proposals, and unresolved parts. You can open an axis such as tone to inspect concrete proposed changes before deciding how much to entrust. A request to see those changes does not adopt them. Correcting a premise updates the affected decisions while preserving independent ones; a sufficient boundary can leave questions explicitly open. The result is read with the sources that set its limits, so assigning a subagent preserves retained decisions and the actual discretion granted.
+
+**Trial prompt**: "Let's practice: say 'Edit this email for me' and I'll show a provisional map that you can open, correct, or entrust at the depth you need"
+
+**Quiz Q (situation)**: You ask Claude to "tidy up my resume" — it rewrites your summary, swaps out job titles, and restructures bullet points. You only wanted typo fixes and better wording; the content decisions are yours.
+- A) Aitesis `/inquire` — B) Horismos `/bound` — C) Euporia `/elicit` — D) Merismos `/apportion`
+- Answer: B
+
+**Quiz Q (design)**: You're about to delegate a multi-step task, but you do not yet know all the decisions it involves. How would you decide where AI may act and which choices you want to inspect first?
+- Hint: Ask for the relevant whole provisional structure before choosing the boundary's parts or depth. Open an axis when its concrete implications matter, then accept or correct the arrangement without having to visit every axis. An open goal or deferred choice can remain in the result's residual, with what depends on it shown on the map.
+
+**Philosophy**: ὁρισμός (definition, boundary) — from horizein, "to bound." Core principle: **Definition over Assumption**. Workflow position: cross-cutting — the resulting boundary and its residual guide downstream judgment through their setting sources. Game feel: a recognizable whole → open the axis that matters → inspect and correct its implications → entrust at sufficient depth → carry the boundary and the remaining questions.
+
+## Anamnesis `/recollect`
+
+**Situation**: You open a new session wanting to continue yesterday's conversation with Claude — something about a recommendation you liked, or a decision you made together — but you can't remember the exact topic or what was concluded. Re-explaining would lose the original framing.
+
+**Intervention**: `/recollect` follows your vague cue — a time, a person, a file, a phrase you half-remember — into the records the past work left wherever it left them: your conversations, the files it changed and their change history, the decisions it recorded. An index entry may point the way, but it is only a cue; before anything is shown, the candidate's own record is opened at the span your cue reaches. The candidate comes back as a story in that record's own words that makes it recognizable — not a list of hits — with where it was found and how to resume it, and the turn yields for you to say "that's the one" or correct the cue. If nothing is found, it says what it searched and where, rather than claiming the conversation never happened.
+
+**Trial prompt**: "Let's practice: say 'Pick up where we left off yesterday' and I'll show how /recollect surfaces narrative candidates"
+
+**Quiz Q (situation)**: You start with "what was that book Claude recommended last time?" — you remember the conversation happened but not the title, genre, or why it stood out.
+- A) Euporia `/elicit` — B) Aitesis `/inquire` — C) Anamnesis `/recollect` — D) Katalepsis `/grasp`
+- Answer: C
+
+**Quiz Q (design)**: You reference "the direction we agreed on" from a past session but have no specific pointer. How would you surface the right prior context for recognition — rather than asking Claude to guess?
+- Hint: The problem isn't missing external facts — it's that prior session context is vague and needs resolution into something recognizable. Cross-session state recovery lives here, not in `/inquire`.
+
+**Philosophy**: ἀνάμνησις (recollection) — Plato's theory of knowledge as recollection of what the soul already knew. Core principle: **Recognition over Retrieval**. Vague cues become concrete when candidates are surfaced as narratives for user recognition, not retrieved by keyword. Workflow position: cross-cutting — best invoked at session start. Advisory enrichment from `/recollect` is most effective before downstream protocols' phases have progressed; once a downstream protocol's gate has been answered, its results are already shaped without that enrichment. Session-start recall is the practical ordering mechanism. Game feel: "Something we talked about before..." → narrative candidates surface → you recognize the right one → grounded continuation.
+
+## Aitesis `/inquire`
+
+**Situation**: You ask Claude to "add retries to the payment client and ship it." Plenty of what that rests on is sitting in reach — the client code, its config, the commit that last touched it, the provider's published API docs — and some of it is not: whether your team has agreed which failures are safe to retry is something only you know, and whether the provider ever charges twice may be something nobody has checked yet.
+
+**Intervention**: `/inquire` lists what the task leaves uncertain and collects on each through every source it can read or run on its own without changing existing state — the code, the commit history, the vendor docs, a throwaway script it removes afterwards — to the limit of its reach, before asking you anything; an observation that would need to change something already there is named and handed off instead. Each uncertainty then stands one of three ways: settled, with the evidence or your own words that settled it; a finding whose ground is still short, with the shortfall stated; or unreached, with the sources it tried and the ones it could not reach named, so you can point at one it missed. Separately, something it noticed that answers no question raised is shown on its own line. Once everything reachable is reached, what is open comes back as your own unknown: where what it collected conflicts, it names what conflicts with what — the retry policy in the config says one thing, the client's error handling another — and where a decision blocks further collection, it names which collection waits on it. Which of these is yours is its reading, for you to confirm or correct. It completes there and carries on with what does not depend on your open items; it never decides them for you, and your answer, when it comes, is read whole and sends it collecting again. What it hands back is not "everything is known" but the collected context plus the unknowns that are genuinely yours.
+
+**Trial prompt**: "Let's practice: name a small change to this project you'd hand to Claude — e.g. 'add retries to the HTTP client' — and I'll show how /inquire collects what it can reach and hands the rest back as your unknowns"
+
+**Quiz Q (situation)**: You ask Claude "can my MacBook Air run this 70B model locally?" — the answer depends on your exact spec and the model's published requirements. Claude starts recommending settings without confirming either.
+- A) Analogia `/ground` — B) Aitesis `/inquire` — C) Horismos `/bound` — D) Merismos `/apportion`
+- Answer: B
+
+**Quiz Q (design)**: You're about to hand Claude a migration of your config files to a new format. How would you make sure it collects what it can check for itself before starting — and tells you plainly which unknowns only you can settle?
+- Hint: Your intent is clear and the goal is defined — what's short is context. Let the AI exhaust what it can read and run on its own, and expect the rest back as your unknowns rather than as silent assumptions. For *recalling what you discussed in a prior session*, use `/recollect` instead.
+
+**Philosophy**: αἴτησις (a requesting, inquiry) — the act of asking what is needed. Core principle: **Collect to the limit, hand back the rest**. People are poor at seeing their own unknowns, so the AI collects as far as it can reach and names, for each item, where it landed and why it got no further; an item with no finding is your unknown, not a silent assumption. Workflow position: Planning cluster — ensure sufficient context before acting. Game feel: "About to act? Wait — what does this rest on?" → AI pushes each uncertainty through every source it can reach on its own → each stands settled, short, or unreached, with what it noticed shown apart → you see which unknowns are genuinely yours.
+
+## Analogia `/ground`
+
+**Situation**: A friend tells you their morning routine — 5am wake, cold shower, 10k run, no coffee. They swear by it. You're tempted to copy it, but you don't yet know whether your sleep schedule, fitness baseline, and commute map cleanly onto theirs or break the pattern.
+
+**Intervention**: `/ground` settles, from your words, what adopting the routine is expected to achieve, reads what it can reach of the friend's routine and your own conditions, constructs the correspondences, and checks the evidence for each claim those expectations depend on. It reports what the analogy supports within its limits, what it blocks, and what remains unknown.
+
+**Trial prompt**: "Let's practice: first describe your friend's routine and your own conditions — wake time, fitness baseline, commute — in two or three lines each. Then ask: which benefits of copying the routine does the comparison support, and what evidence or limits would change that?"
+
+**Quiz Q (situation)**: A popular study method swears by "90-minute deep focus sessions with no breaks." Your schedule is interrupted, your attention span is different, and your subjects aren't the same kind. You already understand both the method and your study conditions, but are unsure which promised benefits their structural comparison supports.
+- A) Periagoge `/induce` — B) Katalepsis `/grasp` — C) Analogia `/ground` — D) Aitesis `/inquire`
+- Answer: C
+
+**Quiz Q (design)**: Someone says "just treat your side project like a startup." How would you audit the conclusions that comparison supports about your setup?
+- Hint: Separate the intended conclusions, evidence for their bearing correspondences, and the limits of each conclusion.
+
+**Philosophy**: ἀναλογία (proportion, analogy) — Gentner's Structure Mapping Theory (1983). Core principle: **Warrant tracks evidence, never assent**. Workflow position: Analysis cluster — audit what an analogy being relied on licenses, reading any account it can reach as evidence. Game feel: "What can this comparison support?" → settle intended conclusions → check their structural grounds → report verdicts with limits and missing evidence.
+
+## Periagoge `/induce`
+
+**Situation**: Over a week you've noticed three separate incidents that bother you — a teammate ghosted a thread after you replied quickly, a meeting where you answered first and others went silent, a review comment where your detailed response shut down the discussion. You sense these have something in common but can't name it yet. "Too fast" isn't quite it. "Over-responding" is close but not right. The abstraction hasn't located itself.
+
+**Intervention**: `/induce` offers no name first. It puts the two most alignable incidents side by side — the thread and the meeting, say — with every slot of the correspondence filled from what the incidents themselves carry: who spoke first, how fast, what others did next. You correct a filling that is wrong, or pick a different partner. From that correspondence it reads the relation the incidents share and the readings still live, then brings in a case chosen to tell those readings apart rather than to confirm the leading one — and every live reading stays on screen beside the one it favours. You rule readings out, bound them, or leave them open. Only once the space has narrowed does it propose a name and a rule, with the boundary your near-misses drew.
+
+**Trial prompt**: "Let's practice: describe 2-4 cases you sense share something you can't name yet, and I'll show how /induce lines them up side by side before anything gets a name"
+
+**Quiz Q (situation)**: You keep running into the same feeling across unrelated tasks — a bug fix that bloated into a refactor, a meeting that drifted into planning, a PR review that turned into a redesign. You sense a pattern but don't have the word for it yet.
+- A) Analogia `/ground` — B) Periagoge `/induce` — C) Euporia `/elicit` — D) Aitesis `/inquire`
+- Answer: B
+
+**Quiz Q (design)**: You have three examples of a phenomenon but no name for it. How would you find what they share without letting the first plausible name decide what you see in them?
+- Hint: Line two of the cases up and correct how they correspond before anything is named; then test the readings still standing with a case that tells them apart. The name comes last.
+
+**Philosophy**: περιαγωγή (turning-around) — Plato *Republic* VII.518d, the soul's turning toward the intelligible; the dialectical collection and division moves of *Phaedrus* 265d–266a. Core principle: **Correspondence Before Naming through Maintained Alternatives**. A name offered before the cases are lined up conditions every later judgment on its own vocabulary, so the correspondence comes first and the live readings stay visible until the probes narrow them. Workflow position: Analysis cluster — dual of `/ground`. Where `/ground` audits what mapping a given structure licenses about a target account (substitution), `/induce` forms a new structure from instances (colimit). Game feel: "These cases share something — what is it?" → two cases side by side → you correct the correspondence → probes rule readings out → the name arrives last, with its boundary.
+
+## Euporia `/elicit`
+
+**Situation**: You open a session with "I want to make this CLI more usable" — but "usable" could mean reduced friction, smarter defaults, clearer errors, faster startup, or accessibility. The intent is articulated, but you have not named which decisions it turns on — some are implicit in your repo, your rules files, and past PR conversations, and some are the ones any CLI work usually turns on.
+
+**Intervention**: `/elicit` traces the decisions the intent turns on — from your own material, your words, and the decision structure of the domain — and surfaces each with where it comes from and what leaving it open changes; a coordinate from the domain is marked as the AI's proposal. Your answers are taken whole, only your words make a value stand, and the intent resolves when you recognize it as yours. The axis emerges per round rather than committing upfront.
+
+**Trial prompt**: "Let's practice: pick something that actually exists in the project you have open — a CLI, a README, a config, a module — and say 'I want to make <it> more usable / accessible / robust' without saying how. I'll show how /elicit traces the decisions it turns on from that codebase and its rules. (Where the repo holds nothing on a decision, the AI can still raise the one the domain usually turns on, marked as its proposal for you to take, change, or drop.)"
+
+**Quiz Q (situation)**: You say "let's tighten the build pipeline" — but "tighten" could mean faster runs, fewer flaky retries, smaller artifacts, or stricter quality gates. Each is a different axis with values implicit in your CI configs and past green/red history.
+- A) Horismos `/bound` — B) Aitesis `/inquire` — C) Euporia `/elicit` — D) Periagoge `/induce`
+- Answer: C
+
+**Quiz Q (design)**: Your intent is articulated but the axis it commits to depends on coordinates implicit in your externalized cognition (codebase, rules, past sessions). How would you surface those coordinates without forcing a single axis upfront?
+- Hint: Trace from the intent to the decisions it turns on — in your own material, your words, and the domain's usual decisions; let the axis emerge per round.
+
+**Philosophy**: εὐπορία (way through, resourcefulness) — the resolving passage that emerges from aporia (no way through). Plato's later dialectic threads aporia and euporia as paired moments of inquiry. Core principle: **Reverse Induction over Axis-Fixed Extraction**. Directional dual to `/induce` — where `/induce` ascends from instances to abstraction (bottom-up colimit), `/elicit` descends from intent to the coordinates it turns on (top-down reverse induction). Workflow position: Planning cluster — alongside `/inquire`, but for axis-emergent intents that no axis-specific protocol covers. Game feel: "I know I want X, but the axis is fuzzy" → coordinates surface from your material, your words, and the domain's usual decisions → your answers are taken whole → the intent resolves when you recognize it as yours.
+
+## Proplasma `/preview`
+
+**Situation**: You're at a direction gate — three ways to lay out the dashboard's first screen, or two shapes for the new API — and the options are well described, but you can't tell from the descriptions which future you'd actually want. You catch yourself saying "go with whatever fits the northstar" or "I'd have to see it."
+
+**Intervention**: `/preview` derives the axes on which the candidates genuinely diverge and relays them (plus the placeholder policy) with their basis before anything is generated. It then builds a few cheap, overtly fake probes — text vignettes or temp-isolated mockups — each committing different values on the drafted axes, and shows them one at a time before the per-axis contrast map. You select a probe-exposed direction, settle a combination of the probes, or ask to see something no probe showed yet — a revised spec, the combination, a candidate left out — and it builds that next; questioning a probe first stays open as a free response. Where the AI reads the axes alone as already making the futures recognizable, it says so, and closing the run there is yours. Harvest precedes discard: the direction, the deciding contrast rows, and the newly exposed unknowns survive; file probes are destroyed with each disposition declared — a failed destruction is declared with a cleanup handoff, never silent — and nothing probe-derived ever counts as evidence.
+
+**Trial prompt**: "Let's practice: name a direction decision you keep deferring because the options read fine but you can't picture them — I'll show how /preview contrasts discard-committed probes before you commit"
+
+**Quiz Q (situation)**: You're choosing between three onboarding flows. Each is clearly described, yet you keep stalling and finally say "honestly I'd have to see them side by side."
+- A) Hypotyposis `/sketch` — B) Euporia `/elicit` — C) Proplasma `/preview` — D) Heuresis `/ideate`
+- Answer: C
+
+**Quiz Q (design)**: The candidate directions are known and no real evidence is needed — the futures just don't come through in words. How do you make them recognizable without committing to any direction or leaving artifacts behind?
+- Hint: Relay the drafted divergence axes with their basis, then contrast cheap placeholder probes that are discarded after harvest — the probes show futures; they never become evidence.
+
+**Philosophy**: πρόπλασμα (preliminary model) — the clay model a sculptor shapes before committing to marble: cheap, discardable, and made precisely to be seen. Core principle: **Contrast over Simulation**. Workflow position: Planning cluster — alongside `/inquire` (facts) and `/elicit` (intent coordinates), completing the unknowns-elicitation line with direction futures. Game feel: "I'd have to see it" → relay the drafted axes → probes materialize the futures → you recognize, decide, and the clay goes back in the bin.
+
+## Hypotyposis `/sketch`
+
+**Situation**: You have to make something — a review page, a dashboard's first screen, a document's shape — and the plan keeps stalling at the first draft. You've rewritten the description three times and nothing exists yet. You can't say what it should be, but you're sure you'd recognize it once it was in front of you.
+
+**Intervention**: `/sketch` drafts each round's focus, the kind of perception the judgment needs, and how many variants to make, relays the draft with its basis before anything is produced, then makes the sketches in temp isolation and presents them for your marks — what does not fit and what to keep, anchored on a specific version. Your marks stay your own words; what the AI reads from them stays provisional until you settle it at the next round. The next round revises the version you marked rather than regenerating it from a description, so what you recognized and never named survives. You finish on a version for the purpose you state, name where it lives (there is no default) and which other versions to keep as revert points, and the rest are released with their disposition declared.
+
+**Trial prompt**: "Let's practice: name something you've been meaning to make but can't get past the first draft of — I'll show how /sketch turns your marks on a rough version into the form you recognize"
+
+**Quiz Q (situation)**: You need a weekly review page. You've described it four times and each description reads fine, but nothing has been made, and you say "honestly, I'd know it when I see it."
+- A) Proplasma `/preview` — B) Hypotyposis `/sketch` — C) Euporia `/elicit` — D) Heuresis `/ideate`
+- Answer: B
+
+**Quiz Q (design)**: The user cannot state the form but recognizes misfits instantly. How do you build intent from that without turning the AI's readings of their marks into commitments they never made?
+- Hint: Keep each mark as the user's utterance, keep interpretations provisional until the user settles them at the recognition gate, and revise the retained version instead of regenerating it from coordinates.
+
+**Philosophy**: ὑποτύπωσις (outline, sketch) — the first drawing of a position, made before it can be stated. Core principle: **Recognition over Description**. Workflow position: Planning cluster — after `/preview` (which commits to a direction and discards its probes) and before execution; `/sketch` keeps the version you recognized. Game feel: "I'd know it when I see it" → a rough version appears → you mark it → it comes back changed → you recognize the one that fits.
+
+## Heuresis `/ideate`
+
+**Situation**: You've got a topic to write about — or maybe just a couple of scattered fragments jotted down — and what you need isn't a decision between two known options, and it isn't analytical lenses on a question you've already fixed. You just need more raw material. Right now you have one idea, or none, and you keep circling back to the same one or two instead of getting anywhere new.
+
+**Intervention**: `/ideate` reads your invocation alone and infers whether you're starting from a bare topic or from idea fragments already in hand — no entry questions asked. Starting from a bare topic opens an abstract frame map first — angles to open, no concrete idea shown yet — so you pick a direction of divergence before any example can anchor your own thinking; starting from fragments expands straight out from what you already wrote. Each round generates candidates in parallel across the open frames with no elimination, ranking, or scoring — every candidate carries a tag for whether you or the AI produced it, so you can see where fixation crept in and who owns what. You stop whenever you want — there's no round quota — and what comes back declares plainly which frames never got opened.
+
+**Trial prompt**: "Let's practice: name a topic where your options feel thin or you keep circling the same one or two ideas — I'll show how /ideate opens a frame map and generates across it"
+
+**Quiz Q (situation)**: You have one idea for your team's offsite theme and you keep refining it — better name, better schedule, nicer venue — but you haven't actually generated a genuinely different second idea to compare it against.
+- A) Hypotyposis `/sketch` — B) Proplasma `/preview` — C) Heuresis `/ideate` — D) Euporia `/elicit`
+- Answer: C
+
+**Quiz Q (design)**: You want a wide field of genuinely different ideas without your own first instinct anchoring everything that follows. How do you get divergence without narrowing too soon?
+- Hint: The problem isn't choosing between existing options (that's `/preview`) — it's that the candidate field itself is too thin. Open an abstract frame map before any concrete idea appears, and don't eliminate or rank anything a round produces.
+
+**Philosophy**: εὕρεσις (finding, discovery) — the older, broader sense of turning up something not yet in view, prior to its later narrowing into a term of rhetorical technique. Core principle: **Divergence over Selection**. A candidate is raw material, not a selection-ready alternative — heuresis never discards, scores, or ranks what a round produces; that judgment belongs downstream, entirely out of its scope. Workflow position: Planning cluster, immediately upstream of `/preview` — heuresis widens a thin or converged field into a diverse one; `/preview` picks up only once two or more candidates already exist and need their futures contrasted. Game feel: "I've only got one idea, and it's getting stale" → frame map opens → candidates generate in parallel, untouched by ranking → you stop when the field is wide enough → a diverse set, ready for whatever comes next.
+
+## Merismos `/apportion`
+
+**Situation**: You ask Claude to "work through my 200-photo album and build the yearbook layout" — an unattended run that will churn for an hour while you're away. You worry it might quietly declare victory halfway through, or wander into folders it was never meant to touch.
+
+**Intervention**: `/apportion` reads the album job's obligations and cuts it into coarse units at the seams it can cite — perhaps one unit per hundred-photo batch (a deliverable seam) or one per layout section (a verification seam) — and judges each against how much a single run can plausibly finish. For each unit it derives a completion condition where one compiles — and where none does, either surfaces it for you to accept as uncovered or — when a judgment rather than a check is what settles it — reserves it, rather than inventing a check (every photo in that batch appears somewhere in the layout; the section renders with no missing thumbnail) and any invariant the unit must preserve while it works and can still be checked once it stops (the album folder's file count matches the manifest). A boundary whose violation cannot be undone afterwards — deleting the originals — is not compiled as a stop-time check at all: `/apportion` declares it out of scope and names the substrate that must intercept it before the action runs. You confirm the cut and its conditions, and each unit leaves closed — with its own checkable finish line, with the acceptance you recorded where none compiled, or with a reservation held open where a judgment settles it. What `/apportion` produces is that plan, not the run: ordering the units is `/conduct`'s, holding the run to each condition is the completion-predicate enforcer you start separately, and anything needing split-second blocking (like deleting originals) is named out of scope and left to your tool's permission prompts.
+
+**Trial prompt**: "Let's practice: describe a goal you'd hand to an unattended run and I'll show how /apportion cuts it into units and closes each one — a checkable finish line where one compiles, an acceptance you record where none does, a reservation where a judgment settles it"
+
+**Quiz Q (situation)**: You're about to let Claude run unattended overnight migrating hundreds of files, and you want certainty that "done" really means done — and that it stayed inside the folders you named.
+- A) Aitesis `/inquire` — B) Merismos `/apportion` — C) Hyphegesis `/conduct` — D) Horismos `/bound`
+- Answer: B
+
+**Quiz Q (design)**: You want an autonomous run held to your boundaries without watching it work. How do you get protection that doesn't depend on supervision?
+- Hint: The answer is not watching harder — it's cutting the goal into units and closing each one before the run: a done-check that runs when the unit stops, where one compiles; your recorded acceptance where none does; a reservation where a judgment rather than a check settles it. A boundary that cannot be undone afterwards is not a stop-time check at all — name what must intercept it before the action.
+
+**Philosophy**: μερισμός (a dividing into parts, an apportionment) — cutting a whole into its constituent shares, not arranging them into a sequence. Core principle: **Apportion over Order** — deciding which units the goal runs in and what each unit's done means is separate work from ordering those units, which stays `/conduct`'s (supporting invariants: **Coverage over Convenience**, **Fit over Ambition**, **Declared Seam over Asserted Joint**). Cut the goal at its evidenced seams → judge each unit against one execution horizon → close each unit — a derived completion condition, your recorded acceptance, or a reservation where a judgment settles it → confirm the apportionment → hand off. Workflow position: Execution cluster — the compile step before an autonomous run. Game feel: "Here's how the work divides, and what finishing each piece means" → the plan hands off with each unit closed — a stop-time check where one compiled, your recorded acceptance where none did, a reservation where a judgment settles it → whatever runs it (once `/conduct` has settled the order and an enforcer holds the checks) finishes rather than merely stops wherever a check was compiled → you trust that much, and the units left to judgment keep that judgment open until it is live, to be resolved within an applicable grant or put to the person retaining it.
+
+## Epharmoge `/contextualize`
+
+**Situation**: You've been in a long Claude conversation about "low-sodium, low-carb eating" — dietary constraints you've repeatedly named. An hour in, you ask "what should I have for lunch?" and Claude cheerfully suggests ramen. A lunch suggestion in general, but mismatched against the accumulated context you'd built up in this very conversation.
+
+**Intervention**: `/contextualize` checks whether Claude's output fits the context you've been accumulating in this session (prior constraints, stated preferences, established framing) and everywhere the answer lands, then shows every place it does not fit on one sheet — each beside the part of the context it misses, with concrete actions and what each leads to: adapt the result, leave it as it is with your reason recorded, stop using it and say what replaces it, or leave it to whoever owns that part. You answer the whole sheet in one turn; the fixes are made, the answer is checked again, and the run completes when nothing is left open.
+
+**Trial prompt**: "Let's practice: first name two or three constraints you live with — say low-sodium, no dairy, fifteen minutes to cook — then ask for a lunch idea. When the answer comes back, invoke /contextualize and I'll show how it checks that answer against the constraints you set"
+
+**Quiz Q (situation)**: You've been discussing "beginner-level Python for a 10-year-old" with Claude for 20 minutes. You ask for a "small starter project." Claude returns a project using metaclasses and async generators — technically beginner-friendly in general, but completely detached from the accumulated context.
+- A) Aitesis `/inquire` — B) Epharmoge `/contextualize` — C) Elenchus `/sublate` — D) Analogia `/ground`
+- Answer: B
+
+**Quiz Q (design)**: After a long conversation where you established many specific constraints, Claude answers a new question correctly-in-general but ignores the accumulated context. How would you systematically check for context fit?
+- Hint: The output is not wrong on its own — it's mismatched against the context you both built up this session.
+
+**Philosophy**: ἐφαρμογή (application, fitting) — Aristotle's practical application. Core principle: **Applicability over Correctness**. Correct output that doesn't fit the accumulated conversation context is not useful output. The user's awareness that context has been built up in this session is the trigger. Workflow position: Verification cluster — after work is done, check if it fits where it's going. Game feel: "Done! ...wait, this ignores everything we just discussed" → accumulated-context mismatch surfaces → adapt, leave as is with a reason, stop using it, or leave it to whoever owns it.
+
+## Elenchus `/sublate`
+
+**Situation**: You've been collecting context for two hours — a teammate's verbal claim about API behavior, a doc you read at the start, a Slack thread quote, an inferred constraint built across three hops. Now you're about to share the plan in a meeting. One of those sources has aged, another's verification path is provisional, and two of them quietly point at the same referent in conflicting directions — but you don't know which.
+
+**Intervention**: `/sublate` vets the working context before an action that depends on it — sharing it, committing to it — goes ahead. It selects audit-candidate sources (high-leverage, age beyond horizon, long inference chain, cross-source contradiction, or an inference-character conclusion — a source that is itself an inferred conclusion) and posits a dialectical antithesis per claim under test — one per source in the ordinary case, and one each where a source turns out to be read as authority for two distinct claims — provenance challenge ("X's verification path is provisional"), counterfactual gap ("under condition Z, Y fails at point P"), cross-source divergence ("X₁ and X₂ collide at Q"), or inference-fallacy audit ("Y's soundness rests on a reasoning archetype that fails here"). You say in your own words what you make of each claim once the challenge has been put to it — and anything you want done with it, such as no longer relying on the source, looking again once a condition holds, or handing it to another kind of problem, rides in those same words — before you act on it.
+
+**Trial prompt**: "Let's practice: first list the sources a plan of yours rests on — a doc you read this morning, a teammate's verbal claim, a quoted chat message, one conclusion you inferred yourself — then say you're about to share the plan in 15 minutes and want to vet it first, and I'll show how /sublate dialectically tests each source."
+
+**Quiz Q (situation)**: You've spent the afternoon building a context about a teammate's preferences from three different conversations and one inferred guess. You're about to make a decision based on the synthesis. Something feels off but you can't name which source decayed.
+- A) Aitesis `/inquire` — B) Epharmoge `/contextualize` — C) Elenchus `/sublate` — D) Horismos `/bound`
+- Answer: C
+
+**Quiz Q (design)**: After hours of context accumulation, before you act on it, how would you stress-test which sources still hold and which have decayed — without re-collecting everything from scratch?
+- Hint: The output isn't yet produced — the *input* (working context) is what carries silent decay. A dialectical antithesis put to each claim under test is the test, not gap detection across the decision.
+
+**Philosophy**: ἔλεγχος (cross-examination, refutation) — the Socratic mode of testing a claim by deliberately positing its counter-claim and seeing what survives the exchange. The lexical verb `/sublate` carries the Hegelian *Aufhebung* — preserve + negate + lift up. Core principle: **Dialectical Vetting over Silent Trust**. Working context decays silently as time passes, downstream concentration warps incidental claims into load-bearing premises, and cross-source contradictions hide behind topical proximity. Workflow position: Verification cluster — alongside `/contextualize`, but pre-execution rather than post (Elenchus tests inputs before action; Epharmoge tests outputs after). Game feel: "We've built so much context — is any of it still standing?" → per-claim antithesis → your own answer to each → vetted context.
+
+## Katalepsis `/grasp`
+
+**Situation**: A dense plan, document, or code change is in front of you in the conversation — the AI produced it, or someone else wrote it and you pasted it in. You need to get oriented before you approve, explain, or modify it, but the first menu of artifact categories would slow you down because you do not yet know which part maps to your concern.
+
+**Intervention**: `/grasp` structures rapid comprehension by first offering intent-scented entry points such as what changed, why it matters, what needs approval, or what could break. After you pick the closest path, it grounds that path in the artifact and probes your grasp through Socratic questions.
+
+**Trial prompt**: "Let's practice: first put something to understand into this conversation — paste a short plan, a diff, or a document, or ask me to draft a plan for a small task — then say 'Help me understand what I need to approve here' and I'll show how /grasp routes through an intent entry point before verifying comprehension"
+
+**Quiz Q (situation)**: You pasted a long article into the conversation, skimmed it, and nodded along. A colleague asks you to summarize its main argument in one sentence and you freeze — skimming wasn't the same as grasping, and the article is still right there in the chat.
+- A) Periagoge `/induce` — B) Analogia `/ground` — C) Katalepsis `/grasp` — D) Anamnesis `/recollect`
+- Answer: C
+
+**Quiz Q (design)**: After quickly consuming a complex explanation, how would you verify you actually grasped the core — rather than that you could nod along?
+- Hint: The problem isn't that the content is wrong — it's that your comprehension hasn't caught up. Start from the user's intended use of the result, then probe the artifact-grounded understanding.
+
+**Philosophy**: κατάληψις (grasping firmly, comprehension) — the Stoic criterion of truth through firm cognitive grasp. Core principle: **Comprehension over Explanation**. Nodding along is not grasping, and being explained to is not either — the understanding is verified in your own answers against the target itself, which must be in the conversation where it can be quoted. Intent-scented entry points convert passive reception into active comprehension by letting the user recognize the path closest to their concern before artifact details appear. Workflow position: cross-cutting, structurally last — requires completed content; without something to grasp, there is nothing to verify. Game feel: "I think I got it... but do I really?" → choose the nearest intent path → artifact-grounded probe → confirmed grasp or identified gap.
+
+## Hyphegesis `/conduct`
+
+**Situation**: You're about to start a big piece of work — a framework migration, a multi-stage investigation — and the goal is clear, but *how to run it* is not. Several moves are involved: gather context, frame perspectives, verify adversarially, synthesize. In what order? Which in isolation? How do their results reconcile? When do you stop? Started without deciding, the work drifts — wrong order, perspectives contaminated before synthesis, no stopping criterion.
+
+**Intervention**: `/conduct` checks the work is genuinely multi-move and non-trivial (single-move work is relayed as a recommendation to the one protocol that resolves it), then draws the whole method on one sheet: a brief of what the work is for, the moves as a nested outline, how they are cut into regions, and a table of every axis — order, independence, reconciliation, termination, routing — for each region, the most-constrained slots laid out first. Every value is marked `you` or `draft`, with its ground and its alternatives. You point at what is wrong anywhere on the sheet; it is drawn again with a change ledger underneath — your edits first, then each value re-drafted because of them. A decision whose deciding evidence does not exist yet becomes an in-session checkpoint. The method is taken only when you say it is sufficient, and a method plan with its checkpoints is handed off for you (or the substrate) to run.
+
+**Trial prompt**: "Let's practice: say 'I'm about to migrate this service across two framework versions — conduct how I should run the whole thing' and I'll show how /conduct designs the move topology before any object-level work starts"
+
+**Quiz Q (situation)**: You have a clear goal but five interdependent steps, and you keep second-guessing the order and whether to run them in isolation or let them see each other. You haven't started because the *method*, not the goal, is unsettled.
+- A) Merismos `/apportion` — B) Horismos `/bound` — C) Hyphegesis `/conduct` — D) Aitesis `/inquire`
+- Answer: C
+
+**Quiz Q (design)**: You face a multi-move task where the order, independence, and stopping criterion all genuinely divide the plan. How would you settle the method before starting, without locking choices that depend on what you'll only learn mid-way?
+- Hint: The problem isn't who owns what (that's `/bound`) — it's how the whole session's moves relate. See the whole method on one sheet, correct what is wrong anywhere on it until you can take it as is, and give an in-session checkpoint only to a decision whose evidence doesn't exist yet.
+
+**Philosophy**: ὑφήγησις (leading from just ahead, guiding) — conducting the method of the work, not doing the work. Core principle: **Conduction over Substrate**. How a session's moves are ordered, isolated, reconciled, and stopped is substrate-invariant — it survives deleting every runtime noun — so the conduct form is designed independently and only then matched to a substrate, declaring degradation rather than binding one it cannot realize. Workflow position: cross-cutting, Hybrid initiator — conducts the session's whole move set before object-level cognition. Game feel: "I know what I want, but how do I run this?" → confirm it's multi-move → the whole method on one sheet → correct it, see the ledger of what changed → take it → hand off a method plan with checkpoints.
+
+## Composition Patterns
+
+Real sessions rarely use a single protocol. Composition — invoking multiple protocols together — is often more valuable than any isolated call. Three patterns that appear most in practice:
+
+### `/recollect * /inquire` — Recalled context plus fresh facts
+
+When you say "find me that café we talked about — and check if it's open today." `/recollect` resolves the vague recall ("that café") into the specific prior discussion, then `/inquire` grounds the freshness-required fact (today's hours) in verifiable sources.
+
+**Shape**: empty intention → recognized prior context → grounded current fact.
+
+### `/apportion * /contextualize` — Unit-cut execution plus context-fit check
+
+When you say "run the inbox cleanup while I'm out, and check it actually fits my inbox style after." `/apportion` cuts the cleanup into units the run can finish one at a time and derives each one's completion condition (what counts as done for that unit, what it must leave untouched while it works), then `/contextualize` checks that the resulting state matches the accumulated context you've established (your actual email habits, not a generic clean inbox).
+
+**Shape**: pre-execution unit cut with conditions → post-execution context-fit.
+
+### `/sublate * (downstream)` — Pre-execution vetting plus deficit-matched handoff
+
+When you say "stress-test the context I've gathered before the meeting share — and reroute anything that turns out to be a different kind of problem." `/sublate` tests each claim a source is read as authority for via dialectical antithesis (provenance / counterfactual / cross-source); you answer each claim in your own words, and where the surfaced concern belongs to a different protocol family you say so in that answer — `/sublate` reports the handoff and never rewrites a source, its source list being read-only to it. Two routes are built in, and `/sublate` can hand a claim on by its own certificate, reported with why: a missing pre-execution fact — nothing to vet, something to acquire — goes to `/inquire`, and a question a convention or an ownership decision settles goes to `/bound`; where it cannot tell, the claim is shown to you with that doubt beside its challenge. Any other destination is yours to name, reported as you named it with no hint attached. A source that bundles two distinct claims is split first, so each claim gets its own antithesis and its own answer. Pre-execution counterpart to `/contextualize` (which vets after the fact).
+
+**Shape**: per-claim antithesis → your answer → handoff routing where the deficit belongs to another protocol family.

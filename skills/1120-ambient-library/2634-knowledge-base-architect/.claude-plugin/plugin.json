@@ -1,0 +1,11 @@
+{
+  "name": "knowledge-base-architect",
+  "description": "Guides design and deployment of a personal AI knowledge base from accumulated expertise assets; use for \"talk to my own knowledge\", \"build a private ChatGPT on my material\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

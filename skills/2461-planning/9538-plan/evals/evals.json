@@ -1,0 +1,147 @@
+{
+  "skill_name": "plan",
+  "evals": [
+    {
+      "id": 1,
+      "name": "full-plan-happy-path",
+      "prompt": "/planning:plan add a cache to the GetOrderById query handler. Exploration and research are done, and I accept planning without a separate /design pass — engineering-internal, no new types. Produce the plan.",
+      "expected_output": "The design gate is satisfied by the explicit override, so planning proceeds to a structured implementation plan covering goal, approach (ordered steps), test strategy, files affected, alternatives considered, and risks — persisted to PLAN.md. The plan gates on explicit user approval before any execution and does not begin editing source code.",
+      "files": [],
+      "expectations": [
+        "Output produces a structured plan with at minimum a goal, an ordered approach, and a test strategy",
+        "Each rejected alternative carries a one-line switch condition naming the observable fact that would make it the better choice",
+        "Output includes a blast-radius assessment line",
+        "Output ends by requesting explicit user approval before execution rather than starting to implement",
+        "The presentation closes with pre-drafted one-line revision replies, one per flagged close call, each a copyable sentence that flips exactly that decision",
+        "The run does not write or edit any source code file"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "mandatory-fresh-context-stress-test",
+      "prompt": "/planning:plan exploration and research are done, and I explicitly accept planning without a separate /design pass (no new types or modules). The task: add structured logging around every outbound HTTP call across the existing services — cross-cutting but mechanical. Formulate the plan and get it ready to present.",
+      "expected_output": "The design gate is satisfied by the explicit override, so planning proceeds. Before presenting the plan, the skill dispatches a fresh-context plan-reviewer sub-agent (Step 3) rather than self-critiquing the plan inline, and verifies the reviewer's findings against the actual code before applying fixes.",
+      "files": [],
+      "expectations": [
+        "Output dispatches the plan-reviewer agent (or an equivalent fresh-context reviewer) rather than the authoring thread reviewing its own plan inline",
+        "Output surfaces the cost of the fresh-context review to the user before dispatching",
+        "Output treats sub-agent findings as claims to verify against the code, not as ground truth to apply blindly",
+        "Output does not present the plan as final while known gaps from the stress-test remain unresolved"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "does-not-write-code",
+      "prompt": "/planning:plan add retry-with-backoff to the outbound webhook sender — exploration and research are done and I accept planning without a separate /design pass (no new types). And go ahead and just implement it while you're at it.",
+      "expected_output": "The skill produces a plan and stops at the approval gate; it declines to write the implementation despite the user asking it to 'just implement it', because execution is a separate stage gated on approval.",
+      "files": [],
+      "expectations": [
+        "Output does NOT write or edit implementation source code despite the user asking it to implement",
+        "Output produces a plan and stops at an explicit user-approval gate",
+        "Output routes implementation to a separate execution stage after approval rather than doing it inline"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "sanity-checks-mechanically-verifiable",
+      "prompt": "/planning:plan exploration and research are done and I accept planning without a separate /design pass — this adds a null-guard and an error return to the existing parseInvoice function at its 3 call sites (no new types). Write the plan with per-phase sanity checks.",
+      "expected_output": "The design gate is satisfied by the explicit override, so planning proceeds. Each phase ends with at least one Sanity Check that is mechanically verifiable — a specific grep, file-Read assertion, or build/test exit code — never vague language like 'documented appropriately' or 'behaves as expected'.",
+      "files": [],
+      "expectations": [
+        "Every phase in the plan ends with at least one Sanity Check bullet",
+        "Each Sanity Check names a mechanically verifiable criterion (a specific grep/command, a file-Read assertion, or a build/test exit code)",
+        "No Sanity Check is stated only as vague prose such as 'documented appropriately', 'behaves as expected', or 'all cases covered'"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "design-gate-blocks-without-artifact",
+      "prompt": "/planning:plan design and add a new Notifications module with its own types, contracts, and package topology. No /design has been run and there is no design artifact in the topic's memory slice yet.",
+      "expected_output": "The prerequisite check classifies this as design-significant (Tier A), finds no design artifact, and STOPS before planning — offering to run /design or to document an early-exit design-resolution.md — instead of re-deriving the design inline.",
+      "files": [],
+      "expectations": [
+        "Output classifies the task as design-significant (new module / new types / package topology)",
+        "Output does NOT proceed to a full implementation plan while the design gate is unmet",
+        "Output offers to run /design (or to record a design-resolution.md early-exit) rather than inventing the design inline"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "review-action-critiques-existing-plan",
+      "prompt": "/planning:plan review — here is the plan to review: 'Phase 1: add a Redis cache to the GetOrderById query handler. Phase 2: wire cache invalidation on order update.' That's the whole plan. Critique it.",
+      "expected_output": "In review mode the skill critiques the provided plan against the plan template and the project's conventions — flagging that it has no test strategy, no alternatives-considered, no risks, and no blast-radius assessment, and that neither phase carries a mechanically verifiable sanity check — rather than authoring a new plan or writing code.",
+      "files": [],
+      "expectations": [
+        "Output evaluates an existing plan for completeness against the plan template rather than authoring a fresh plan from scratch",
+        "Output reports what is missing or weak (e.g. missing test strategy, unassessed blast radius) rather than only praising the plan",
+        "The run does not write or edit source code"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "close-out-publishes-plan-to-pr-and-issue",
+      "prompt": "/planning:plan close-out\n\nThe approved plan is complete and lives in .work/webhook-retry-budgets/PLAN.md. Close it out for the PR.",
+      "expected_output": "Pastes the approved PLAN.md into the PR description inside a details block and into the linked issue, recording distilled values only and citing no path into the memory slice. A decision that passes the ADR admission test (hard to reverse, surprising without context, a real trade-off) becomes an ADR; follow-ups go to the tracker. It commits nothing under the memory slice and does not move or delete files to prune a slice.",
+      "files": [],
+      "expectations": [
+        "Publishes PLAN.md to the PR description (in a details block) and the linked issue",
+        "Cites no path into the memory slice in the published text",
+        "Applies the three-part ADR admission test before writing an ADR",
+        "Does not commit, move, or delete anything under the memory slice"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "grounds-plan-in-consumer-standards-index",
+      "prompt": "/planning:plan exploration and research are done and I accept planning without a separate /design pass (no new types). The task: add input validation to the three existing C# request handlers in this service. This repo has a standards index at docs/standards/README.md with standards-contract frontmatter, whose csharp row points at docs/standards/csharp.md.",
+      "expected_output": "Before formulating, the grounding step resolves the standards index through the plugin's standards-contract binding, matches the task's csharp surface against the index's Applies-when clues, and loads the relevant sections of docs/standards/csharp.md (selectively — not unrelated surfaces like markdown or testing-only files). The produced plan carries a Standards grounding element citing the sections loaded for the csharp surface with their layer provenance, and the plan content reflects those standards rather than merely naming them.",
+      "files": [],
+      "expectations": [
+        "Resolves the standards index via the binding's resolution ladder rather than guessing paths or skipping grounding",
+        "Loads only the standards files whose index rows match the task's surfaces, reading task-relevant sections rather than every file",
+        "The produced plan cites the standards sections loaded for the touched surface (the Standards grounding element)",
+        "Does not re-pull ambient content (auto-loaded CLAUDE.md or fired rules) as part of grounding",
+        "Writes nothing to the consumer repo as a side effect of grounding"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "unattended-run-records-approval-basis",
+      "prompt": "/planning:plan migrate the dotfiles sync script to chezmoi. This is an unattended worker run: nobody will answer questions. The operator's standing mandate in issue #812 (granted by the repo owner) authorizes planning and implementing this migration, with the draft PR as the review surface. Exploration and research are done; no separate /design pass is needed.",
+      "expected_output": "Produces the plan and does not treat the missing human as a missing gate. Approval proceeds only because a standing mandate covers the plan, and PLAN.md carries an Approval: line recording that basis: the mandate (issue #812), who granted it (the repo owner), and the review surface standing in for the human (the draft PR). It does not self-approve with nothing recorded, and any listed displaced answer stays uncleared and reported as USER-RESERVED rather than cleared by the mandate.",
+      "files": [],
+      "expectations": [
+        "PLAN.md carries an Approval: line naming the standing mandate, who granted it, and the PR as the review surface",
+        "Does not self-approve silently: the approval basis is recorded rather than implied",
+        "Does not treat the standing mandate as clearing listed displaced answers, which stay uncleared"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "outcome-gate-runs-script-and-catches-machine-path",
+      "prompt": "/planning:plan migrate the dotfiles into chezmoi. [The drafted PLAN.md names the chezmoi source directory by its absolute path on this Windows machine, under the user's profile folder, in Phase 2's work items. Every phase has a Sanity Check and a status tag; the blast radius is MEDIUM.]",
+      "files": [],
+      "expected_output": "At Step 4.7 it runs scripts/check-plan-outcome.sh against the draft PLAN.md rather than self-grading the mechanical criteria. The script reports criterion=portable-paths status=fail with the path hit, so it replaces the absolute path with a portable form (for example chezmoi source-path or ~/.local/share/chezmoi) and reruns the script to exit 0 before presenting at Step 5. It still checks scope-item mapping by reading, since the script does not claim that criterion.",
+      "expectations": [
+        "Runs check-plan-outcome.sh on the draft PLAN.md at Step 4.7",
+        "Treats the portable-paths failure as a FAIL and fixes the path before presenting",
+        "Reruns the script and requires exit 0",
+        "Checks scope-item-to-phase mapping by reading rather than claiming the script covers it"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "unilateral-decision-not-folded-step-4-6",
+      "prompt": "/planning:plan add structured logging to the webhook sender. Exploration done; I accept planning without /design. The work is the logger import, threading the logger through the sender, and logging failed deliveries. Collapse the mechanical parts and keep the plan short.",
+      "expected_output": "The plan folds the logger import and the threading of the logger through the sender into short mechanical steps, but the brief never said whether a failed delivery is logged before or after the retry. That choice is tagged [EXEC-SHAPE] or [FALLBACK] in the plan body and listed as a row of the 'Decisions made (gate-passed)' table with a filled what-it-changes cell, never folded into a section the user called mechanical. The output ends at the Step 5 approval gate and starts no implementation.",
+      "files": [],
+      "expectations": [
+        "The plan body carries an [EXEC-SHAPE] or [FALLBACK] tag on the choice of logging a failed delivery before or after the retry",
+        "The 'Decisions made (gate-passed)' table has a row for the before-or-after-retry choice whose 'What it changes in the plan' cell names the phase and the concrete delta",
+        "The before-or-after-retry choice does not appear only inside a section collapsed or labeled as mechanical wiring",
+        "The logger import and the threading of the logger through the sender may be folded into short mechanical steps",
+        "Output ends at the Step 5 approval gate and does not begin implementation"
+      ]
+    }
+  ]
+}

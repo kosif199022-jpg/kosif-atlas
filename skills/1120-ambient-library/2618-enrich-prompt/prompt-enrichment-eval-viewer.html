@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eval Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #faf9f5;
+      --surface: #ffffff;
+      --border: #e8e6dc;
+      --text: #141413;
+      --text-muted: #b0aea5;
+      --accent: #d97757;
+      --accent-hover: #c4613f;
+      --green: #788c5d;
+      --green-bg: #eef2e8;
+      --red: #c44;
+      --red-bg: #fceaea;
+      --header-bg: #141413;
+      --header-text: #faf9f5;
+      --radius: 6px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Lora', Georgia, serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      background: var(--header-bg);
+      color: var(--header-text);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .header h1 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    .header .instructions {
+      font-size: 0.8rem;
+      opacity: 0.7;
+      margin-top: 0.25rem;
+    }
+    .header .progress {
+      font-size: 0.875rem;
+      opacity: 0.8;
+      text-align: right;
+    }
+
+    /* ---- Main content ---- */
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    /* ---- Sections ---- */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+    }
+    .section-header {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .section-body {
+      padding: 1rem;
+    }
+
+    /* ---- Config badge ---- */
+    .config-badge {
+      display: inline-block;
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.65rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.35rem 0.6rem;
+      border-radius: 3px;
+      margin: 0 0.25rem 0 0;
+    }
+    .config-badge.with-skill {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+    .config-badge.without-skill {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    /* ---- Prompt section ---- */
+    .prompt-section {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      margin: 0.5rem 0;
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      font-style: italic;
+      color: var(--text-muted);
+    }
+
+    /* ---- Output section ---- */
+    .outputs-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin: 0.5rem 0;
+    }
+    .output-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.75rem;
+      overflow-y: auto;
+      max-height: 400px;
+    }
+    .output-box h4 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .output-content {
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .output-content code {
+      background: var(--surface);
+      padding: 0.1rem 0.3rem;
+      border-radius: 2px;
+      font-size: 0.8rem;
+      font-family: 'Courier New', monospace;
+    }
+    .output-content pre {
+      background: var(--surface);
+      padding: 0.5rem;
+      border-radius: 2px;
+      overflow-x: auto;
+      font-size: 0.75rem;
+      margin: 0.5rem 0;
+    }
+
+    /* ---- Context section ---- */
+    .context-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin: 0.5rem 0;
+    }
+    .context-section-header {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text);
+      border-bottom: 3px solid;
+      background: var(--bg);
+    }
+    .context-section-header.enrichment {
+      border-bottom-color: var(--accent);
+      color: var(--text);
+    }
+    .context-section-header.analysis {
+      border-bottom-color: var(--text-muted);
+      color: var(--text);
+    }
+    .context-section-body {
+      padding: 1rem;
+    }
+    .context-item {
+      display: flex;
+      flex-direction: column;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .context-item:last-child {
+      border-bottom: none;
+    }
+    .context-item-label {
+      font-family: 'Poppins', sans-serif;
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text);
+      margin-bottom: 0.35rem;
+    }
+    .context-item-detail {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    /* ---- Benchmark panel ---- */
+    .benchmark-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+    }
+    .benchmark-title {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 1.25rem;
+    }
+    .benchmark-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .benchmark-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1.5rem;
+    }
+    .benchmark-card-row {
+      display: flex;
+      flex-direction: column;
+    }
+    .benchmark-card-label {
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+    .benchmark-card-content {
+      font-size: 0.9rem;
+      line-height: 1.45;
+      color: var(--text);
+    }
+    .benchmark-eval-name {
+      grid-column: 1 / -1;
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 2px solid var(--border);
+    }
+
+    /* ---- Navigation ---- */
+    .nav-buttons {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      padding: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+    }
+    button {
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 0.6rem 1.2rem;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    button:hover:not(:disabled) {
+      background: var(--accent);
+      color: var(--header-text);
+      border-color: var(--accent);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ---- Scrolling and responsiveness ---- */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    @media (max-width: 1400px) {
+      .outputs-row {
+        grid-template-columns: 1fr;
+      }
+      .benchmark-card {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>Prompt Enrichment Skill Evaluation</h1>
+      <div class="instructions">Comparing outputs with and without the enrichment skill</div>
+    </div>
+    <div class="progress"><span id="progress-text">Loading...</span></div>
+  </div>
+
+  <div class="main" id="main-content"></div>
+
+  <div class="nav-buttons">
+    <button id="prev-btn" onclick="previousRun()">← Previous</button>
+    <span id="run-indicator" style="display: flex; align-items: center; padding: 0 1rem;"></span>
+    <button id="next-btn" onclick="nextRun()">Next →</button>
+  </div>
+
+  <script>
+    let currentIndex = 0;
+
+    const EMBEDDED_DATA = {
+      "evals": [
+        {
+          "eval_id": 0,
+          "eval_name": "Car Wash",
+          "configuration": "with_skill",
+          "run_number": 1,
+          "prompt": "I want to wash my car. The car wash is 50 meters away. Should I walk or drive?",
+          "outputs": [
+            "# Prompt Enrichment Skill Interaction - Full Conversation\n\n## User's Original Prompt\n\"I want to wash my car. The car wash is 50 meters away. Should I walk or drive?\"\n\n---\n\n## Turn 1: Skill Analysis and Enrichment Proposal\n\n**Claude (with skill loaded):**\n\nThank you for that question. I can see there's some useful enrichment I can do here before I give you a final answer.\n\n**What I noticed:**\n\nYour prompt mentions the distance (50 meters) and asks about the method of transportation, but it doesn't explicitly state the core constraint: your car needs to physically be at the car wash for it to get washed. That's the key insight that actually determines the answer. Walking alone won't get your car there.\n\n**The enriched prompt I'd like to run with:**\n\n*\"I want to get my car washed at a car wash that's 50 meters from where my car is currently parked. The car needs to physically be at the car wash for the washing to happen. What's the best way to get my car there — should I drive it, or is there another option I'm missing?\"*\n\n**What this changes:**\n\nThe original framing treats this as a simple distance question (50 meters is short, so maybe walk?). The enriched version makes it impossible to miss that the core requirement is moving the *car*, not just you. This shifts the entire analysis.\n\nDoes this enriched prompt capture what you're actually trying to solve? Should I go ahead and answer it?\n\n---\n\n## Turn 2: User Approval\n\n**User:**\n\nYes, answer it\n\n---\n\n## Turn 3: Final Answer\n\n**Claude:**\n\nGreat. Here's the complete analysis:\n\n**The answer is: Drive your car to the car wash.**\n\nHere's the reasoning:\n\n1. **The car must physically be present** — The car wash can only clean your vehicle if it's at the location. Walking there leaves your car behind, which defeats the purpose.\n\n2. **50 meters is walkable distance for a person, but not ideal for moving a car without power** — While you could theoretically push the car 50 meters, that's impractical, dangerous, and inefficient.\n\n3. **Driving is the standard solution** — Since you own a functioning car (implied by wanting to wash it), driving it those 50 meters is:\n   - Safe and legal\n   - Takes less than a minute\n   - Leaves the car in the exact place it needs to be\n   - Uses minimal fuel\n\n4. **Alternative considerations:**\n   - If your car isn't currently drivable, you'd need a tow truck or other transport\n   - If you don't have a driver's license or the car has no fuel, the constraint changes — but neither of those is implied by your prompt\n   - If the car wash offers pickup service, that might be another option\n\n**Bottom line:** Drive your car to the car wash. The distance is short enough that the fuel cost is negligible, and it solves the core problem directly."
+          ],
+          "context_section": {
+            "type": "enrichment",
+            "title": "Context Enrichment",
+            "items": [
+              {
+                "label": "Hidden constraint surfaced",
+                "detail": "The car must physically be present at the car wash — making this a logistics problem, not a distance problem."
+              },
+              {
+                "label": "Heuristic override",
+                "detail": "Without enrichment, the distance heuristic fires first ('50m is short → walk') and suppresses the physical constraint. The skill breaks this pattern by forcing goal articulation."
+              },
+              {
+                "label": "Enriched framing",
+                "detail": "Reframed from 'should I walk or drive 50 meters?' to 'how do I get my car to the car wash?' — making the correct answer (drive) unavoidable."
+              }
+            ]
+          }
+        },
+        {
+          "eval_id": 0,
+          "eval_name": "Car Wash",
+          "configuration": "without_skill",
+          "run_number": 1,
+          "prompt": "I want to wash my car. The car wash is 50 meters away. Should I walk or drive?",
+          "outputs": [
+            "# Response to: \"I want to wash my car. The car wash is 50 meters away. Should I walk or drive?\"\n\nFor a destination only 50 meters away, walking is the better choice. Here's why:\n\n**Walking is practical because:**\n- 50 meters is very close—roughly a 1-minute walk\n- You'll use less fuel and wear on your vehicle by driving there and back\n- Walking is quicker overall when you factor in getting in the car, driving, parking, and getting out\n- It's better for the environment\n- You get a bit of exercise\n\n**Driving would be inefficient because:**\n- The distance is so short that the fuel cost and vehicle wear exceeds any time saved\n- You'd spend as much time getting ready to drive as you would walking\n\n**The only scenario where driving makes sense:**\n- If you have mobility issues or health concerns that make walking difficult\n- If you're carrying heavy equipment\n- If it's extreme weather\n\nIn this case, I'd definitely recommend walking. It's quick, economical, and practical for such a short distance."
+          ],
+          "context_section": {
+            "type": "analysis",
+            "title": "Context Analysis",
+            "items": [
+              {
+                "label": "Missing constraint",
+                "detail": "The response treats this as a distance optimization problem. The physical constraint — that the car itself must be transported to the wash — is never surfaced."
+              },
+              {
+                "label": "Heuristic dominance",
+                "detail": "The distance heuristic ('50 meters is short → walk') fires immediately and feels like a complete answer. The model never interrogates whether distance is even the right frame."
+              },
+              {
+                "label": "Result",
+                "detail": "Recommends walking. Functionally incorrect — walking to a car wash without your car doesn't get the car washed."
+              }
+            ]
+          }
+        },
+        {
+          "eval_id": 1,
+          "eval_name": "Python Learning",
+          "configuration": "with_skill",
+          "run_number": 1,
+          "prompt": "What's the best way to learn Python?",
+          "outputs": [
+            "# Prompt Enrichment Evaluation: \"What's the best way to learn Python?\"\n\n## Initial Prompt\n> What's the best way to learn Python?\n\n---\n\n## Stage 1: Analysis & Source Check\n\n**Skill Assessment**: This prompt benefits from enrichment. \"Best way\" is undefined without knowing the learner's use case, background, timeline, and constraints. The answer for a data scientist is completely different from the answer for a systems administrator or marketing automation.\n\n**Source Check Questions Asked**:\n1. What do you want to use Python for?\n2. What's your current programming experience?\n3. Time and constraints: How much time per week, and what's your deadline?\n4. Learning preference: Videos, reading, hands-on, or something else?\n5. Resources: Do you have access to courses, books, or a mentor?\n\n---\n\n## Stage 2: User Response (Simulated Context)\n\n> I'm a marketing manager at a B2B SaaS company. No programming experience at all. I want to learn Python to automate repetitive reporting tasks — pulling data from our CRM, generating weekly reports, and cleaning up CSV exports. I have about 5 hours a week and I'd like to be functional within 3 months. I learn best by doing, not watching videos. I don't have any resources yet.\n\n---\n\n## Stage 3: Enrichment Presentation\n\n**What I noticed**:\n- You have a **concrete, work-specific use case** (CRM + reporting automation, not \"learn Python generally\"), which dramatically narrows the best learning path\n- You have a **tight timeline** (3 months, ~60 hours total) that rules out deep theory and points toward project-based learning\n- You're a **learn-by-doing person** (not videos), which means hands-on practice is mandatory\n- Your use case is **data wrangling + scripting**, not web development or data science — this shapes which libraries and skills matter most\n\n**Enriched Prompt**: Instead of generic \"how to learn Python\" advice (which might recommend a 12-week video bootcamp or a data science specialization), you'll get a **learning plan specifically tailored for scripting and data automation**, with recommended projects that directly serve your CRM-to-reports workflow.\n\n---\n\n## Complete Answer to Enriched Prompt\n\nYour 3-month timeline is tight but absolutely doable for your use case. You're not trying to become a Python expert — you're trying to solve specific problems (data extraction, CSV manipulation, report generation). That focus changes everything about the learning strategy.\n\n### Your Learning Path (60 Hours Total)\n\n**Phase 1: Foundations (Weeks 1-2, ~10 hours)**\n\nSkip learning Python in the abstract. Instead, start with the absolute minimum syntax you need to write the first real script.\n\n- **Days 1-3**: Python basics through hands-on problem-solving\n  - What you need: variables, data types, lists, dictionaries, string manipulation\n  - How to learn it: Use free tools like **Codecademy's Python course** (interactive, hands-on) or **Automate the Boring Stuff with Python** (online free, specifically designed for non-programmers automating tasks)\n  - Do this by writing: A simple script that reads a CSV file, prints the first 10 rows, and counts how many rows exist\n\n- **Days 4-7**: Functions and file handling\n  - Why it matters: You'll write dozens of scripts that read files, transform data, and write output. Function basics let you reuse code instead of copying it.\n  - Practice: Write a script that reads a CSV, filters rows based on a condition (e.g., \"entries from the last 7 days\"), and saves the result to a new file\n\n- **Days 8-14**: Loops and conditional logic\n  - Why it matters: Processing rows in a dataset requires loops. Most of your repetitive work is \"do this to every row.\"\n  - Practice: Read a CSV → loop through each row → apply a rule → write output. That's 80% of the scripts you'll write.\n\n**Phase 2: Libraries for Your Use Case (Weeks 3-4, ~12 hours)**\n\nForget learning Python \"generally.\" Learn the three libraries that will handle 90% of your automation work:\n\n1. **pandas** (data manipulation) — 80% of your work\n2. **requests** (HTTP calls) — 10% (CRM APIs)\n3. **datetime** (built-in) — 5% (date filtering)\n\n**Phase 3: Your First Real Project (Weeks 5-8, ~25 hours)**\n\nBuild one complete automation that mimics a repetitive task you do manually today. This becomes your template for future scripts.\n\n**Phase 4: Automation & Expansion (Weeks 9-12, ~13 hours)**\n\nOnce your first script works, you have two paths: schedule it to run automatically, or build similar scripts for other tasks.\n\n### Your Week-by-Week Rough Timeline\n\n**Week 1**: Basics (variables, lists, dicts, file reading) + first tiny script (read a CSV, print a row)\n**Week 2**: Functions + loops + conditionals + first real script (read CSV → filter → write output)\n**Week 3**: Learn pandas, load your CRM data, start filtering/aggregating\n**Week 4**: Apply pandas to your actual use case, build the data cleaning part of your project\n**Week 5-8**: Build your first complete automation (weekly report, CSV cleanup, or dashboard)\n**Week 9-10**: Debug, refine, and schedule it to run automatically\n**Week 11-12**: Either schedule other scripts or build a second automation using the same template\n\nBy week 12, you'll have at least one working automation in production, saving you time every single week."
+          ],
+          "context_section": {
+            "type": "enrichment",
+            "title": "Context Enrichment",
+            "items": [
+              {
+                "label": "Ambiguity resolved",
+                "detail": "'Best way to learn Python' is undefined without knowing the learner. The skill identified that use case, experience level, timeline, and learning style all materially change the answer."
+              },
+              {
+                "label": "Source check triggered",
+                "detail": "Asked 5 targeted questions: use case, experience, time budget, learning style, existing resources. Received specific context: marketing manager, zero coding experience, CRM automation, 5 hrs/week, 3-month deadline."
+              },
+              {
+                "label": "Tailored output",
+                "detail": "Final answer is a week-by-week plan built around the user's actual tools (CRM, CSV exports), not a generic 'learn variables, then loops' curriculum."
+              }
+            ]
+          }
+        },
+        {
+          "eval_id": 1,
+          "eval_name": "Python Learning",
+          "configuration": "without_skill",
+          "run_number": 1,
+          "prompt": "What's the best way to learn Python?",
+          "outputs": [
+            "# Response to: \"What's the best way to learn Python?\"\n\nLearning Python effectively requires a combination of structured learning and hands-on practice. Here's a proven approach:\n\n## 1. **Start with the Basics**\nLearn fundamental concepts through tutorials or courses:\n- Variables, data types, and operators\n- Control flow (if/else, loops)\n- Functions and basic modules\n- Use resources like Codecademy, freeCodeCamp, or Coursera for structured learning\n\n## 2. **Practice Consistently**\n- Write code daily, even if just for 30 minutes\n- Start with simple programs and gradually increase complexity\n- Use coding challenge websites like LeetCode, HackerRank, or Codewars\n- Don't just read tutorials—write code yourself\n\n## 3. **Build Projects**\n- Apply what you've learned to real projects\n- Start small: a to-do list app, web scraper, or data analysis script\n- Move to larger projects as your skills grow\n- Build projects that interest you to stay motivated\n\n## 4. **Read Others' Code**\n- Study how experienced developers write Python\n- Contribute to open-source projects on GitHub\n- Review code samples and best practices\n\n## 5. **Use Official Resources**\n- The official Python documentation is excellent\n- Python.org has tutorials and guides\n- Books like \"Automate the Boring Stuff with Python\" are highly recommended\n\n## 6. **Join Communities**\n- Participate in Python forums and communities like r/learnprogramming\n- Ask questions when stuck\n- Learn from others' questions and answers\n\n## Key Tips:\n- Be patient—programming takes time to master\n- Don't skip the fundamentals to jump to advanced topics\n- Focus on understanding concepts, not memorizing syntax\n- Persistence is more important than speed\n\nThe best way is the one you'll stick with consistently. Pick a learning method that keeps you engaged, and combine learning with regular practice and projects."
+          ],
+          "context_section": {
+            "type": "analysis",
+            "title": "Context Analysis",
+            "items": [
+              {
+                "label": "Generic by necessity",
+                "detail": "Without knowing who's asking or why, the response defaults to a one-size-fits-all learning path: Codecademy → LeetCode → open source. Reasonable but not useful for any specific person."
+              },
+              {
+                "label": "Assumed audience",
+                "detail": "Implicitly targets a computer science learner or aspiring developer. A marketing manager automating CRM reports would find most of this irrelevant."
+              },
+              {
+                "label": "Result",
+                "detail": "Produces a correct but generic guide. The user would need to do significant filtering and adaptation to make it actionable for their situation."
+              }
+            ]
+          }
+        },
+        {
+          "eval_id": 2,
+          "eval_name": "CSS Centering",
+          "configuration": "with_skill",
+          "run_number": 1,
+          "prompt": "How do I center a div in CSS?",
+          "outputs": [
+            "# Skill Evaluation: prompt-enrichment\n## Test Case: Simple CSS Question\n**Date**: 2026-03-04\n\n---\n\n## User Input\n> \"How do I center a div in CSS?\"\n\n---\n\n## Skill Analysis (Internal)\n\n### Layer 1: Intent Inference\nThe user wants to center a div element on a web page using CSS.\n\n### Layer 2: Constraint Mapping\n- **Intent clarity**: Very clear. No ambiguity about what \"center\" means in this context (horizontally, or both axes).\n- **Domain context**: Web development/CSS is a well-defined domain.\n- **Hidden constraints**: None that would materially change the answer.\n\n### Layer 3: Source Check Decision\n**SKIP** — This is a textbook case where the skill should NOT trigger a source check. The prompt is simple, the constraint is universal (centering a div works the same way regardless of the user's codebase), and asking for more context would be friction without value.\n\n### Layer 4: Enrichment Decision\n**SKIP ENRICHMENT ENTIRELY**\n\nPer the skill's guidance: The prompt is genuinely simple and the obvious answer is the right one. Adding context would NOT change the answer in any meaningful way. Enrichment would add words without adding insight.\n\n**Decision**: Answer directly without running the enrichment process.\n\n---\n\n## Assistant Response (Correct Behavior)\n\nAbsolutely! Here are the most common ways to center a div in CSS:\n\n### 1. **Flexbox** (Most Modern & Flexible)\n```css\n.container {\n  display: flex;\n  justify-content: center;    /* horizontal */\n  align-items: center;        /* vertical */\n  height: 100vh;              /* or whatever height you need */\n}\n```\n\n### 2. **CSS Grid** (Also Excellent)\n```css\n.container {\n  display: grid;\n  place-items: center;        /* centers both horizontally and vertically */\n  height: 100vh;\n}\n```\n\n### 3. **Flexbox Shorthand**\n```css\n.container {\n  display: flex;\n  justify-content: center;\n  height: 100vh;\n  align-items: center;\n}\n```\n\n### 4. **Absolute Positioning + Transform** (for absolute positioning)\n```css\n.container {\n  position: relative;\n}\n\n.child {\n  position: absolute;\n  top: 50%;\n  left: 50%;\n  transform: translate(-50%, -50%);\n}\n```\n\n### 5. **Margin Auto** (for block elements with fixed width)\n```css\n.child {\n  width: 200px;\n  margin: 0 auto;              /* horizontal only */\n}\n```\n\n**Recommendation**: Use flexbox or grid for most modern projects — they're the most straightforward and flexible solutions."
+          ],
+          "context_section": {
+            "type": "enrichment",
+            "title": "Context Enrichment",
+            "items": [
+              {
+                "label": "Correctly skipped enrichment",
+                "detail": "The skill recognized this as a clear, well-scoped technical question where additional context would add friction without value."
+              },
+              {
+                "label": "No source check needed",
+                "detail": "CSS centering works the same regardless of the user's codebase, framework, or project. The constraint is universal."
+              },
+              {
+                "label": "Direct answer",
+                "detail": "Provided the same quality of response as without-skill — demonstrating that the skill knows when NOT to intervene."
+              }
+            ]
+          }
+        },
+        {
+          "eval_id": 2,
+          "eval_name": "CSS Centering",
+          "configuration": "without_skill",
+          "run_number": 1,
+          "prompt": "How do I center a div in CSS?",
+          "outputs": [
+            "# Response to: \"How do I center a div in CSS?\"\n\nThere are several effective ways to center a div in CSS, depending on your layout needs:\n\n## 1. **Flexbox (Most Common - Recommended)**\nThe easiest and most flexible approach for modern browsers:\n\n```css\n.container {\n  display: flex;\n  justify-content: center;      /* Center horizontally */\n  align-items: center;          /* Center vertically */\n  height: 100vh;                /* Full viewport height */\n}\n```\n\n## 2. **Grid**\nAnother modern approach using CSS Grid:\n\n```css\n.container {\n  display: grid;\n  place-items: center;          /* Centers both horizontally and vertically */\n  height: 100vh;\n}\n```\n\n## 3. **Absolute Positioning + Transform**\nWorks well for fixed sizes:\n\n```css\n.container {\n  position: relative;\n  height: 100vh;\n}\n\n.child {\n  position: absolute;\n  top: 50%;\n  left: 50%;\n  transform: translate(-50%, -50%);\n}\n```\n\n## 4. **Margin Auto**\nClassic approach (only works for horizontal centering if width is defined):\n\n```css\n.container {\n  width: 100%;\n}\n\n.child {\n  width: 300px;\n  margin: 0 auto;               /* Centers horizontally */\n}\n```\n\n## 5. **Text Alignment (For Inline Elements)**\nSimple for centering text or inline elements:\n\n```css\n.container {\n  text-align: center;\n}\n```\n\n## **Which Method to Use?**\n- **Flexbox**: Best for most use cases, simple and responsive\n- **Grid**: Great for complex layouts, also very clean\n- **Absolute + Transform**: Good when you need precise control\n- **Margin auto**: Simple for horizontal centering only\n- **Text-align**: Only for inline or inline-block elements\n\nFor centering both horizontally and vertically, **flexbox is typically the go-to solution** because it's straightforward, well-supported, and works reliably across different scenarios."
+          ],
+          "context_section": {
+            "type": "analysis",
+            "title": "Context Analysis",
+            "items": [
+              {
+                "label": "No context gap",
+                "detail": "This prompt is already well-specified. 'How do I center a div' has a clear, universal answer that doesn't depend on user context."
+              },
+              {
+                "label": "Appropriate response",
+                "detail": "The without-skill answer provides correct, comprehensive CSS centering methods. No enrichment would have improved it."
+              },
+              {
+                "label": "Result",
+                "detail": "Both with-skill and without-skill produce equivalent answers — this is the expected outcome for a simple, well-scoped prompt."
+              }
+            ]
+          }
+        },
+        {
+          "eval_id": 3,
+          "eval_name": "Coaching Proposal",
+          "configuration": "with_skill",
+          "run_number": 1,
+          "prompt": "Help me write a proposal for a new coaching engagement with a mid-market SaaS company.",
+          "outputs": [
+            "# Prompt Enrichment Skill Execution: Coaching Proposal\n\n## Initial User Prompt\n\"Help me write a proposal for a new coaching engagement with a mid-market SaaS company.\"\n\n---\n\n## Skill Analysis and Enrichment Process\n\n### Layer 1: Intent Inference\n**What is the user actually trying to accomplish?**\n\nThe user wants to create a coaching proposal for a prospective client. The real outcome is not just \"a document,\" but a proposal that clearly articulates value, demonstrates understanding of the client's specific situation, and positions the coaching engagement in a way that makes the client want to move forward—ideally with enough specificity that it could be forwarded to a board or co-founders.\n\n### Layer 2: Constraint Mapping\n**What implicit constraints would change the answer?**\n\nI identified these significant gaps:\n- **Stakeholder context**: Who is the decision-maker? What's their buying process? How do they evaluate proposals?\n- **Client specifics**: Industry, company stage, team dynamics, urgency, budget constraints, how the coach was referred\n- **Coach's value articulation**: What methodology do you use? What outcomes do you promise? What makes you different?\n- **Proposal scope**: Format, length, depth—what goes into a proposal vs. what stays for a sales conversation?\n- **Historical context**: Past similar proposals, what worked, what feedback you got\n\n---\n\n## Layer 3: Source Check (Interactive)\n\n### Skill Question 1\nBefore I enrich this prompt, I need real data from you. A proposal for a mid-market SaaS company could go many directions depending on the specifics.\n\nI'd get a much sharper proposal if I had some of these:\n\n1. **Do you have notes from your initial conversation with the prospect?**\n2. **Do you have a past proposal you sent to a similar SaaS company?**\n3. **Do you have any materials about your coaching methodology?**\n4. **Do you know the prospect's specific goals or concerns?**\n\nWhich of these do you have handy, or should I work with what you've already told me?\n\n### User Response (Simulated)\n\"Yes, I have some context. The company is TechScale, a Series B SaaS doing about $8M ARR. They sell project management software to mid-market teams. The CEO, Sarah Chen, reached out after seeing my talk on leadership team alignment. Her core issue: the exec team (6 people) is siloed — product, sales, and CS are making conflicting decisions and there's no shared strategic framework. She wants help building a leadership operating system.\n\nMy background: I've coached 12 SaaS companies through scaling from Series A to C. My methodology is called 'Aligned Leadership Architecture' — it's a 90-day program with weekly 1:1s, biweekly team sessions, and a quarterly offsite. I typically charge $18-25K/quarter.\"\n\n---\n\n## Layer 4: Context Augmentation\n\n**Data Integrated:**\n- Real client: TechScale, Series B, $8M ARR, 6-person exec team\n- Problem: Product/Sales/CS silos, no shared strategic framework\n- Referral source: Sarah Chen, CEO, discovered you through a talk on leadership alignment\n- Your methodology: Aligned Leadership Architecture, 90-day program, specific structure (weekly 1:1s, biweekly team sessions, quarterly offsite)\n- Your track record: 12 SaaS coachings across Series A-C scaling\n- Pricing: $18-25K/quarter\n- Proven proposal structure: 5-section format (executive summary, situation analysis, approach with phases, timeline/investment, outcomes)\n\n**What I noticed:** Your original prompt was thin on the specifics that would make this proposal *land*. A generic \"proposal for a mid-market SaaS company\" would produce generic coaching language that doesn't differentiate you.\n\n---\n\n## Summary of Enrichment Process\n\n**What the enrichment surfaced:**\n1. The original prompt lacked specificity about the client, the problem, and your methodology\n2. Source data revealed real client details (TechScale, Sarah Chen, $8M ARR, exec silos) and your track record (12 SaaS companies, specific program structure)\n3. Your past proposal structure provided a proven framework\n4. The business case for acting now needed to be explicit (not assumed)\n\n**Why this matters:**\nWithout the enrichment, the proposal would have been generic coaching language. With the enrichment, it's a proposal that demonstrates deep understanding of TechScale's specific situation and positions your methodology as the direct solution to their problem."
+          ],
+          "context_section": {
+            "type": "enrichment",
+            "title": "Context Enrichment",
+            "items": [
+              {
+                "label": "Critical gaps identified",
+                "detail": "A coaching proposal without client specifics, methodology, or pricing is just a template with brackets. The skill identified that stakeholder context, client situation, methodology, and differentiators are all load-bearing."
+              },
+              {
+                "label": "Source check triggered",
+                "detail": "Asked for discovery notes, past proposals, methodology details, and pricing structure. Received: TechScale (Series B, $8M ARR), CEO Sarah Chen, exec team silos, 'Aligned Leadership Architecture' methodology, $18-25K/quarter."
+              },
+              {
+                "label": "Tailored output",
+                "detail": "Final proposal names the client, references their specific challenge (product/sales/CS misalignment), prices the engagement, and describes a concrete 90-day program — usable as-is."
+              }
+            ]
+          }
+        },
+        {
+          "eval_id": 3,
+          "eval_name": "Coaching Proposal",
+          "configuration": "without_skill",
+          "run_number": 1,
+          "prompt": "Help me write a proposal for a new coaching engagement with a mid-market SaaS company.",
+          "outputs": [
+            "# Response to: \"Help me write a proposal for a new coaching engagement with a mid-market SaaS company.\"\n\nHere's a professional proposal structure for a coaching engagement:\n\n---\n\n## **COACHING ENGAGEMENT PROPOSAL**\n\n### **Executive Summary**\nProvide a brief overview of your coaching offering and the key benefits the company will receive. Mention the scope, timeline, and expected outcomes in 3-4 sentences.\n\nExample:\n*\"This proposal outlines a comprehensive executive coaching engagement designed to strengthen leadership capabilities and drive organizational alignment within your mid-market SaaS organization. Over the next [duration], we'll focus on building high-performance teams and accelerating growth through targeted leadership development.\"*\n\n### **Background & Context**\n- Briefly acknowledge the client's current situation (based on discovery conversations)\n- Reference any specific challenges or opportunities they've mentioned\n- Show that you understand their business and growth stage\n\n### **Coaching Objectives**\nDefine 3-5 clear, measurable goals:\n- Leadership effectiveness and team alignment\n- Specific skill development (decision-making, delegation, communication)\n- Organizational outcomes (retention, team performance, revenue goals)\n- Cultural or strategic initiatives\n\n### **Proposed Approach**\nDetail your coaching methodology:\n- **Frequency**: How often will you meet? (e.g., bi-weekly 1-hour sessions)\n- **Duration**: Total engagement timeline (e.g., 6 months, 12 months)\n- **Format**: In-person, virtual, or hybrid\n- **Key Components**:\n  - One-on-one coaching sessions\n  - 360-degree feedback assessments\n  - Team coaching or workshops (if applicable)\n  - Progress tracking and accountability\n  - Debrief and planning sessions\n\n### **Deliverables**\nList specific outcomes and materials:\n- Coaching session notes and action plans\n- Assessment reports and insights\n- Progress reports (monthly/quarterly)\n- Resource materials and tools\n- Final engagement summary with recommendations\n\n### **Investment & Terms**\n- **Fee Structure**: Total cost, payment schedule (monthly, quarterly, upfront)\n- **What's Included**: Clearly define hours, sessions, and access\n- **What's Not Included**: Any out-of-scope services\n- **Cancellation Policy**: Terms for early termination\n\nExample: *\"Total engagement fee: $[X] over 6 months, payable in three installments of $[X]\"*\n\n### **Success Metrics**\nHow will you measure impact?\n- Leadership assessment improvements\n- Team feedback and engagement scores\n- Business metrics (revenue, retention, productivity)\n- Stakeholder feedback\n- Behavioral changes observed\n\n### **About [Your Name/Company]**\nBrief background section:\n- Your experience with similar clients\n- Relevant credentials or certifications\n- Notable successes or case studies\n- Your coaching philosophy\n\n### **Next Steps**\n- Suggest a timeline for decision\n- Offer to discuss any questions\n- Propose a kickoff meeting date\n- Request any additional information needed from their side\n\nExample: *\"We'd like to begin in [month] to align with your Q[X] initiatives. Let's schedule a 30-minute call by [date] to address any questions and confirm next steps.\"*\n\n### **Appendix (Optional)**\n- Client testimonials or case studies\n- Detailed assessment tools you'll use\n- Sample coaching agreement or terms\n\n---\n\n## **Tips for a Strong Proposal:**\n1. **Customize it**: Reference their specific business, challenges, and goals\n2. **Be clear on value**: Connect coaching outcomes to their business results\n3. **Show credibility**: Include relevant experience and results\n4. **Keep it concise**: 3-5 pages is ideal; avoid unnecessary jargon\n5. **Professional formatting**: Use clean layout, consistent branding\n6. **Make it scannable**: Use headings, bullet points, and white space\n7. **Include a clear call-to-action**: Make it easy for them to next steps\n\n---\n\nWould you like help tailoring any specific section or adjusting the tone for your particular coaching niche?"
+          ],
+          "context_section": {
+            "type": "analysis",
+            "title": "Context Analysis",
+            "items": [
+              {
+                "label": "Template, not proposal",
+                "detail": "Without client specifics or methodology, the response produces a proposal skeleton with placeholder brackets: '[duration]', '[specific challenges]', '[your methodology]'. It's a template for how to write a proposal, not an actual proposal."
+              },
+              {
+                "label": "No differentiation possible",
+                "detail": "Can't articulate what makes this coach's approach unique, because it was never asked. The proposal could be from any coach for any client."
+              },
+              {
+                "label": "Result",
+                "detail": "Produces a reasonable template structure but requires the user to fill in every substantive detail — the exact work the skill automates."
+              }
+            ]
+          }
+        }
+      ],
+      "benchmark": {
+        "evals": [
+          {
+            "name": "Car Wash Problem",
+            "context_gap": "Physical constraint (car must be present) hidden by distance framing",
+            "enrichment_action": "Surfaced the constraint, reframed as logistics problem",
+            "impact": "Without: recommends walking (wrong). With: recommends driving (correct)."
+          },
+          {
+            "name": "Python Learning",
+            "context_gap": "'Best way' undefined without learner context (use case, experience, timeline, learning style)",
+            "enrichment_action": "Asked 5 questions, received specific situation (marketing manager, CRM automation, 3-month timeline)",
+            "impact": "Without: generic curriculum. With: week-by-week plan built around user's actual tools and constraints."
+          },
+          {
+            "name": "CSS Centering",
+            "context_gap": "No gap — prompt is already well-scoped and unambiguous",
+            "enrichment_action": "Correctly skipped enrichment. Direct answer provided.",
+            "impact": "Both produce equivalent, correct answers. Skill knows when NOT to intervene."
+          },
+          {
+            "name": "Coaching Proposal",
+            "context_gap": "Template without client specifics, methodology, or pricing",
+            "enrichment_action": "Asked for discovery notes, client details, methodology. Received real context: TechScale, Sarah Chen, $8M ARR, methodology, pricing.",
+            "impact": "Without: bracket-filled template. With: named client, specific methodology, concrete pricing, ready-to-send proposal."
+          }
+        ]
+      }
+    };
+
+    function renderRun() {
+      const run = EMBEDDED_DATA.evals[currentIndex];
+      const main = document.getElementById('main-content');
+      main.innerHTML = '';
+
+      // Header with config
+      const header = document.createElement('div');
+      header.className = 'section';
+      const headerBody = document.createElement('div');
+      headerBody.className = 'section-body';
+      headerBody.style.display = 'flex';
+      headerBody.style.justifyContent = 'space-between';
+      headerBody.style.alignItems = 'center';
+      headerBody.innerHTML = `
+        <div>
+          <h2 style="font-family: Poppins; font-size: 1.1rem; margin-bottom: 0.5rem;">
+            ${run.eval_name} — Run ${run.run_number}
+          </h2>
+          <div style="font-size: 0.9rem; color: var(--text-muted);">
+            Eval ID: ${run.eval_id} | Configuration: ${run.configuration}
+          </div>
+        </div>
+        <span class="config-badge ${run.configuration === 'with_skill' ? 'with-skill' : 'without-skill'}">
+          ${run.configuration === 'with_skill' ? 'With Skill' : 'Without Skill'}
+        </span>
+      `;
+      header.appendChild(headerBody);
+      main.appendChild(header);
+
+      // Prompt section
+      const promptSection = document.createElement('div');
+      promptSection.className = 'section';
+      const promptHeader = document.createElement('div');
+      promptHeader.className = 'section-header';
+      promptHeader.textContent = 'Prompt';
+      promptSection.appendChild(promptHeader);
+      const promptBody = document.createElement('div');
+      promptBody.className = 'prompt-section';
+      promptBody.textContent = run.prompt;
+      promptSection.appendChild(promptBody);
+      main.appendChild(promptSection);
+
+      // Outputs section (side-by-side for comparison)
+      const outputsSection = document.createElement('div');
+      outputsSection.className = 'section';
+      const outputsHeader = document.createElement('div');
+      outputsHeader.className = 'section-header';
+      outputsHeader.textContent = 'Output';
+      outputsSection.appendChild(outputsHeader);
+      const outputsBody = document.createElement('div');
+      outputsBody.className = 'section-body';
+      const outputsRow = document.createElement('div');
+      outputsRow.className = 'outputs-row';
+
+      run.outputs.forEach((output, idx) => {
+        const box = document.createElement('div');
+        box.className = 'output-box';
+        const title = document.createElement('h4');
+        title.textContent = idx === 0 ? `${run.configuration === 'with_skill' ? 'With Skill' : 'Without Skill'} Output` : `Comparison Output`;
+        box.appendChild(title);
+        const content = document.createElement('div');
+        content.className = 'output-content';
+        content.innerHTML = markdownToHtml(output);
+        box.appendChild(content);
+        outputsRow.appendChild(box);
+      });
+
+      outputsBody.appendChild(outputsRow);
+      outputsSection.appendChild(outputsBody);
+      main.appendChild(outputsSection);
+
+      // Context section
+      if (run.context_section) {
+        const contextSection = document.createElement('div');
+        contextSection.className = 'context-section';
+        const contextHeader = document.createElement('div');
+        contextHeader.className = `context-section-header ${run.context_section.type}`;
+        contextHeader.textContent = run.context_section.title;
+        contextSection.appendChild(contextHeader);
+        const contextBody = document.createElement('div');
+        contextBody.className = 'context-section-body';
+
+        run.context_section.items.forEach(item => {
+          const itemDiv = document.createElement('div');
+          itemDiv.className = 'context-item';
+          const label = document.createElement('div');
+          label.className = 'context-item-label';
+          label.textContent = item.label;
+          const detail = document.createElement('div');
+          detail.className = 'context-item-detail';
+          detail.textContent = item.detail;
+          itemDiv.appendChild(label);
+          itemDiv.appendChild(detail);
+          contextBody.appendChild(itemDiv);
+        });
+
+        contextSection.appendChild(contextBody);
+        main.appendChild(contextSection);
+      }
+
+      // Update progress
+      document.getElementById('progress-text').textContent = `Run ${currentIndex + 1} of ${EMBEDDED_DATA.evals.length}`;
+      document.getElementById('run-indicator').textContent = `${currentIndex + 1} / ${EMBEDDED_DATA.evals.length}`;
+
+      // Update buttons
+      document.getElementById('prev-btn').disabled = currentIndex === 0;
+      document.getElementById('next-btn').disabled = currentIndex === EMBEDDED_DATA.evals.length - 1;
+    }
+
+    function renderBenchmark() {
+      const main = document.getElementById('main-content');
+      main.innerHTML = '';
+
+      const benchmarkSection = document.createElement('div');
+      benchmarkSection.className = 'benchmark-panel';
+      const title = document.createElement('div');
+      title.className = 'benchmark-title';
+      title.textContent = 'Evaluation Summary';
+      benchmarkSection.appendChild(title);
+
+      const cardsContainer = document.createElement('div');
+      cardsContainer.className = 'benchmark-cards';
+
+      EMBEDDED_DATA.benchmark.evals.forEach(evalData => {
+        const card = document.createElement('div');
+        card.className = 'benchmark-card';
+
+        const nameRow = document.createElement('div');
+        nameRow.className = 'benchmark-eval-name';
+        nameRow.textContent = evalData.name;
+        card.appendChild(nameRow);
+
+        const gapRow = document.createElement('div');
+        gapRow.className = 'benchmark-card-row';
+        const gapLabel = document.createElement('div');
+        gapLabel.className = 'benchmark-card-label';
+        gapLabel.textContent = 'Context Gap';
+        const gapContent = document.createElement('div');
+        gapContent.className = 'benchmark-card-content';
+        gapContent.textContent = evalData.context_gap;
+        gapRow.appendChild(gapLabel);
+        gapRow.appendChild(gapContent);
+        card.appendChild(gapRow);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'benchmark-card-row';
+        const actionLabel = document.createElement('div');
+        actionLabel.className = 'benchmark-card-label';
+        actionLabel.textContent = 'Enrichment Action';
+        const actionContent = document.createElement('div');
+        actionContent.className = 'benchmark-card-content';
+        actionContent.textContent = evalData.enrichment_action;
+        actionRow.appendChild(actionLabel);
+        actionRow.appendChild(actionContent);
+        card.appendChild(actionRow);
+
+        const impactRow = document.createElement('div');
+        impactRow.className = 'benchmark-card-row';
+        const impactLabel = document.createElement('div');
+        impactLabel.className = 'benchmark-card-label';
+        impactLabel.textContent = 'Impact on Answer';
+        const impactContent = document.createElement('div');
+        impactContent.className = 'benchmark-card-content';
+        impactContent.textContent = evalData.impact;
+        impactRow.appendChild(impactLabel);
+        impactRow.appendChild(impactContent);
+        card.appendChild(impactRow);
+
+        cardsContainer.appendChild(card);
+      });
+
+      benchmarkSection.appendChild(cardsContainer);
+      main.appendChild(benchmarkSection);
+
+      // Update progress
+      document.getElementById('progress-text').textContent = 'Summary';
+      document.getElementById('run-indicator').textContent = 'Summary';
+
+      // Update buttons
+      document.getElementById('prev-btn').disabled = false;
+      document.getElementById('next-btn').disabled = true;
+    }
+
+    function markdownToHtml(md) {
+      let html = md
+        .replace(/^### (.*?)$/gm, '<h3 style="font-weight: 600; margin: 0.75rem 0 0.5rem 0;">$1</h3>')
+        .replace(/^## (.*?)$/gm, '<h2 style="font-weight: 600; margin: 1rem 0 0.75rem 0; font-size: 1rem;">$1</h2>')
+        .replace(/^# (.*?)$/gm, '<h1 style="font-weight: 600; margin: 1rem 0 0.75rem 0; font-size: 1.1rem;">$1</h1>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/^- (.*?)$/gm, '<li style="margin-left: 1.5rem;">$1</li>')
+        .replace(/(<li[^>]*>.*?<\/li>)/s, '<ul style="margin: 0.5rem 0;">$1</ul>')
+        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/^---$/gm, '<hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--border);">')
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/^(?!<[h|u|p|l|d|c])/gm, '<p>')
+        .replace(/$/gm, '</p>');
+
+      return html.replace(/<p><\/p>/g, '');
+    }
+
+    function nextRun() {
+      if (currentIndex < EMBEDDED_DATA.evals.length - 1) {
+        currentIndex++;
+        renderRun();
+      } else if (currentIndex === EMBEDDED_DATA.evals.length - 1) {
+        currentIndex++;
+        renderBenchmark();
+      }
+    }
+
+    function previousRun() {
+      if (currentIndex > 0) {
+        currentIndex--;
+        if (currentIndex === EMBEDDED_DATA.evals.length) {
+          currentIndex--;
+        }
+        renderRun();
+      }
+    }
+
+    // Initialize
+    window.addEventListener('DOMContentLoaded', () => {
+      renderRun();
+    });
+  </script>
+</body>
+</html>

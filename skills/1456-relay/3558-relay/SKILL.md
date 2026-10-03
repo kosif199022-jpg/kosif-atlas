@@ -1,0 +1,293 @@
+---
+name: relay
+description: >-
+  Delegates a task to another harness's CLI (codex, opencode, or claude) via
+  /relay:relay.
+when_to_use: >-
+  When the user asks another harness to do the work — "ask codex", "review
+  with codex", "讓 opencode 看看" — or invokes /relay:relay directly. Do NOT
+  fire on a passing mention of another CLI ("codex said…"). `image` is
+  codex-only.
+argument-hint: "<codex|opencode|claude> <delegate|review> [task] · codex image [--out]"
+version: 0.5.5
+---
+
+# Relay Skill
+
+Wraps the local `codex`, `opencode`, and `claude` CLIs to delegate tasks across harnesses. All output is reported in zh-TW.
+
+```
+/relay:relay <codex|opencode|claude> delegate <task>
+/relay:relay <codex|opencode|claude> review [task]
+/relay:relay codex image [prompt] [--out <path>]
+```
+
+**Choosing between modes:**
+
+- **`delegate`** — ask a backend to *do* something (implement, refactor, debug). Code changes expected.
+- **`review`** — ask a backend for analysis. Output is critique + suggestions. No code changes.
+- **`image`** — generate an image (codex only, via its built-in imagegen skill).
+
+If the user says "review", "看看", "檢查", "找問題" → use `review`.
+If the user says "幫我做", "實作", "重構", "想個辦法" → use `delegate`.
+If the user says "生圖", "畫圖", "Generate image" → use `image` (codex only).
+
+---
+
+## Running the relay script
+
+Every command below runs the bundled `scripts/relay.ts`.
+
+`${CLAUDE_PLUGIN_ROOT}` is Claude Code's official plugin-root variable. Inside an agent Bash call it is **not reliably set**. Under Codex it is empty. Under OpenCode it is also empty. Do not depend on it.
+
+Do not use a repo-relative path such as `packages/relay/...`. That path exists only inside the source repo.
+
+Resolve the script from the **"Base directory for this skill"** banner. Claude Code prints this banner when the skill loads:
+
+```bash
+# Substitute the real banner path for <BANNER_PATH>
+SKILL_DIR="<BANNER_PATH>"            # e.g. ~/.claude/plugins/cache/.../skills/relay
+RELAY="$SKILL_DIR/scripts/relay.ts"
+test -f "$RELAY" || { echo "relay.ts not found at $RELAY" >&2; exit 1; }
+```
+
+> **OpenCode only**: there is no banner and `CLAUDE_PLUGIN_ROOT` is empty. Use
+> `RELAY=~/.config/opencode/skills/relay/scripts/relay.ts` instead.
+
+For brevity, the examples below write `relay.ts <backend> <mode> …` as shorthand for `bun "$RELAY" <backend> <mode> …`. Run it from the user's current project directory. `relay.ts` invokes the backend CLIs against that working tree's git context.
+
+---
+
+## Live-pane mode (inside herdr)
+
+Inside herdr (`HERDR_ENV=1`), `delegate` and `review` auto-route to a live TUI pane in a new tab.
+Before running in that environment, read `references/live.md`.
+It covers flags (`--headless` / `--keep-pane` / `--wait-timeout` / `--dangerous` / `--no-ask`), stdout/stderr output contract, pane lifecycle, and pending-report semantics.
+`image` stays headless/native.
+
+**`--no-ask` is for callers with nobody at the pane.** A live TUI hands the agent an ask tool the headless form never gets, and relay reads the result file rather than the pane, so a question stops the run against a clock nobody is watching. The flag appends an unattended contract to the prompt file. Leave it off when you are sitting there: answering a good question beats guessing.
+
+**Keep the default live.** `--headless` needs a real reason.
+
+If a run comes back with a **pending report**, the delegate is still working — that is not a failure. Reattach with `relay.ts collect --agent <name> --result <path>`, repeating as needed; the report prints the filled-in command. See `references/live.md`.
+
+Editing capability is identical: same CLI, model, and write access. So "more precise" or "deterministic" is never a valid reason. Override only for nested delegation, no live seam, or no pane surface.
+
+`relay.ts` is one blocking call. Do not poll it while it runs. See `references/live.md`.
+
+---
+
+## Config check (opencode delegate or review)
+
+Run this before step 1 of `delegate` and before `review`, for the `opencode` backend only. The suggested config covers only opencode, so a codex or claude run skips this section.
+In a non-interactive context (a sub-agent or headless caller), skip the questions below and run relay with the config as it is.
+
+1. Run `opencode --version` first. On `2.` or later, tell the user relay supports opencode 1.x only and suggest downgrading to 1.x. Stop.
+2. Run `relay.ts config check`. It prints a JSON report; branch on its exit code.
+3. On exit `4` (`malformed`), report `path` and `error` to the user. Stop. Do not offer an update or ask for a model.
+4. On exit `3` (`missing`, `no-version`, or `outdated`), show the user `suggested.models` beside their `models` and `version`.
+   - Ask with the harness's question tool. Offer: Merge (keep models the user chose, refresh the ones an earlier apply wrote, fill the missing ones), Overwrite (replace with the suggested models), Skip this time.
+   - For `missing`, merge and overwrite write the same file, so offer only Apply and Skip this time.
+   - Apply the answer with `relay.ts config apply --merge` or `relay.ts config apply --overwrite`.
+5. On exit `0` (`current`), continue.
+
+### Model pick
+
+Run this after the config check when the user passed no `--model` and `models.opencode.<mode>` is absent. Re-run `config check` after an apply to read the updated `models`.
+
+1. Run `opencode models`. Keep the ids from `suggested.models.opencode.<mode>` and `suggested.suggestions.opencode.<mode>` that appear in its output.
+2. Ask with the harness's question tool. Offer up to 3 surviving ids, plus opencode defaults.
+3. Save a picked id with `relay.ts config set-model opencode <mode> "<id>"`.
+4. Save opencode defaults with `relay.ts config set-model opencode <mode> cli-default`. Relay then omits `-m`, and the question does not return.
+5. Run relay without `--model`. It reads the saved choice.
+
+---
+
+## `/relay:relay <backend> delegate <task>`
+
+For non-review tasks: implementing features, refactoring, suggesting an approach, debugging.
+
+1. Identify relevant files from the task context. If it is unclear, ask the user.
+   - Prefer `git diff --name-only`, `git status --short`, and `rg --files` to discover candidate files.
+   - If the target files or ownership boundaries are unclear, ask before delegating.
+
+2. Run relay in a single step:
+
+   ```bash
+   relay.ts <backend> delegate --task "<task>" --files <file1,file2,...>
+   ```
+
+   where `<backend>` ∈ `{codex, opencode, claude}`.
+
+   Examples:
+   ```bash
+   relay.ts codex delegate --task "add error handling to api.ts" --files api.ts
+   relay.ts opencode delegate --task "refactor the auth flow" --files auth.ts,middleware.ts
+   relay.ts claude delegate --task "implement the feature" --files main.ts
+   ```
+
+3. Inspect the backend's result. Run available verification (lint, types, tests). Then write the report.
+
+   Apply additional local fixes only when they are required to complete the delegated task. Keep the fixes inside the agreed scope.
+
+---
+
+## `/relay:relay <backend> review [task]`
+
+Review is report-only. Unless the user asks separately, do not apply changes from review output.
+
+- No task: run `relay.ts <backend> review`. Relay reviews only uncommitted changes.
+- Task present: pass it unchanged as positional text. Do not translate it into `--files` or any other flag.
+
+```bash
+relay.ts codex review
+relay.ts opencode review "Review auth.ts for race conditions"
+relay.ts claude review "Review changes since main"
+```
+
+---
+
+## `/relay:relay codex image [prompt] [--out <path>]`
+
+Generate an image via codex, which uses its built-in imagegen skill. **Image mode is codex-only.**
+
+If **prompt** is missing, ask the user:
+
+```
+AskUserQuestion("要生什麼圖？")
+```
+
+If **--out** is missing, ask the user (offer default: `./generated/image.png`).
+
+In non-interactive contexts (invoked by a sub-agent or headless), do not block on AskUserQuestion. Fail fast with a clear message naming the missing argument.
+
+Once both are known, run:
+
+```bash
+relay.ts codex image "<prompt>" --out <path>
+```
+
+The script auto-adds a timestamp suffix to the filename, for example `./foo.png` → `./foo_20260430-1708.png`. It returns the final path.
+
+Report the final saved path. If the user wants a different name, use a non-destructive rename command.
+
+---
+
+## Smart Apply Policy
+
+Evaluate each backend suggestion and act:
+
+**Auto-apply** (for delegate only):
+- The backend provided a concrete diff or exact file/line edit
+- The change is inside the selected scope
+- The current agent can run verification afterward
+
+In delegate mode, backends are write-capable. They may have already edited the working tree. This apply policy governs suggestions in the report. Already-applied changes are verified and reported under 已套用變更.
+
+After applying, run any available verification (lint / type check / tests) via Bash.
+
+If verification fails, undo only your own attempted edit. Move the suggestion to "report only."
+
+**Report only** (for review, or when uncertain):
+- Architectural changes
+- Logic changes affecting behavior
+- Multi-file / interconnected changes
+- Deletions of existing code
+- Changes outside the selected scope
+- Anything you're not 100% confident about
+
+---
+
+## Model Save-to-Config Flow
+
+When the user passes an explicit `--model` flag:
+
+1. Run relay with the specified model:
+   ```bash
+   relay.ts <backend> <mode> --model "<provider/model>" ...
+   ```
+
+2. After a successful run, ask via AskUserQuestion:
+   ```
+   AskUserQuestion("儲存 <model> 作為 <backend> <mode> 的預設值嗎？")
+   ```
+
+3. If the user approves, save it through the relay config command:
+   ```bash
+   relay.ts config set-model <backend> <mode> "<provider/model>"
+   ```
+
+Config file location: `~/.config/q-lab/cc-plugins/relay/config.json`.
+
+Model precedence is `--model` flag, then this config, then the backend CLI's own default. The value `cli-default` in either place omits the model flag. A malformed config file fails the run with `Could not read relay config`. Report that file to the user. Do not ask for a model.
+
+---
+
+## Failure Handling
+
+If the script exits non-zero, report the failure in zh-TW. Then stop. Do not guess or fabricate suggestions.
+
+Exception: a live-mode **pending report** exits 0 by design. See `references/live.md`.
+
+Include:
+
+- Command intent
+- Exit code if available
+- Relevant stderr summary
+- Suggested next step
+
+Capability gates (e.g., `/relay:relay opencode image` → unsupported) fail fast with a clear error message before any CLI runs.
+
+**Never call a backend CLI directly to work around a relay failure.** Do not use `codex exec`, `opencode run`, or `claude -p`.
+
+Every delegation goes through `relay.ts`. It owns the prompt contract, herdr live-pane routing, and the result-file protocol. A hand-rolled headless call silently discards all three.
+
+If `relay.ts` cannot run, report that and stop.
+
+---
+
+## Review Report Format
+
+```markdown
+## Relay Review (<backend>)
+
+### 重大問題
+- `file.ts:42` — issue, impact, suggested fix
+
+### 其他建議
+- `file.ts:88` — suggestion
+
+### 可套用修正
+- [Safe] description — pending explicit approval
+
+### 驗證
+- Lint/Tests: pass / fail / skipped
+```
+
+## Delegate Report Format
+
+```markdown
+## Relay 回覆 (<backend>)
+
+### 任務
+[what was delegated]
+
+### 建議摘要
+[concise summary in zh-TW]
+
+### 已套用變更
+- [Applied] `file.ts:42` — description
+
+### 待確認建議
+- [Suggestion] description — why it needs human review
+
+### 驗證
+- Lint/Tests: pass / fail / skipped
+```
+
+---
+
+## Additional Resources
+
+- **`references/backends.md`** — read this only when installing under OpenCode or debugging a backend CLI failure. `relay.ts` already encodes all CLI invocations. Normal runs never need it.
+- **`references/live.md`** — read this only when `HERDR_ENV=1`. It covers live-pane flags, output contract, pane lifecycle, and pending-report semantics.

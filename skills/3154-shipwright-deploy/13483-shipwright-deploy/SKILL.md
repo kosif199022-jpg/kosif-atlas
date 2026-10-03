@@ -1,0 +1,529 @@
+---
+name: shipwright-deploy
+description: "Deploy to Jelastic (Infomaniak) with smoke test verification, rollback support, and Supabase migrations.\nTRIGGER when: user wants to deploy, push to production, deploy to dev, deploy to staging, publish the application, rollback a deployment, or check deployment status.\nDO NOT TRIGGER when: user asks to write code (/shipwright-build), run tests (/shipwright-test), fix a bug (/shipwright-iterate), create a changelog (/shipwright-changelog), create requirements (/shipwright-project), plan implementation (/shipwright-plan), or design UI (/shipwright-design)."
+license: MIT
+compatibility: Requires uv (Python 3.11+), JELASTIC_TOKEN env var, optionally Supabase CLI
+---
+
+# Shipwright Deploy Skill
+
+Deploys to Jelastic (Infomaniak) with smoke tests and rollback.
+
+---
+
+## CRITICAL: First Actions
+
+**Governing rules:** Read and follow `shared/constitution.md` (ALWAYS / ASK FIRST / NEVER boundaries).
+
+### A. Print Intro Banner
+
+```
+================================================================================
+SHIPWRIGHT-DEPLOY: Deployment
+================================================================================
+Deploys to Jelastic Cloud (Infomaniak, Switzerland).
+
+Usage: /shipwright-deploy                (DEV, automatic)
+   or: /shipwright-deploy --prod         (PROD, requires confirmation)
+   or: /shipwright-deploy --rollback     (restore last PROD snapshot)
+   or: Invoked by /shipwright-run (orchestrator)
+
+Flow:
+  1. Validate credentials
+  2. Run Supabase migrations (if applicable)
+  3. Deploy via Jelastic API
+  4. Smoke test
+  5. Rollback on failure
+
+Environments:
+  DEV:  dev-{project}.jpc.infomaniak.com
+  PROD: {project}.jpc.infomaniak.com
+================================================================================
+```
+
+### B. Validate Credentials
+
+```bash
+uv run "{plugin_root}/scripts/checks/validate-deploy.py" --project-root "{project_root}"
+```
+
+Checks for:
+- `JELASTIC_TOKEN` environment variable
+- Optionally: `SUPABASE_ACCESS_TOKEN` (for migrations)
+- Optionally: git repo with remote (for git-based deploy)
+- The upstream test gate (see B4 below) — `test_gate` in the JSON output is
+  `"passed"` (proceed) / `"failing-unconfirmed"` (blocks: `success: false`,
+  an `errors` entry names it) / `"failing-confirmed"` (proceeds, warns) /
+  `"no-results"` — blocks exactly like `"failing-unconfirmed"` (a missing
+  `shipwright_test_results.json` needs the same confirmation as a failing
+  one) unless `--confirm-failing-tests` was passed, in which case it
+  proceeds with a warning too. Both `*-confirmed` states are only ever true
+  when this SKILL passed `--confirm-failing-tests`.
+
+### B2. Detect Invocation Mode
+
+Resolve it with `{shared_root}/scripts/tools/get_phase_context.py --phase-task-id "{phaseTaskId}" --phase deploy` (**omit `--phase-task-id` entirely if the orchestrator did not hand you one** — that selects standalone) and store the returned `mode` as `invocation_mode`. **The dispatch token is the authority — never re-derive the mode from run-config state** (authority: `shared/scripts/lib/phase_invocation_mode.py`).
+
+- **`pipeline`** — dispatched: enforce gates and deploy. Do NOT call `orchestrator.py update-step` (`single-session-apply` owns completion; it is inert in a driven run anyway).
+- **`standalone`** — no token: skip pipeline-state updates; skip the test gate but warn `"No pipeline test results found. Deploying without test verification."`; still produce all artifacts. If `requires_out_of_sequence_warning` is `true`, warn + ASK before continuing (gate `deploy.out-of-sequence-continue`).
+- **`error`** (exit 2) — dispatched with an unresolvable token: **STOP**, return `ok: false`; never continue as standalone.
+
+**Note:** a PROD deploy is ASK-FIRST regardless of `invocation_mode` (constitution).
+
+### Single-Session Gate Discipline
+
+Under single-session pipeline mode (`run_config.mode == "single_session"`), interactive gates follow a per-gate policy — resolve via `${SHIPWRIGHT_PLUGIN_ROOT}/../../shared/scripts/tools/resolve_gate_policy.py --phase deploy --list`. PROD / destructive-migration / rollback gates stay **hard-stop** (explicit human confirmation, always, regardless of autonomy). Full contract: `shared/prompts/single-session-gate-discipline.md`.
+
+### B3. Validate Environment
+
+Check that required deploy environment variables from the stack profile are available.
+
+```bash
+uv run "{shared_root}/scripts/validate_env.py" \
+  --project-root "{project_root}" \
+  --phase deploy
+```
+
+Where `{shared_root}` = `{plugin_root}/../../shared` (relative to plugin root).
+
+Parse the JSON output:
+
+1. **`skipped == true`**: No profile or no vars defined — continue.
+2. **`success == true`**: All required deploy vars present — continue.
+3. **`success == false`**: Missing required vars — **use AskUserQuestion**:
+
+   > **Missing environment variables for deployment**
+   >
+   > The following required variables are not set:
+   > - `VAR_NAME` — description
+   >
+   > Please set the missing environment variables, then confirm to continue.
+
+   Options: "I've set the variables — continue" / "Skip validation and proceed anyway"
+
+   If user updates: **re-run validation** to confirm.
+   If user skips: proceed with a warning.
+
+4. **`optional_missing`**: Log a warning but do not block.
+
+### B4. Verify Tests Passed (MANDATORY)
+
+Step B already ran the deterministic test gate — this step is what to DO with
+its verdict, never a second, separate check of the same file (one oracle,
+read once).
+
+1. **`test_gate == "passed"`** — continue to Step C.
+2. **`test_gate == "failing-unconfirmed"` or `"no-results"`** — deploy is refused. Print:
+
+```
+================================================================================
+SHIPWRIGHT-DEPLOY: Test Gate Failed
+================================================================================
+
+Cannot deploy — tests have not passed (or no results were found).
+Unit: {status}  |  E2E: {status}
+
+Run /shipwright-test first, or confirm to proceed at your own risk.
+================================================================================
+```
+
+**Ask user for confirmation before proceeding.** Do NOT deploy silently with
+failing or missing tests. If they confirm, **re-run Step B's command with
+`--confirm-failing-tests` appended** and use ITS fresh JSON (now
+`test_gate == "failing-confirmed"` or `"no-results"`, respectively) going
+forward — never continue past the refusal on the strength of the user's
+words alone; the confirmation only counts once it produced a passing gate.
+
+### C. Determine Target
+
+| Flag | Target | Behavior |
+|------|--------|----------|
+| (none) | DEV | Automatic, no confirmation |
+| `--prod` | PROD | Requires explicit user confirmation |
+| `--rollback` | PROD | Restore last clone, requires confirmation |
+
+---
+
+## Step 0: Phase Session Context Recovery
+
+If the orchestrator handed you a `phaseTaskId` — i.e. `/shipwright-run` dispatched
+you as a phase-runner subagent — you are part of an active pipeline. Run this as your
+very first action:
+
+```bash
+uv run "${SHIPWRIGHT_PLUGIN_ROOT}/../../shared/scripts/tools/get_phase_context.py" \
+  --phase-task-id <phaseTaskId-from-context>
+```
+
+The tool prints structured JSON with `runId`, `phase`, `splitId`, `prerequisites`,
+`runConditions`, and a `skill_artifacts_to_read` list. Read those artifacts
+before proceeding so this phase session has full context for what came before.
+Deploy is the pipeline-terminal phase — when this session's Stop hook fires
+`complete-phase-task`, the run will flip to `status="complete"`.
+
+If NO `phaseTaskId` was handed to you, this is a standalone invocation —
+continue with Step 1 below as normal.
+
+**One resolver, one verdict.** This is the same tool your "Detect Invocation Mode" step
+already ran, so reuse that payload rather than re-deriving anything: its `mode` IS your
+`invocation_mode`. Pass `--phase <your phase>` so a token belonging to another phase is
+rejected, and if `mode` is `"error"` (exit 2) **STOP** — a dispatched phase must never
+fall back to standalone.
+
+---
+
+## Step 1: Migrations (if applicable)
+
+**Only runs if migration files exist** in the profile's `migrations.dir`.
+
+Read `migrations` config from the stack profile.
+
+### Prerequisites (check before running migrations)
+
+1. **`supabase/config.toml` exists** — if not: run `npx supabase init`
+2. **Project is linked** (`.supabase/` directory exists) — if not: run `npx supabase link --project-ref <ref>` (requires `SUPABASE_ACCESS_TOKEN`)
+3. **`SUPABASE_ACCESS_TOKEN` is set** — if not: prompt user to create one at https://supabase.com/dashboard/account/tokens and add to `.env.local`
+
+If any prerequisite fails: stop and inform user with specific remediation steps.
+
+### Verify DEV migrations
+
+DEV migrations are applied during Build/Iterate. Verify all are current:
+```bash
+{migrations.list_cmd}
+```
+If pending migrations exist:
+- If `supports_idempotent_apply` is true: warn user, offer to apply them now
+- If false or unknown: warn user, require explicit confirmation before applying
+
+### PROD
+```bash
+{migrations.dry_run_cmd}
+```
+Present dry-run output to user (note: dry-run output format varies by stack — present raw output for human review). Require explicit confirmation before:
+```bash
+{migrations.apply_cmd}
+```
+
+**Destructive changes** (detected by shipwright-build hooks): always warn and require confirmation regardless of target.
+
+### Post-Apply Verification
+
+After `apply_cmd` succeeds, run the migration verifier against the migrations that were just applied. The verifier parses `-- VERIFY:` comments from each migration and runs them via `psql`. A failed verification triggers the same rollback path as a smoke-test failure (see Step 5 → "Smoke Test Failed → Rollback").
+
+```bash
+uv run "{plugin_root}/scripts/lib/migration_verifier.py" \
+  --migration {applied_migration_path_1} \
+  [--migration {applied_migration_path_N}] \
+  --db-url "{prod_db_url_or_pooled_url}" \
+  --output .shipwright/deploy/migration-verify.json
+```
+
+Read the JSON output. Branch on `all_passed`:
+- **`true`** — proceed to "Post-Migration Manual Steps".
+- **`false`** — present the failing report (per-file, per-VERIFY-statement) to the user via AskUserQuestion. Two options:
+  - **Rollback now (recommended)** — fall through to Step 5's clone-restore path immediately.
+  - **Override and continue** — the user must explicitly acknowledge that the verifier is reporting a real schema mismatch the deploy is choosing to ignore. **Before proceeding, write an ADR entry** to `.shipwright/agent_docs/decision_log.md` capturing: the migration file(s), the failing VERIFY statement(s), the user's stated reason for override, and the timestamp. This is mandatory — a one-click override on a failed PROD VERIFY without an audit trail is exactly the kind of "did anyone notice that?" event compliance reports must surface afterward. Use `write_decision_log.py` (see Step 9) with title `"Override: failed migration verification"`.
+
+**Backwards-compat:** migrations without any `-- VERIFY:` comment are reported as `skipped=True, all_passed=True` and do not cause a rollback. New migrations should always include at least one `-- VERIFY:` block — see `shared/templates/rules/migrations.md.template` for the convention and examples.
+
+### Post-Migration Manual Steps
+
+Check `migrations.post_apply_manual_steps` from the stack profile. For each entry where `trigger_tag` matches a migration just applied, inform user via AskUserQuestion with the action and note. Wait for confirmation before proceeding.
+
+---
+
+## Step 2: Pre-Deploy Safety (PROD only)
+
+**Goal:** Create a rollback point before deploying to PROD.
+
+```bash
+uv run "{plugin_root}/scripts/lib/jelastic_client.py" clone-env \
+  --env-name "{prod_env}" \
+  --clone-name "{prod_env}-backup"
+```
+
+This creates a full clone of the PROD environment. If deployment fails,
+we can restore from this clone.
+
+**User confirmation:**
+```
+AskUserQuestion:
+  question: "Deploy to PRODUCTION ({prod_env}.jpc.infomaniak.com)?"
+  context: "Backup clone will be created first."
+  options:
+    - "Deploy to PROD"
+    - "Cancel"
+```
+
+---
+
+## Step 3: Deploy
+
+```bash
+uv run "{plugin_root}/scripts/lib/jelastic_client.py" deploy \
+  --env-name "{env_name}" \
+  --branch "{branch}"
+```
+
+This calls the Jelastic VCS Update API to pull the latest code from git.
+
+If environment doesn't exist yet: create it first via `create-env`.
+
+---
+
+## Step 4: Smoke Test
+
+```bash
+uv run "{shared_root}/scripts/smoke_test.py" \
+  --url "https://{env_name}.jpc.infomaniak.com" \
+  --profile "{shared_root}/profiles/deploy/jelastic.json" \
+  --output "$(pwd)/.shipwright/deploy/smoke-test-result.json"
+```
+
+The **profile owns the deadline**: keep asking every `poll_interval_seconds`
+until the app answers or `max_wait_seconds` passes. A slow start-up is not a
+failed release — read `attempts` / `waited_ms` before concluding anything.
+Without `--profile` it makes a single attempt. **Always pass `--output`** —
+it stamps the result with `checked_at` and persists it durably; that file is
+the independent oracle `deploy_checks.check_failed_liveness_recorded_as_failed`
+reconciles against a failed release's `phase_history` entry (FR-01.08 #4).
+
+---
+
+## Step 5: Handle Result
+
+### Smoke Test Passed
+```
+================================================================================
+SHIPWRIGHT-DEPLOY: SUCCESS
+================================================================================
+Target:     {DEV | PROD}
+URL:        https://{env_name}.jpc.infomaniak.com
+Status:     {status_code} ({response_time}ms)
+Migrations: {applied | skipped | N/A}
+================================================================================
+```
+
+**Record deploy event** (captures deployed URL for downstream consumers):
+```bash
+uv run "{shared_root}/scripts/tools/record_event.py" \
+  --project-root "$(pwd)" \
+  --type phase_completed \
+  --phase deploy \
+  --detail "https://{env_name}.jpc.infomaniak.com"
+```
+
+**Phase complete — update pipeline state:**
+
+Deploy runs the Minimum Phase Completion Canon at C1/C2/C3 only. **C4 is skipped**
+(decided in plan) and **C5 is skipped** — deployment is operational history
+(`events.jsonl` + `phase_history`), not a product change; a per-deploy CHANGELOG
+`[Unreleased]` bullet would duplicate the changelog plugin's release block.
+
+```bash
+: "${SHIPWRIGHT_RUN_ID:=deploy-$(date +%Y%m%d-%H%M%S)-{env_name}}"
+export SHIPWRIGHT_RUN_ID
+
+# C1 — already emitted as the phase_completed event above.
+
+# C2 — delivery dashboard
+uv run "{shared_root}/scripts/tools/update_build_dashboard.py" \
+  --project-root "$(pwd)" --phase deploy --detail "Deployed to {url}" \
+  --session-id "{SHIPWRIGHT_SESSION_ID}"
+
+# C3 (NEW 12.4) — canon-marker handoff
+uv run "{shared_root}/scripts/tools/generate_session_handoff.py" \
+  --project-root "$(pwd)" --canon-marker --phase deploy \
+  --reason "deploy to {env_name}: {status}"
+
+# C4 — SKIPPED by policy (execution, not decision).
+# C5 — SKIPPED by policy (operational history, not product change;
+#      release narrative belongs to the changelog plugin).
+
+# phase_history (NEW 12.4)
+uv run "{shared_root}/scripts/tools/append_phase_history.py" \
+  --project-root "$(pwd)" --phase deploy --run-id "$SHIPWRIGHT_RUN_ID" \
+  --entry-json '{"target":"{env_name}","url":"{url}","version":"v{version}","outcome":"success"}'
+
+# Mark deploy phase complete (triggers compliance update automatically).
+# _validate_deploy() (new in 12.4) runs the test-gate pre-condition
+# plus the deploy_checks verifier (C1/C2/C3 + phase_history).
+uv run "{plugin_root}/../../plugins/shipwright-run/scripts/lib/orchestrator.py" \
+  update-step --project-root "$(pwd)" --step deploy --status complete
+```
+
+**Reflection — Capture Deploy Learnings:**
+
+If deployment had issues or required adjustments:
+1. Infra configuration gotchas?
+2. Environment-specific behavior?
+3. Rollback insights?
+
+If learnings exist:
+- **Observations** → append to `.shipwright/agent_docs/conventions.md` under `## Learnings`
+  Format: `- ({YYYY-MM-DD}) deploy — {summary}`
+- **Cross-project insights** → save Claude Code feedback/project Memory
+If none: skip.
+
+### Smoke Test Failed → Rollback
+
+**Record the failed release FIRST** — before attempting the way back, so a
+halted/interrupted rollback still leaves this deploy attempt correctly
+recorded as failed (FR-01.08 #4), never as `outcome: "success"` by omission:
+```bash
+: "${SHIPWRIGHT_RUN_ID:=deploy-$(date +%Y%m%d-%H%M%S)-{env_name}}"
+export SHIPWRIGHT_RUN_ID
+
+uv run "{shared_root}/scripts/tools/append_phase_history.py" \
+  --project-root "$(pwd)" --phase deploy --run-id "$SHIPWRIGHT_RUN_ID" \
+  --entry-json '{"target":"{env_name}","url":"{url}","version":"v{version}","outcome":"failed"}'
+```
+
+**If this command itself fails** (lock timeout, missing
+`shipwright_run_config.json`) — external review, e4-checks-deploy-changelog —
+**STOP and tell the operator before attempting the rollback below.** Proceeding
+to rollback anyway would leave a real failed liveness check with no
+`phase_history` record of it at all, which is a worse state than the one this
+reorder exists to prevent (`check_failed_liveness_recorded_as_failed`, FR-01.08
+#4). Retrying `append_phase_history.py` once after a lock timeout is fine; a
+second failure means stop.
+
+**DEV:** git-based. Passing `--project-root` + `--profile` is what arms the
+stored-data check and names the target's data-rollback strategy. Both
+`--project-root` and `--invocation` are REQUIRED by the CLI itself now (Tier-3
+PR review round 7) — omitting either is a hard argument error, not a silent
+default.
+```bash
+uv run "{plugin_root}/scripts/lib/rollback.py" \
+  --env-name "{env_name}" --strategy git --target-ref "{last_known_good_tag}" \
+  --project-root "$(pwd)" --profile "{shared_root}/profiles/deploy/jelastic.json" \
+  --invocation auto
+```
+
+**PROD:** stop the failed env so the backup clone can take over.
+```bash
+uv run "{plugin_root}/scripts/lib/rollback.py" \
+  --env-name "{env_name}" --strategy clone --clone-name "{prod_env}-backup" \
+  --project-root "$(pwd)" --invocation auto
+```
+
+Both invocations above pass `--invocation auto` explicitly (this IS the
+automatic, smoke-test-triggered path); the Manual Rollback section below
+passes `--invocation manual` instead. Neither flag has a default any more —
+the CLI refuses to run without one (Tier-3 PR review round 7: a silently
+defaulted `--invocation auto` and a silently defaulted `--project-root "."`
+each let an actual manual rollback, or its audit trail, land somewhere the
+`check_manual_rollback_proves_alive` verifier could never find it, passing
+vacuously instead of catching the omission). Every invocation, whatever it
+decides, is appended to `.shipwright/deploy/rollback-history.jsonl` by the
+script itself (FR-01.08 #7 — "recorded" is now unconditional, not an
+agent-remembered step) — **always pass `--project-root`, on the clone
+strategy too**: an omitted flag used to write the audit trail relative to
+whatever the shell's cwd happened to be rather than the project it belongs
+to; now it is simply refused. If that write itself fails (lock timeout,
+unwritable dir), `rollback.py` still exits with the real outcome — it does
+not fail the whole rollback over a logging problem —
+but it also writes a `rollback-audit-degraded.jsonl` marker next to the
+trail; `deploy_checks.check_manual_rollback_proves_alive` treats that
+marker's presence as "cannot confirm" and fails closed rather than reading
+the missing record as "no rollback happened" (Tier-3 PR review round 4).
+
+**Read the exit code — it is the instruction.** Full field table in
+[rollback-strategy.md](references/rollback-strategy.md).
+
+| Exit | Meaning | What you do |
+|---|---|---|
+| `0` | rolled back (`ref_verified` says whether the target confirmed it) | log it, report it; if `unconfirmed`, say so |
+| `1` | refused before contacting the host — nothing there changed | fix the reason, re-run. Never claim a rollback happened |
+| `3` | **started and did not finish** | print `operator_message` verbatim and **STOP**. Do not retry, do not redeploy, do not continue unattended |
+
+A `1` from the stored-data gate means migrations exist that the older code does
+not know. Do not pass `--ack-data-drift` on the agent's own judgement — that is
+an ASK-FIRST decision about data, so put it to the user. If the user says
+override: re-run with BOTH `--ack-data-drift` AND `--override-reason "<why,
+in the user's words>"` — the script itself refuses (exit 1) an ack with no
+reason, so this is not optional prose (FR-01.08 #5).
+
+Log every rollback in `.shipwright/agent_docs/decision_log.md`, including a
+halted one — an unfinished rollback is the entry that matters most. This is
+IN ADDITION to `rollback-history.jsonl` above: the decision log is for a
+human reading the project's history; the JSONL trail is what a deterministic
+check reconciles against.
+
+```
+================================================================================
+SHIPWRIGHT-DEPLOY: FAILED → ROLLED BACK
+================================================================================
+Target:     {DEV | PROD}
+Error:      {smoke test error}
+Rollback:   {ref {tag}, {confirmed|unconfirmed} | stopped, clone not yet active}
+Action:     Fix the issue and re-deploy
+================================================================================
+```
+
+---
+
+## Manual Rollback (`--rollback`)
+
+When invoked with `--rollback`:
+1. List available backup clones
+2. Present to user for selection
+3. Require explicit confirmation (FR-01.08 #8 "confirms first" — this
+   `AskUserQuestion` is the whole mechanism; no artifact records that it
+   happened, so the AC-evidence ledger carries this half as `judgement`, not
+   `enforced`)
+4. Stop the failed environment with `rollback.py ... --invocation manual
+   --project-root "$(pwd)"` (this does **not** restore anything — `restored`
+   is false and the remaining steps are stated; `--invocation manual` is
+   what lets `deploy_checks.check_manual_rollback_proves_alive` tell this
+   apart from an automatic rollback, and `--project-root` is what makes sure
+   its record lands in the SAME `rollback-history.jsonl` step 5 and that
+   check both read)
+5. Run smoke test on the environment that is now serving, **with
+   `--output "$(pwd)/.shipwright/deploy/smoke-test-result.json"`** — FR-01.08
+   #8's "proves alive" half is exactly this file existing with a
+   `checked_at` timestamp after step 4's `recorded_at`; omitting `--output`
+   here is what the check reads as "never re-checked afterward"
+
+---
+
+## Rollback-Discipline (Universal)
+
+Shipwright treats rollback as a property of every deploy target, not a
+feature of one. Three patterns apply universally; their mechanics are
+target-specific. The Jelastic flow above is one reference implementation —
+the same discipline applies to any target Shipwright would call shipped.
+
+| Pattern | The property (mechanics are target-specific) |
+|---|---|
+| **1 — Revertable Deploys** | A deploy is not complete until its rollback is operable, and the rollback must actually put the requested version back. Application-tier and data-tier are separate concerns: `rollback.data_rollback_strategy` says what each target does about stored data that has already moved on. |
+| **2 — Provenance Recorded** | Every deploy *and every rollback* leaves an auditable record before the next change touches the target — `phase_completed` events, a `phase_history` entry, and for rollbacks an ADR naming the cause. The why-it-happened outlives the on-call shift. |
+| **3 — Procedure Documented** | Both paths — automatic (smoke-test-fail) and manual — must be runnable from the documentation alone. Manual rollback needs explicit confirmation; automatic rollback announces itself. A silent rollback is the failure mode worse than the failure that caused it — and a rollback that *reports* success it did not achieve is worse still. |
+
+Full per-target mapping and the conformance checks:
+[rollback-discipline.md](references/rollback-discipline.md).
+
+### How discipline becomes target
+
+A target proves it satisfies the discipline by filling in a Deploy Profile
+at `shared/profiles/deploy/<target_id>.json`, validated against
+`shared/profiles/deploy-profile.schema.json`. Three reference profiles
+ship today: **Jelastic** (full implementation, `confidence: verified`),
+**Vercel** (declarative stub, `confidence: documented`), and
+**Compose-VPS** (declarative stub, `confidence: documented`). The two
+stubs exist to keep the schema honest — they describe how targets with
+fundamentally different rollback mechanics (atomic vs. snapshot vs. clone)
+fill the same shape. To add a real implementation: write the client, fill
+the profile, run `validate_deploy_profile.py --strict`. See
+[`references/rollback-discipline.md`](references/rollback-discipline.md)
+for the pattern-by-pattern mapping.
+
+---
+
+## Reference Documents
+
+- [jelastic-api.md](references/jelastic-api.md) — Jelastic API endpoint reference
+- [deploy-flavors.md](references/deploy-flavors.md) — Flavor architecture (code-side interface)
+- [rollback-strategy.md](references/rollback-strategy.md) — Jelastic-specific DEV vs PROD rollback procedure
+- [rollback-discipline.md](references/rollback-discipline.md) — Universal rollback discipline + per-target mapping (Jelastic / Vercel / Compose-VPS); see also [non-interactive-release.md](references/non-interactive-release.md) for `release.py`, the coded agent-free entry point mechanising AC02/AC05

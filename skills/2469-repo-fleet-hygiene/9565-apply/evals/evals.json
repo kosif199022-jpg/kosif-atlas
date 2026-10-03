@@ -1,0 +1,114 @@
+{
+  "skill_name": "apply",
+  "evals": [
+    {
+      "id": 1,
+      "name": "dry-run-default-no-mutation",
+      "prompt": "/repo-fleet-hygiene:apply --plan-file /tmp/fleet-plan.json\n\nThe plan lists merged-local-branch deletes for three repositories and one merged-worktree cleanup.",
+      "expected_output": "The skill runs apply-plan.sh without --apply, prints an ordered dry-run that re-derives tips, and mutates nothing. It tells the operator to re-run with --apply or --apply --yes.",
+      "files": [],
+      "expectations": [
+        "Invokes apply-plan.sh with --plan-file and without --apply",
+        "Presents a dry-run / no-mutations preview",
+        "Does not delete branches or remove worktrees"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "one-gate-for-entire-plan",
+      "prompt": "/repo-fleet-hygiene:apply --plan-file /tmp/fleet-plan.json --apply\n\nTwelve repositories have candidates. Confirm cleanup.",
+      "expected_output": "Exactly one batch-wide confirmation covers every repository and both branch and worktree operations. The skill does not confirm per repository or per skill.",
+      "files": [],
+      "expectations": [
+        "Uses a single confirmation gate for the whole plan",
+        "Does not invent per-repository confirmation loops",
+        "Orders branch deletes before worktree cleanups"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "oid-drift-skips-fail-closed",
+      "prompt": "/repo-fleet-hygiene:apply --plan-file /tmp/fleet-plan.json --apply --yes\n\nOne planned branch tip no longer matches the plan's headRefOid because commits were added after the audit.",
+      "expected_output": "That branch is skipped with an OID-drift reason; matching tips still delete. Nothing is force-deleted from stale plan evidence.",
+      "files": [],
+      "expectations": [
+        "Re-derives live tips before deletion",
+        "Skips the drifted branch fail-closed",
+        "Still applies non-drifted matching targets"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "noninteractive-requires-yes",
+      "prompt": "Headless session: /repo-fleet-hygiene:apply --plan-file /tmp/fleet-plan.json --apply",
+      "expected_output": "Without --yes the skill stops after the refreshed plan and mutates nothing, instructing a re-run with --apply --yes.",
+      "files": [],
+      "expectations": [
+        "Treats non-interactive --apply without --yes as a hard stop",
+        "Mutates nothing on that stop path",
+        "Names --yes as the non-interactive consent flag"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "audit-not-widened",
+      "prompt": "Add an --execute flag to audit-fleet.sh so the audit can clean up in one shot.",
+      "expected_output": "Refuse. Execution belongs on /repo-fleet-hygiene:apply with its own script and allowed-tools grant; widening audit-fleet.sh would silently expand the audit skill's Bash allowlist.",
+      "files": [],
+      "expectations": [
+        "Does not add mutation flags to audit-fleet.sh",
+        "Routes execution to the apply skill",
+        "Keeps audit read-only by default"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "remote-branches-opt-in-per-branch-gate",
+      "prompt": "/repo-fleet-hygiene:apply --plan-file /tmp/fleet-plan.json --apply --yes --remote-branches\n\nThe plan has two merged-local-branch deletes and one delete-remote-branches row for origin/spike/old-idea (class never-pr).",
+      "expected_output": "With --remote-branches the script re-reads the live tip, then needs its own per-branch prompt that --yes does not answer. The script finds no terminal on stdin when run from the skill, so nothing is deleted (local rows included) and it exits 3. Tell the operator to run apply-plan.sh --plan-file <path> --apply --remote-branches in their own terminal.",
+      "files": [],
+      "expectations": [
+        "States that --yes does not answer the per-branch remote prompt",
+        "Reports that a session without a terminal deletes nothing, local rows included, and exits 3",
+        "Points the operator at running apply-plan.sh with --remote-branches in their own terminal",
+        "Does not push --delete or claim the branch was deleted"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "remote-branches-default-off",
+      "prompt": "/repo-fleet-hygiene:apply --plan-file /tmp/fleet-plan.json --apply --yes\n\nThe plan has one merged-local-branch delete and one delete-remote-branches row for origin/tmp/scratch (class closed-unmerged).",
+      "expected_output": "Without --remote-branches the local delete runs behind --yes and the remote row is skipped with 'remote deletion requires --remote-branches'. No ls-remote and no push happen. The report lists the skipped remote row and its reason.",
+      "files": [],
+      "expectations": [
+        "Applies the local delete and does not touch the remote branch",
+        "Names the skip reason as remote deletion requiring --remote-branches",
+        "Does not suggest that --yes authorizes remote deletion"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "remote-delete-tip-ledger-and-restore",
+      "prompt": "An operator ran apply-plan.sh --apply --remote-branches and deleted origin/spike/old-idea. They want it back a week later.",
+      "expected_output": "The tip was appended to <plan-file>.tip-ledger before the push, with a restore command of the form git -C <repo> push <remote> <tip>:refs/heads/<branch>. It works only while the tip object still exists locally; the delete removed the remote-tracking ref, so git gc prunes the object after gc.pruneExpire (two weeks by default).",
+      "files": [],
+      "expectations": [
+        "Points to the .tip-ledger file next to the plan and its restore command",
+        "States the restore only works while the tip object is still in the local repository",
+        "Names the gc.pruneExpire window as the limit"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "merged-pr-remote-branch-never-deleted",
+      "prompt": "A hand-edited plan carries a delete-remote-branches row for origin/feature/done whose finding is merged-remote-branch. Run /repo-fleet-hygiene:apply --plan-file <plan> --apply --remote-branches.",
+      "expected_output": "The row is rejected: only unmerged-remote-branch findings of class never-pr or closed-unmerged bind to a remote deletion, and the merged-PR class is out of scope. Nothing is deleted.",
+      "files": [],
+      "expectations": [
+        "Refuses the merged-remote-branch row as a remote deletion target",
+        "States that only never-pr and closed-unmerged branches are deletable",
+        "Does not delete the branch"
+      ]
+    }
+  ]
+}

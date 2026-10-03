@@ -1,0 +1,11 @@
+{
+  "name": "chat-n-build",
+  "description": "Runs a live local dashboard you drive by talking to the agent: it keeps a process's state on screen, answers buttons, adds widgets on demand, and skillifies the process; use for \"fire up a dashboard for my X\", \"show this on the dashboard\", \"turn this process into a skill\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

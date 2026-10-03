@@ -1,0 +1,66 @@
+> Source: https://chat-sdk.dev/docs/state-adapters.md
+
+---
+title: State Adapters
+description: State adapters store thread subscriptions, distributed locks, and cached data for your bot.
+type: overview
+prerequisites:
+  - /docs/getting-started
+related:
+  - /docs/concurrency
+  - /docs/history
+  - /docs/testing
+---
+
+# State Adapters
+
+
+State adapters store thread subscriptions, distributed locks, and cached data. Every `Chat` instance needs one. Browse the available state adapters on the [Adapters](/adapters) page.
+
+## What state adapters manage
+
+### Thread subscriptions
+
+When your bot calls `thread.subscribe()`, the state adapter persists that subscription. On later webhooks, the SDK checks it to route messages to `onSubscribedMessage`. With a production adapter such as Redis or PostgreSQL, subscriptions survive restarts and are shared across instances.
+
+### Distributed locking
+
+When a message arrives, the SDK acquires a lock on its thread, or on its channel for adapters that lock per channel, such as WhatsApp and Telegram. The lock stops two handlers from processing messages in the same thread at once, even when your bot runs on several serverless instances.
+
+The `concurrency` option decides what happens when the lock is already held. By default, the new message is dropped with a `LockError`. You can also queue it, debounce a burst of messages, or skip locking entirely. See [Concurrency](/docs/concurrency) for the strategies and for [lock scope](/docs/concurrency#lock-scope).
+
+The deprecated `onLockConflict` option still works under the default `drop` strategy. Set it to `'force'` to release the held lock and let the new message through, for example so a new message can interrupt a long-running AI response:
+
+```typescript
+const chat = new Chat({
+  userName: 'my-bot',
+  adapters: { slack },
+  state: createRedisState(),
+  onLockConflict: 'force',
+});
+```
+
+You can also pass a callback that decides per message:
+
+```typescript
+onLockConflict: (threadId, message) => {
+  return message.text.includes('stop') ? 'force' : 'drop';
+}
+```
+
+Force-releasing a lock doesn't cancel the previous handler. It keeps running without the lock, so two handlers can briefly run on the same thread at the same time.
+
+### Caching and storage
+
+State adapters also provide key-value storage with a TTL. The SDK uses it for thread and channel state (`thread.setState()`), for message deduplication, which ignores webhooks a platform delivers more than once, and for internal caches. Lists back the [History API](/docs/history), and queues back the `queue`, `debounce`, and `burst` concurrency strategies.
+
+To build your own state adapter, implement the `StateAdapter` interface exported from `chat`. The `@chat-adapter/state-memory` package is a small implementation you can use as a reference.
+
+
+---
+
+For a semantic overview of all documentation, see [/sitemap.md](/sitemap.md)
+
+For an index of all available documentation, see [/llms.txt](/llms.txt)
+
+For agent-facing discovery, including API and MCP surfaces, see [/agents.md](/agents.md)

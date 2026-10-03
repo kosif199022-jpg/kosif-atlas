@@ -1,0 +1,88 @@
+> Source: https://chat-sdk.dev/adapters/official/redis.md
+
+---
+title: Redis
+description: Production state adapter using the official `redis` package.
+tagline: Production state adapter for Chat SDK using the official `redis` client, with persistent subscriptions, distributed locking, and a key-value cache.
+package: @chat-adapter/state-redis
+---
+
+# Redis
+
+
+## Install
+
+
+## Quick start
+
+With no options, `createRedisState()` connects to the URL in `REDIS_URL`.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { /* ... */ },
+  state: createRedisState(),
+});
+```
+
+If you already use ioredis or need Redis Sentinel, see [when to choose ioredis vs redis](/adapters/official/ioredis#when-to-choose-ioredis-vs-redis).
+
+## Configuration
+
+
+Either `url`, the `REDIS_URL` env var, or `client` is required.
+
+### Environment variables
+
+| Variable    | Required                        | Description                                          |
+| ----------- | ------------------------------- | ---------------------------------------------------- |
+| `REDIS_URL` | Unless `url` or `client` is set | Redis connection URL, used when `url` is not passed. |
+
+## Using an existing client
+
+Pass a client you created with the `redis` package as `client`. The adapter doesn't connect a client it didn't create, so call `client.connect()` yourself before the bot starts. The adapter's `disconnect()` leaves the client open.
+
+```typescript title="lib/state.ts" lineNumbers
+import { createClient } from "redis";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const client = createClient({ url: "redis://localhost:6379" });
+await client.connect();
+
+export const state = createRedisState({ client });
+```
+
+## Data model
+
+Every key starts with `keyPrefix`, which defaults to `"chat-sdk"`. Set your own prefix to keep the bot's keys apart from other data in the same Redis database:
+
+```typescript
+createRedisState({
+  url: process.env.REDIS_URL!,
+  keyPrefix: "my-bot",
+});
+```
+
+| Key                            | Redis type | Contents                                           |
+| ------------------------------ | ---------- | -------------------------------------------------- |
+| `{keyPrefix}:subscriptions`    | Set        | Subscribed thread IDs                              |
+| `{keyPrefix}:lock:{threadId}`  | String     | Lock token, with a TTL                             |
+| `{keyPrefix}:cache:{key}`      | String     | JSON-serialized cache value, with an optional TTL  |
+| `{keyPrefix}:list:{key}`       | List       | JSON-serialized list entries, with an optional TTL |
+| `{keyPrefix}:queue:{threadId}` | List       | Queued messages for a thread, with a TTL           |
+
+## Production notes
+
+* Run Redis 6.0+ for best performance.
+* Enable persistence (RDB or AOF).
+* Set explicit memory limits.
+* For Redis Sentinel, use [`@chat-adapter/state-ioredis`](/adapters/official/ioredis). This adapter accepts a single `redis` client. Neither adapter supports Redis Cluster.
+
+For serverless deployments such as Vercel or AWS Lambda, use a serverless-compatible Redis provider such as [Upstash](https://upstash.com).
+
+## Feature support
+
+

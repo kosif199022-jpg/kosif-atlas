@@ -1,0 +1,4 @@
+# Release manifest: user-facing files only, relative to the repo root.
+README.md
+VIBE_USERGUIDE.md
+CHANGELOG.md

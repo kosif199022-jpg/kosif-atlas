@@ -1,0 +1,6 @@
+interface:
+  display_name: "Answer as a reviewed document"
+  short_description: "Write an answer and run your configured reviewer"
+  default_prompt: "Use $answer to write the requested answer and have the configured reviewer check it."
+policy:
+  allow_implicit_invocation: false

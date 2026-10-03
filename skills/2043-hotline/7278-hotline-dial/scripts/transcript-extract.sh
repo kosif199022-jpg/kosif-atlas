@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Transcript Extract: read a callee's Claude Code JSONL transcript and report,
+# for one hotline call (identified by its CALL_ID nonce), whether the message
+# submitted and — once the turn completes — the response body.
+#
+# This replaces terminal screen-scraping. The transcript is the structured
+# source of truth: Claude Code flushes one JSON event per line in real time
+# (verified live — a mid-turn session's file was <10s stale, ms-timestamped).
+# We correlate on the nonce in event DATA, not on rendered pixels, so it's
+# immune to REPL chrome (box glyphs, prompt markers, ANSI, spinners) that vary
+# by claude version. (claude-plugins-0pwc)
+#
+# Schema facts this relies on (verified against real transcripts):
+#   - `type:"user"` events carry the typed message in `.message.content`, which
+#     is EITHER a string (slash-command / raw follow-up) OR an array of blocks
+#     (tool results) — so we match the nonce against `.message.content|tostring`.
+#   - `type:"assistant"` events carry `.message.content[]` blocks of type
+#     `text` | `thinking` | `tool_use`; only `text` blocks are response prose.
+#   - `.isSidechain == true` marks subagent turns — excluded so a spawned
+#     agent's chatter never pollutes the response.
+#   - `.sessionId` is on every event.
+#   - A message typed into a REPL that is mid-turn is QUEUED, and claude records
+#     that as `type:"queue-operation"` (`operation:"enqueue"`, text in
+#     `.content`). See the two delivery paths below.
+# The receiver still brackets its answer with the ringing protocol's
+# `STATUS: WORK_IN_PROGRESS call_id=<nonce>` … `STATUS: <terminal> call_id=<nonce>`
+# sentinels; we apply that same bracketing to the structured text.
+#
+# Exit codes (the contract wait-for-response.sh polls on):
+#   0  — turn complete: prints {"session_id":"…","response":"…"} (compact JSON)
+#   10 — submitted (see SUBMIT EVIDENCE) but no terminal STATUS yet
+#        → caller keeps waiting patiently (model is working)
+#   11 — no submit evidence for the nonce anywhere in the transcript
+#        → caller consults the callee's input box before concluding anything
+#   12 — PREEMPTED: no terminal STATUS, a genuine human prompt arrived after our
+#        turn, and nothing after that prompt names our call_id — so the receiver
+#        has been handed something else. The preempting prompt (200 chars) goes to
+#        stdout. → caller starts its grace window instead of sitting out the
+#        timeout (wait-for-response.sh decides how long to keep polling).
+#   13 — AWAITING_REVIEW: this step's reply is complete but the work order is not
+#        finished. Same JSON as exit 0 plus `"awaiting_review": true`.
+#        → caller stops waiting and keeps the session live for a follow-up.
+#   1  — usage / unreadable transcript error (message on stderr)
+#
+# AWAITING_REVIEW (claude-plugins-n4vy)
+# "Is the work finished" and "is the reply ready" are two different facts, and the
+# protocol used to have only one word for both. A callee told to do step 1 of 3,
+# report, and hold for the lead's review can honestly emit only WORK_IN_PROGRESS —
+# the work order IS unfinished — and WORK_IN_PROGRESS is precisely what the caller
+# treats as "keep polling". Observed live: the waiter blocked past its 600s tool
+# timeout, got backgrounded, and had to be killed while the finished report sat
+# complete in the transcript. `STATUS: AWAITING_REVIEW call_id=<nonce>` resolves
+# the wait exactly like a terminal status, and the separate exit code plus the
+# payload marker tell the caller the surface and session are still live and a
+# follow-up is expected. WORK_IN_PROGRESS still means keep polling, unchanged.
+#
+# PREEMPTION (claude-plugins-dvjo)
+# A cmux call lands in a VISIBLE surface, and a visible surface is one the human
+# can type into — that is the point of side-by-side placement, not a misuse. Once
+# they give that session another task, our STATUS never arrives; waiting out the
+# remaining 1800s tells the caller nothing. Counted as preemption: a new human
+# prompt (including one typed as a slash command) and `[Request interrupted by
+# user…]`. NOT counted: tool_result records (no text blocks), isMeta /
+# isSidechain / isCompactSummary / isVisibleInTranscriptOnly records, our own
+# nonce turn or a replay of it, and anything BEFORE our nonce turn. Client-side
+# commands (/model, /clear) are type:"system" subtype:"local_command" rather than
+# user records, so they are out of scope for free — right for /model, a known miss
+# for /clear, which the timeout still catches. Claude's local-command wrapper
+# records can arrive as type:"user" without isMeta; those begin with
+# <local-command-stderr>, <local-command-stdout>, <local-command-caveat>, or
+# <task-notification> and are synthetic harness output, not human reassignment.
+#
+# A MID-CALL REDIRECT IS NOT A REASSIGNMENT (claude-plugins-mrpi)
+# The same human who can hand that session another task can also interrupt it to
+# STEER the order we sent — and steering produces the identical records: a
+# `[Request interrupted by user]` user record plus a correction prompt. The tell
+# is what the receiver does next. So: PREEMPTED iff no non-sidechain assistant
+# record after the LATEST genuine human prompt carries `STATUS: <anything>
+# call_id=<our nonce>` — WORK_IN_PROGRESS included. A re-ack after that prompt
+# means the receiver is still on OUR order (exit 10, keep waiting); a newer prompt
+# after a re-ack re-opens the question, which is why the anchor is the latest prompt
+# and not the first: anchoring on the first would let one re-ack absolve every
+# prompt that followed it, permanently masking a real reassignment. It also makes
+# the prompt we report the most recent one, which is the one worth showing.
+# Observed live 2026-08-18 (call_id a7d57642a858b188): the correction landed, the
+# caller exited 3, and the receiver went on to report WORK_COMPLETE for that same
+# nonce with nobody listening.
+#
+# SUBMIT EVIDENCE — WHY A `user` RECORD IS NOT THE ONLY PROOF (claude-plugins-1jpz)
+# A message typed into a REPL that is already mid-turn does NOT produce a user
+# record at submit time. It is enqueued, and claude then delivers it one of two
+# ways (both observed live on 2.1.221):
+#   (a) TOOL-BOUNDARY INJECTION — if the busy turn hits another tool call, the
+#       queued text is handed to the model INSIDE that same turn as
+#       `type:"attachment"` with `.attachment.type == "queued_command"` and the
+#       text in `.attachment.prompt` (parentUuid = the tool_result). NO
+#       `type:"user"` record is EVER written for it, yet the model reads and
+#       answers it — measured 8ms after the boundary.
+#   (b) TURN-END FLUSH — if the turn makes no further tool call, the queue drains
+#       after it ends as a genuine `type:"user"` record (+5.5s measured).
+# Correlating on user records alone therefore reported "never submitted" for
+# path (a) messages the receiver had already ANSWERED. So four things count as
+# proof, in this precedence order (the winner also anchors where the response
+# body starts, so prose from the swallowed prior task cannot leak in):
+#   1. a `user` record carrying the nonce            (paths: idle send, and (b))
+#   2. a `queued_command` attachment carrying it     (path (a) delivery)
+#   3. the receiver's own `STATUS: … call_id=<nonce>` — an answer in hand is
+#      proof of receipt no matter which records are missing
+#   4. the `enqueue` record — written the instant the REPL accepts the
+#      keystrokes, so it proves submit before either path resolves
+# 3 is deliberately ranked above 4: it is the later, tighter anchor. The enqueue
+# lands mid-prior-turn, so anchoring there would splice that turn's tail onto our
+# response body.
+#
+# WHY THIS STAYS jq AND SELF-CONTAINED (claude-plugins-wn09)
+# The obvious-looking cleanup is to retire this in favour of session-tools'
+# lib/transcript.mjs. Measured, that is wrong twice over. transcript.mjs applies
+# stripSystemNoise to ASSISTANT prose, so a reply that legitimately quotes a
+# harness block — "the bug is that <system-reminder>…</system-reminder> leaks into
+# the dashboard", an actual hotline answer — comes back with the quote deleted:
+# "the bug is that  leaks into the dashboard". Corrupting response bodies to
+# de-duplicate a parser is a bad trade. And none of the logic that matters here
+# (nonce correlation, STATUS bracketing, WORK_IN_PROGRESS reset) exists in
+# transcript.mjs, so the protocol code would stay in hotline anyway while the
+# plugin gained a hard dependency on session-tools and stopped installing
+# standalone. This file is not a vendored copy of that parser; it is hotline's own
+# protocol reader, and it is deliberately noise-preserving.
+#
+# Usage:
+#   transcript-extract.sh <transcript.jsonl> <call_id-nonce>
+# =============================================================================
+set -euo pipefail
+
+TRANSCRIPT="${1:-}"
+NONCE="${2:-}"
+
+[[ -z "$TRANSCRIPT" || -z "$NONCE" ]] && {
+  echo "usage: transcript-extract.sh <transcript.jsonl> <call_id-nonce>" >&2
+  exit 1
+}
+[[ -r "$TRANSCRIPT" ]] || { echo "transcript not readable: $TRANSCRIPT" >&2; exit 1; }
+
+# One jq slurp pass: locate the record that proves our message reached the
+# callee (see SUBMIT EVIDENCE in the header), then gather every non-sidechain
+# assistant TEXT block from there on, in order, joined with newlines. Emits a
+# small JSON object we finish parsing in bash.
+#   .submitted  — does ANY submit evidence carry the nonce?
+#   .session_id — the anchor record's session (fallback: last seen)
+#   .text       — concatenated assistant prose from the anchor record onward
+PARSED=$(jq -s -c --arg nonce "$NONCE" '
+  ("CALL_ID: " + $nonce) as $tag
+  | ("call_id=" + $nonce) as $stag
+  # (1) a genuine user record carrying the nonce — an idle-REPL send, or a
+  #     queued follow-up flushed after the busy turn ended (delivery path (b)).
+  | (map(.type == "user"
+         and ((.message.content | tostring) | test($tag)))
+     | index(true)) as $ui
+  # (2) a queued follow-up injected into the busy turn at a tool boundary
+  #     (delivery path (a)). No user record accompanies this one, ever.
+  | (map(.type == "attachment"
+         and ((.isSidechain // false) != true)
+         and (((.attachment // {}) | if type == "object" then . else {} end)
+              | (.type == "queued_command")
+                and (((.prompt // "") | tostring) | test($tag))))
+     | index(true)) as $qi
+  # (3) the receiver naming our call_id in its own STATUS line. An answer in hand
+  #     outranks any missing bookkeeping record.
+  | (map(.type == "assistant"
+         and ((.isSidechain // false) != true)
+         and (([.message.content[]? | select(.type == "text") | .text] | join("\n"))
+              | test("STATUS: [A-Z_]+ " + $stag)))
+     | index(true)) as $ai
+  # (4) the enqueue record — the REPL accepted the keystrokes, delivery pending.
+  | (map(.type == "queue-operation"
+         and (.operation == "enqueue")
+         and (((.content // "") | tostring) | test($tag)))
+     | index(true)) as $ei
+  | ([$ui, $qi] | map(select(. != null)) | min) as $di
+  | ($di // $ai // $ei) as $ui
+  | (if $ui == null then [] else .[$ui:] end) as $rest
+  # The LATEST genuine human prompt after our turn, carried with its position in
+  # $rest so the STATUS scan below knows where "after" starts. Latest, not first:
+  # anchoring on the first prompt lets one re-ack absolve every prompt that comes
+  # later, so a redirect we answered would permanently mask a real reassignment
+  # after it. tool_result records contribute no text blocks, so they drop out here
+  # without a special case; our own anchor record is excluded by the nonce test.
+  | ([ $rest
+       | to_entries[]
+       | select(.value.type == "user")
+       | select((.value.isMeta // false) != true)
+       | select((.value.isSidechain // false) != true)
+       | select((.value.isCompactSummary // false) != true)
+       | select((.value.isVisibleInTranscriptOnly // false) != true)
+       | select((.value.message.content | tostring | test("CALL_ID: " + $nonce)) | not)
+       | {i: .key,
+          t: (if (.value.message.content | type) == "string"
+              then .value.message.content
+              else ([.value.message.content[]? | select(.type == "text") | .text] | join(" "))
+              end)}
+       | select(.t != null)
+       | .t |= gsub("^\\s+|\\s+$"; "")
+       | select((.t | length) > 0)
+       | select((.t | test("^<(local-command-(stderr|stdout|caveat)|task-notification)>")) | not)
+     ] | last) as $pe
+  # Does ANY assistant record AFTER that prompt still name OUR call_id in a STATUS
+  # line — any status, WORK_IN_PROGRESS included? Then the interjection was a
+  # mid-course correction of OUR order, not a reassignment, and the callee is
+  # demonstrably still working it. See the PREEMPTION note. (claude-plugins-mrpi)
+  | (if $pe == null then false
+     else ([ $rest[($pe.i + 1):][]
+             | select(.type == "assistant" and ((.isSidechain // false) != true))
+             | ([.message.content[]? | select(.type == "text") | .text] | join("\n"))
+             | select(test("STATUS: [A-Z_]+ " + $stag))
+           ] | length) > 0
+     end) as $still_ours
+  | if $ui == null then
+      {submitted: false, session_id: "", text: "", preempt: ""}
+    else
+      {submitted: true,
+       session_id: (.[$ui].sessionId // (map(.sessionId // empty) | last) // ""),
+       # From the anchor INCLUSIVE: when the anchor is the receivers own STATUS
+       # record (evidence 3) the answer lives in that record. Anchors of the
+       # other three kinds are not assistant records, so including them is a
+       # no-op here.
+       text: ([ .[$ui:][]
+                | select(.type == "assistant" and (.isSidechain != true))
+                | .message.content[]?
+                | select(.type == "text")
+                | .text ]
+              | join("\n")),
+       # The preempting prompt — reported ONLY when nothing after it still names
+       # our call_id. A post-preempt STATUS for our nonce means the receiver is
+       # still on OUR order, so this reports "" and the caller reads that as
+       # "submitted, still working". (claude-plugins-mrpi)
+       preempt: (if $still_ours then "" else ($pe.t // "") end)}
+    end
+' "$TRANSCRIPT") || { echo "jq failed parsing $TRANSCRIPT" >&2; exit 1; }
+
+SUBMITTED=$(printf '%s' "$PARSED" | jq -r '.submitted')
+[[ "$SUBMITTED" != "true" ]] && exit 11
+
+SESSION_ID=$(printf '%s' "$PARSED" | jq -r '.session_id')
+TEXT=$(printf '%s' "$PARSED" | jq -r '.text')
+PREEMPT=$(printf '%s' "$PARSED" | jq -r '.preempt')
+
+# A resolving STATUS for THIS nonce present yet? Terminal ones end the call;
+# AWAITING_REVIEW ends only this turn (see the note above). Both deliver a body,
+# so both stop the wait — they differ in what the caller does next, which the
+# exit code carries.
+#
+# Checked BEFORE preemption on purpose: a receiver that answered our call and was
+# THEN handed something else has still answered, and that response is owed to the
+# caller. Preemption only decides what to do when no resolving STATUS exists.
+TERM_RE="STATUS: (WORK_COMPLETE|OUT_OF_SCOPE|DONE|AWAITING_REVIEW) call_id=${NONCE}[[:space:]]*$"
+if ! printf '%s\n' "$TEXT" | grep -qE "$TERM_RE"; then
+  if [[ -n "$PREEMPT" ]]; then
+    printf '%s\n' "${PREEMPT:0:200}"
+    exit 12   # reassigned — our STATUS is never coming
+  fi
+  exit 10     # submitted, still working
+fi
+
+# Which resolving STATUS stopped us? The FIRST one in the text wins, matching the
+# awk below (which stops at the first `term` match), so the body and the exit code
+# always describe the same sentinel.
+RESOLVED=$(printf '%s\n' "$TEXT" | grep -oE "$TERM_RE" | head -1 | awk '{print $2}')
+
+# Extract the response body: reset the buffer at each WORK_IN_PROGRESS (so only
+# the final attempt's prose counts — matches the screen-scrape semantics), stop
+# at the resolving STATUS, drop the STATUS sentinel lines, and trim surrounding
+# blank lines.
+BODY=$(printf '%s\n' "$TEXT" | awk -v nonce="$NONCE" '
+  BEGIN {
+    wip  = "STATUS: WORK_IN_PROGRESS call_id=" nonce "[[:space:]]*$"
+    term = "STATUS: (WORK_COMPLETE|OUT_OF_SCOPE|DONE|AWAITING_REVIEW) call_id=" nonce "[[:space:]]*$"
+  }
+  $0 ~ wip  { n=0; delete L; next }
+  $0 ~ term { stop=1; exit }
+  { L[++n] = $0 }
+  END {
+    # trim leading blanks
+    s=1; while (s<=n && L[s] ~ /^[[:space:]]*$/) s++
+    e=n; while (e>=s && L[e] ~ /^[[:space:]]*$/) e--
+    for (i=s; i<=e; i++) print L[i]
+  }
+')
+
+if [[ "$RESOLVED" == "AWAITING_REVIEW" ]]; then
+  # Additive marker — present ONLY on this path, so every existing status keeps
+  # emitting byte-identical JSON. It exists because the documented caller pattern
+  # reads response.json from the call_dir, where `$?` is long gone; the record
+  # itself has to say the work order is unfinished.
+  jq -n -c --arg sid "$SESSION_ID" --arg resp "$BODY" \
+    '{session_id: $sid, response: $resp, awaiting_review: true}'
+  exit 13
+fi
+
+jq -n -c --arg sid "$SESSION_ID" --arg resp "$BODY" '{session_id: $sid, response: $resp}'
+exit 0

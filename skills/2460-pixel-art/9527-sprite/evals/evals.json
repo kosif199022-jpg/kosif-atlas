@@ -1,0 +1,117 @@
+{
+  "skill_name": "sprite",
+  "evals": [
+    {
+      "id": 1,
+      "name": "triggers-on-32x32-icon-request",
+      "prompt": "draw a 32x32 icon of a health potion, red liquid in a round glass flask",
+      "expected_output": "Fires /pixel-art:sprite. Takes the size and subject from the request, states any defaulted choices (palette, view, target) in one line instead of interrogating, authors a palette-locked spec with `.` as transparent, renders it with the bundled render.py, reads preview.png and critiques it, then delivers sheet.png at 1x, sheet.json, the preview and the gallery index.html.",
+      "files": [],
+      "expectations": [
+        "Invokes the sprite skill, not animate or scene",
+        "Uses a 32x32 grid as requested",
+        "States defaulted choices in one line rather than asking a list of questions",
+        "Renders with the bundled render.py and reads preview.png before delivering",
+        "Delivers sheet.png at 1x as the asset, not preview.png"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "triggers-on-rpg-maker-face",
+      "prompt": "make an RPG Maker face for my elf mage, silver hair and green eyes",
+      "expected_output": "Fires /pixel-art:sprite for a character portrait. Reads engine-layouts.md so the face size and sheet layout follow the RPG Maker MZ face convention rather than an arbitrary grid, authors the portrait, runs the render-review loop, and names the delivered files.",
+      "files": [],
+      "expectations": [
+        "Invokes the sprite skill for a still portrait",
+        "Takes the frame size and layout from the RPG Maker entry in engine-layouts.md",
+        "Runs at least one render, read, fix round before delivering"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "procedural-generator-for-large-variant-family",
+      "prompt": "pixel art of a set of 64x64 sword item icons: bronze, iron, gold and crystal variants",
+      "expected_output": "Fires /pixel-art:sprite and chooses the procedural-generator mode because the sprites are large and form a family of variants: a short Python script draws with primitives onto a material grid, maps materials to color ramps, and emits the spec, so each variant is a ramp swap rather than a redrawn grid. The generator is kept beside the output.",
+      "files": [],
+      "expectations": [
+        "Uses a procedural generator rather than hand-writing 64x64 rows",
+        "Makes the variants recolors of one design through material color ramps",
+        "Keeps the spec and generator beside the output"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "near-miss-walk-cycle-routes-to-animate",
+      "prompt": "give my knight sprite a 4-direction walk cycle for Godot",
+      "expected_output": "Does not fire /pixel-art:sprite: a movement cycle is /pixel-art:animate's job, as the sprite description states. Routes to /pixel-art:animate instead of drawing a single still frame.",
+      "files": [],
+      "expectations": [
+        "Does not invoke the sprite skill for a walk cycle",
+        "Routes to /pixel-art:animate"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "near-miss-title-screen-routes-to-scene",
+      "prompt": "build an animated title screen for my game with the logo over a pixel-art castle at sunset",
+      "expected_output": "Does not fire /pixel-art:sprite: an animated title screen is a composed scene, which belongs to /pixel-art:scene. Routes there; a sprite may be authored first only if the scene needs a character that does not exist yet.",
+      "files": [],
+      "expectations": [
+        "Does not invoke the sprite skill as the handler for a title screen",
+        "Routes to /pixel-art:scene"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "near-miss-ink-illustration-not-pixel-art",
+      "prompt": "draw a hand-inked illustration of a fox in a loose brush-pen style",
+      "expected_output": "Does not fire /pixel-art:sprite: the request is hand-drawn ink illustration, not a palette-locked pixel grid. Does not force the subject into a pixel sprite; handles the request outside the pixel-art plugin.",
+      "files": [],
+      "expectations": [
+        "Does not invoke the sprite skill for an ink or brush illustration",
+        "Does not convert the request into a pixel-art sprite"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "records-brief-and-grades-done-criteria",
+      "prompt": "pixel art of a tall lantern-bearing watchman, 32x32, side view. Done when the lantern is the brightest cluster and the silhouette reads at 1x.",
+      "expected_output": "Fires /pixel-art:sprite. Writes brief.md beside the spec before the first render, with proportions, style references, and the two done criteria. Unspecified fields (style references, palette, mood, target) are one defaults line, not questions. Each review round marks every done criterion pass or fail with a one-line reason, and stops when both pass or the round budget is spent with the failures named. A later run that finds that brief.md reads it instead of asking again. Does not call /planning:interview: the subject and done criteria are already stated, and the interview offer is only for a vague or high-stakes request when the planning plugin is installed.",
+      "files": [],
+      "expectations": [
+        "Writes brief.md beside the spec before the first render",
+        "Records proportions and style references, defaulting the ones the request omits in one line",
+        "Every review round marks each done criterion pass or fail with a one-line reason",
+        "Stops when all criteria pass or the round budget is spent with failures named",
+        "Reads an existing brief.md on a re-run instead of re-asking",
+        "Does not require /planning:interview; that offer is presence-gated and optional"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "vague-brief-states-defaults-in-one-line",
+      "prompt": "make me a pixel-art character",
+      "expected_output": "Fires /pixel-art:sprite. The request names no subject, size, palette, or done criteria. States the defaults it will use in one line and writes brief.md before the first render. Offers /planning:interview only when the planning plugin is installed; the in-skill brief still proceeds. Does not ask a list of questions.",
+      "files": [],
+      "expectations": [
+        "Invokes the sprite skill",
+        "States defaulted size, palette, and view in one line",
+        "Writes brief.md before the first render",
+        "Does not interrogate with a list of questions",
+        "Offers /planning:interview only when that plugin is installed"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "pico-8-icon-uses-the-engine-grid",
+      "prompt": "pixel-art icon of a key for a PICO-8 cart",
+      "expected_output": "Fires /pixel-art:sprite. Reads engine-layouts.md and uses the PICO-8 sprite grid (8x8 on a 128x128 sheet, columns 16, the pico-8 palette) rather than an arbitrary size.",
+      "files": [],
+      "expectations": [
+        "Invokes the sprite skill",
+        "Uses the PICO-8 8x8 sprite size from engine-layouts.md",
+        "Uses the bundled pico-8 palette"
+      ]
+    }
+  ]
+}

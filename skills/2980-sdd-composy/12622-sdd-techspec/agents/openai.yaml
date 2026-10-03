@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD TechSpec"
+  short_description: "Technical specification from approved contracts"
+  default_prompt: "Use $sdd-techspec to create or revise a TechSpec from approved upstream contracts."

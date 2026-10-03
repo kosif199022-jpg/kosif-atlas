@@ -1,0 +1,255 @@
+---
+name: tribunal-loop
+description: "Use for multi-provider code review with repo-walking reviewers, diff-only review, and arbitration."
+---
+
+# Tribunal Loop
+
+Multi-provider code review with inline arbitration. By default the panel is Codex
+(repo-walking), Grok (repo-walking), and Claude Code (diff-only). Gemini, DeepSeek,
+GLM, and Qwen are opt-in. The calling context arbitrates
+inline and makes the final decision.
+
+This skill is intentionally orchestration-only. Provider shell mechanics live in
+the plugin `scripts/` directory, shared through `scripts/lib.sh`; the runners are
+named in the steps below.
+
+## Provider Policy
+
+Per-provider defaults, enable/disable flags, and transport notes live in
+`references/provider-policy.md`.
+
+Disabled providers emit `{"provider":"...","status":"disabled"}` and are
+excluded from quorum. Provider errors degrade the run, but if all non-disabled
+providers fail the verdict must be `NEEDS_WORK` with confidence `0.0`.
+
+Only a runner script can stamp `diff_stat` onto a leg, and it pins the range
+when it captures the diff. A review-shaped leg without one did not come from a
+runner: treat it as a provider failure and exclude it from quorum whatever
+verdict it carries (issue #487).
+
+## Step 1: Preflight
+
+Set the plugin root and a per-run scratch dir for the provider JSON, then run preflight:
+
+```bash
+TRIBUNAL_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"   # this plugin's root
+RUN_DIR="$(mktemp -d)"                          # collects one JSON file per leg
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/preflight.sh"
+```
+
+The preflight script resolves the repository default branch (`defaultBranchRef`,
+`git remote show origin`, then `origin/HEAD`), honors `TRIBUNAL_BASE_BRANCH` and
+`TRIBUNAL_BASE_REF`, refuses to review the default branch, verifies a diff with
+`git diff "$BASE_REF"...HEAD`, checks enabled CLIs/model registry entries, and
+reports usable/skipped/disabled active reviewer legs.
+
+Stop if preflight exits non-zero. Otherwise report the base ref and active
+reviewer leg status before launching review. When the caller names a risk tier, prefix
+preflight and every review command with `TRIBUNAL_RISK=<T1..T4>`; shell environment does not
+persist between calls.
+
+Set `TRIBUNAL_SMOKE_PROBE=on` when CLI presence/auth is insufficient evidence.
+It makes one minimal bounded request through each usable default transport and
+removes failed probes from quorum.
+
+## Step 2: Parallel Review
+
+Run the provider scripts as parallel shell calls, not Task agents. The OpenCode
+script serializes GLM and DeepSeek internally to avoid OpenCode shared-state
+deadlocks and prints one JSON object per leg.
+
+```bash
+mkdir -p "$RUN_DIR"
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-codex-review.sh" > "$RUN_DIR/codex.json" &
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-gemini-review.sh" > "$RUN_DIR/gemini.json" &
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-opencode-review.sh" > "$RUN_DIR/opencode.jsonl" &
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-qwen-review.sh" > "$RUN_DIR/qwen.json" &
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-grok-review.sh" > "$RUN_DIR/grok.json" &
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-claude-review.sh" > "$RUN_DIR/claude.json" &
+wait
+```
+
+The scripts preserve the previous runner behavior: unique temp dirs, capped
+`AGENTS.md` and `reachability.md` injection, default branch/base-ref overrides,
+disabled-provider markers, large diff staging as files where needed, JSON output
+normalization, and timeout-bounded provider calls. Codex and Claude use one strict
+review schema; Codex also persists its final response independently of stdout.
+The OpenCode wrapper invokes `opencode` only when GLM or DeepSeek is enabled; then it runs pure
+and non-interactive with permission prompts disabled.
+
+Collect Codex, Gemini, GLM, DeepSeek, Qwen, Grok, and Claude outputs. Treat disabled
+markers as intentional absence. Treat malformed JSON or `{"error":...}` as
+provider failure and continue with remaining non-disabled providers. For an error starting
+with `plan limit:`, run one backup leg per `references/provider-policy.md`.
+Report per-leg results with status using `references/output-contract.md`, including in human progress updates.
+
+### PR delivery evidence
+
+For a merge gate, the provider shell calls above are not authoritative evidence.
+The delivery controller must invoke the installed aggregate runner instead:
+
+```bash
+collection_json="$(bash "$TRIBUNAL_PLUGIN_ROOT/scripts/collect-review-evidence.sh" collect \
+  --repo-root "$REPO_ROOT" --pr "$PR_NUMBER" --output "$CONTROLLER_OWNED_COLLECTION")"
+manifest_sha="$(printf '%s' "$collection_json" | jq -r .manifest_sha256)"
+```
+
+The controller retains `manifest_sha`; do not take it back from model output.
+It should also pin and validate `integrity/runner-bundle.json` with
+`scripts/check-runner-bundle.sh --expected-manifest-sha256 SHA` before collection.
+The runner launches the wrappers, assigns provider identity/status, and seals the
+canonical repository, PR body/base/head/diff, runner/wrapper provenance, provider
+artifacts, and timestamps. Read the retained provider files for Step 3. Never
+accept caller-created provider JSON as merge evidence.
+
+## Step 3: Inline Arbitration
+
+Arbitrate inline in the current calling context. Do not spawn another agent.
+`TRIBUNAL_CALLER_PROVIDER`, `TRIBUNAL_CALLER_MODEL`, and
+`TRIBUNAL_CALLER_EFFORT` may identify that context when supplied. They are
+informational metadata, not routing controls. Do not infer missing values;
+standalone runs may leave all three unset and must continue normally.
+
+Also read `reachability.md` from the repo root if present. It is supporting
+context only; it never lowers the evidence bar for a blocking finding.
+
+### 3a: Dedupe
+
+Two findings are duplicates when they describe the same underlying issue in the
+same file, even if phrased differently. Merge duplicates into one tribunal
+finding, preserve all providers, and mark findings reported by two or more
+providers as `CONSENSUS`.
+
+### Same-Class Merge (Every Round)
+
+Merge same-class findings even when line numbers or wording differ. For example,
+multiple "ordering window", "unawaited write", "missing idempotency", or
+"swallowed error" reports on the same changed behavior should become one finding
+with one concrete fix path. Do not make the user fix the same defect repeatedly.
+
+### 3b-0: Blocking-Finding Standard
+
+A `critical` or `high` finding is valid only when it proves all three:
+
+1. Production reachability: the changed code can run in a realistic production
+   path.
+2. Material impact: the failure can lose money/data, break availability,
+   violate security/privacy, or corrupt externally visible behavior.
+3. Causation: the reviewed change caused or exposed the defect.
+
+If any element is missing, cap the finding at `medium`. Highest-severity merge
+rules never override 3b-0. Required for critical/high findings:
+
+```json
+"blocking_proof": {
+  "reachable_path": "...",
+  "material_impact": "...",
+  "caused_by_change": "..."
+}
+```
+
+### Marked Positions (`line_check`)
+
+The runner marks findings whose position cannot exist — providers sometimes report diff-global positions — and marks findings whose check could not run. Verify positions only against the leg's pinned tree:
+`git show <head_oid>:<path>` with that leg's stamped `diff_stat.head_oid`, never the ambient worktree.
+Verify marked findings before counting them toward severity or consensus; cap at `medium` unless independently
+confirmed against that pinned tree. If the pinned object is unavailable, report the provider and unavailable evidence
+in `summary` and the finding's `arbiter_notes`; retain the mark in those notes and keep the medium cap, with no ambient fallback.
+
+### Ignored Added Paths
+If preflight warns or sealed `ignored-paths.json` exists, read the preceding stanza comments from `git show HEAD:<source>` (never the ambient worktree) and make each signal a `repository-policy` finding; it must become a finding, not be reported and forgotten.
+The default is medium; escalate to high when the preceding ignore comment says `secret`, `PII`, `credential`, `key`, or `never commit`. That high blocks the gate by design.
+
+### Deleted Policy Paths
+If preflight warns or sealed `deleted-paths.json` exists, make each path a medium `repository-policy` finding; it must become a finding, not be reported and forgotten.
+
+### Mutation Gate
+If sealed `mutation-gate.json` contains vacuous results, each must become a `repository-policy` finding; sealed vacuous mutation-gate results must become a finding, not forgotten.
+
+### Conflicts
+
+For conflicts, prefer direct code evidence over reviewer confidence. If two
+reviewers disagree on severity for the same valid finding, use the highest
+severity that satisfies 3b-0 and explain the disagreement in `arbiter_notes`.
+
+### 3c: KISS / YAGNI Filter (Arbiter)
+
+After 3b-0, filter every retained finding and its suggested fix:
+
+- **KISS** — simplest fix that closes a proven defect; reject remedies that add
+  layers or generalized machinery when a local change or deletion would suffice.
+- **YAGNI** — reject speculative capability, premature abstractions, unused
+  config, or defensive branches for unreachable states.
+- Real defect + over-engineered suggestion: keep only if 3b-0 holds; rewrite
+  `suggestion` to the smallest sufficient fix (`arbiter_notes`).
+- Over-scoping finding (style purity, optional polish): reject or cap at
+  `medium`/`low`; record under provider rejected / `false_positives`.
+- Never promote to critical/high for a KISS/YAGNI violation alone; blocking
+  still requires 3b-0. Scope-lens findings stay separate.
+
+## Optional Scope Lens
+
+If `TRIBUNAL_SCOPE_LENS=on`, perform a minimal-diff scope-control pass before the
+final verdict. Judge changed files and hunks against the visible task, issue,
+plan, branch name, PR body, commit messages, and user instructions.
+
+Report scope findings separately in `scope_findings`, not mixed with correctness
+or security findings. Flag unrelated files, opportunistic refactors, unnecessary
+abstractions, defensive branches for impossible internal states, rename/reformat
+churn, and tests that assert unrelated implementation details. Do not reject an
+intentional refactor when the task explicitly asks for one.
+
+Each scope finding must include:
+
+- `id` such as `S-001`
+- `path`
+- `why_out_of_scope`
+- `disposition`: `must-remove-before-merge` or `follow-up-only`
+- `conflicting_task_text` when available
+- `smallest_acceptable_diff`
+
+Any `must-remove-before-merge` scope finding makes the verdict at least
+`NEEDS_WORK`.
+
+## Verdict Rules
+
+- If all non-disabled providers failed: `NEEDS_WORK`, confidence `0.0`.
+- The zero-findings shortcut requires every non-disabled provider to have produced a leg (`status == "ok"`)
+  with zero findings, no blocking scope findings, and no sealed ignored-path signals, deleted-path signals, or vacuous mutation-gate signals requiring repository-policy findings:
+  `APPROVE`, confidence `0.95`.
+- `APPROVE` also requires at least the sealed `panel_policy.min_ok_legs` floor of `ok` legs (from `TRIBUNAL_MIN_OK_LEGS`, default 1; see `references/provider-policy.md`).
+- `APPROVE` requires confidence `0.95` when every non-disabled provider is `ok`. Any `failed` provider prevents the shortcut but still permits `APPROVE` with confidence `> 0` and `< 0.95`.
+  Assess remaining evidence explicitly; justify reduced confidence and name each failed provider and missing independent review in `tribunal_verdict.rationale` and `summary`.
+  Keep manifest statuses in `provider_assessment`; `disabled` remains excluded from quorum and never triggers reduced confidence.
+- If any valid critical/high finding remains: `NEEDS_WORK` or `BLOCK` depending
+  on blast radius and release risk.
+- Medium/low findings may be approved with notes when the change is otherwise
+  production-ready.
+
+## Output Contract
+
+Return JSON only, matching `references/output-contract.md`, including provider statuses,
+finding consensus, and the `blocking_proof` required by 3b-0 for critical/high findings.
+
+For a merge gate, save that JSON to `arbitration.json`, then have the delivery
+controller finalize the collection with its retained manifest digest:
+
+```bash
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/collect-review-evidence.sh" finalize \
+  --collection "$CONTROLLER_OWNED_COLLECTION" \
+  --expected-manifest-sha256 "$manifest_sha" \
+  --arbitration arbitration.json
+```
+
+Only the emitted `tribunal-proof/v1` digest is a delivery proof. Finalization
+rechecks live PR drift, all artifact/provenance digests, provider status, finding
+attribution, and the strict arbitration schema. A run with no successful provider
+cannot approve. Retrying with identical arbitration returns the retained proof;
+conflicting arbitration for that collection fails.
+
+## Trust Hierarchy
+
+The calling context makes the final decision. Codex, Gemini, GLM, DeepSeek,
+Qwen, Grok, and Claude are equal advisory peers. Verify reviewer claims against the
+diff and reachable code before accepting them.

@@ -1,0 +1,11 @@
+{
+  "name": "session",
+  "description": "Runs session check-in/check-out against a project's .context/ store; use for \"what should I work on\", \"resume work\", \"checkpoint\", \"session check-in/check-out\". Requires (or offers to bootstrap) a .context/ directory.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

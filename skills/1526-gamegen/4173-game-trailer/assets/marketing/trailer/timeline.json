@@ -1,0 +1,119 @@
+{
+  "_doc": "Edit decision list, the only file to touch when re-editing. bpm and fps fix the bar grid (fps*240/bpm frames per bar, must be an integer). Shots tile bars 1..bars exactly: bar is the 1-based start bar (fractions allowed), bars the length. kind: play (default; the game's bot plays, start maps to its args) or card (overlay only: studio, logo). in: in-point trigger, one of {x} progress crosses x, {frame} director frame, {hit: n} n-th target hp drop, {event, n} n-th mark(event); optional delay (frames after the condition) and after (frames after the hit). lead: frames kept before the in-point. fx at/len/to are in beats from the in-point. assist: extra inputs injected by the adapter. trailer:false shots are rendered but not cut in (the GIF source).",
+  "bpm": 150,
+  "fps": 60,
+  "bars": 23,
+  "poster_time": 35.5,
+  "portrait_scale": 1.78,
+  "gif": { "shot": "gif_loop", "width": 640, "fps": 20 },
+  "shots": [
+    {
+      "id": "cold_open",
+      "bar": 1,
+      "bars": 2,
+      "start": { "level": 0 },
+      "in": { "x": 46000, "delay": 60 },
+      "fx": [
+        { "type": "fade_in", "at": 0, "len": 2 },
+        { "type": "flash", "at": 4 }
+      ]
+    },
+    { "id": "studio", "bar": 3, "bars": 2, "kind": "card", "card": "studio" },
+
+    {
+      "id": "drop_1",
+      "bar": 5,
+      "bars": 1,
+      "start": { "level": 1 },
+      "in": { "x": 18000 },
+      "fx": [{ "type": "caption", "at": 0, "text": "RUN." }]
+    },
+    { "id": "drop_2", "bar": 6, "bars": 1, "start": { "level": 2 }, "in": { "x": 25000 } },
+    {
+      "id": "drop_3",
+      "bar": 7,
+      "bars": 1,
+      "start": { "level": 3 },
+      "in": { "event": "combo", "n": 2 },
+      "assist": ["auto_attack"],
+      "fx": [{ "type": "caption", "at": 0, "text": "FIGHT." }]
+    },
+    { "id": "drop_4", "bar": 8, "bars": 1, "start": { "level": 1 }, "in": { "x": 31000 } },
+    {
+      "id": "drop_5",
+      "bar": 9,
+      "bars": 1,
+      "start": { "level": 4 },
+      "in": { "x": 12000 },
+      "fx": [{ "type": "caption", "at": 0, "text": "FASTER." }]
+    },
+    { "id": "drop_6", "bar": 10, "bars": 1, "start": { "level": 2 }, "in": { "x": 40000 } },
+    { "id": "drop_7a", "bar": 11, "bars": 0.5, "start": { "level": 3 }, "in": { "x": 9000 } },
+    { "id": "drop_7b", "bar": 11.5, "bars": 0.5, "start": { "level": 4 }, "in": { "x": 21000 } },
+    { "id": "drop_8", "bar": 12, "bars": 1, "start": { "level": 0 }, "in": { "x": 15000 } },
+
+    {
+      "id": "tour_1",
+      "bar": 13,
+      "bars": 1,
+      "start": { "level": 0 },
+      "in": { "x": 8000 },
+      "fx": [{ "type": "label", "at": 0, "title": "WORLD ONE", "sub": "ACTS 1-3" }]
+    },
+    {
+      "id": "tour_2",
+      "bar": 14,
+      "bars": 1,
+      "start": { "level": 3 },
+      "in": { "x": 8000 },
+      "fx": [{ "type": "label", "at": 0, "title": "WORLD TWO", "sub": "ACTS 1-3" }]
+    },
+    {
+      "id": "slowmo",
+      "bar": 15,
+      "bars": 1,
+      "start": { "level": 1 },
+      "in": { "x": 7900 },
+      "fx": [{ "type": "slowmo", "at": 0, "to": 4, "scale": 0.35 }]
+    },
+
+    { "id": "boss_1", "bar": 16, "bars": 1, "start": { "level": 2, "boss": true }, "in": { "frame": 160 } },
+    { "id": "boss_2", "bar": 17, "bars": 1, "start": { "level": 4, "boss": true }, "in": { "frame": 160 } },
+    {
+      "id": "hit_1",
+      "bar": 18,
+      "bars": 0.5,
+      "start": { "level": 2, "boss": true },
+      "in": { "hit": 1 },
+      "lead": 14,
+      "fx": [{ "type": "caption", "at": 0, "len": 1.9, "text": "BOSSES", "y": 0.3 }]
+    },
+    { "id": "hit_2", "bar": 18.5, "bars": 0.5, "start": { "level": 4, "boss": true }, "in": { "hit": 1 }, "lead": 14 },
+    { "id": "hit_3", "bar": 19, "bars": 0.5, "start": { "level": 2, "boss": true }, "in": { "hit": 3 }, "lead": 14 },
+    { "id": "hit_4", "bar": 19.5, "bars": 0.5, "start": { "level": 4, "boss": true }, "in": { "hit": 3 }, "lead": 14 },
+    {
+      "id": "final_hit",
+      "bar": 20,
+      "bars": 1.5,
+      "start": { "level": 4, "boss": true },
+      "in": { "hit": 6 },
+      "lead": 24,
+      "fx": [{ "type": "flash", "at": 0 }]
+    },
+
+    {
+      "id": "logo",
+      "bar": 21.5,
+      "bars": 2.5,
+      "kind": "card",
+      "card": "logo",
+      "slam": 2,
+      "fx": [
+        { "type": "fade_in", "at": 0, "len": 0.5 },
+        { "type": "fade_out", "at": 9.25, "len": 0.75 }
+      ]
+    },
+
+    { "id": "gif_loop", "trailer": false, "bar": 0, "bars": 4, "start": { "level": 1 }, "in": { "x": 18000 } }
+  ]
+}

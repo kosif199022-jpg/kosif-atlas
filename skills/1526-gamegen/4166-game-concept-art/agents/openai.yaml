@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Concept Art"
+  short_description: "GameGen: game concept art workflow"
+  default_prompt: "Use $game-concept-art for this game using its saved GameGen preferences."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD Tasks"
+  short_description: "Import, inspect, and advance task contracts"
+  default_prompt: "Use $sdd-tasks to import, list, inspect, or advance the SDD Composy task projection."

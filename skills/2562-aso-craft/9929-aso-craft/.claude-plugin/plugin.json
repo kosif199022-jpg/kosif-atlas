@@ -1,0 +1,21 @@
+{
+  "name": "aso-craft",
+  "version": "0.1.0",
+  "description": "App Store Optimization for iOS and Android from one per-locale Markdown source.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/aso-craft",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "aso",
+    "app-store",
+    "google-play",
+    "keyword-research",
+    "store-listing",
+    "localization",
+    "marketing"
+  ]
+}

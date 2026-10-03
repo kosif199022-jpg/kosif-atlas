@@ -1,0 +1,20 @@
+{
+  "name": "llm-wiki",
+  "version": "0.1.0",
+  "description": "Build and maintain an LLM-maintained wiki \u2014 a persistent, interlinked Markdown knowledge base distilled from curated raw sources (Karpathy's LLM Wiki pattern).",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/llm-wiki",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "knowledge-base",
+    "wiki",
+    "second-brain",
+    "notes",
+    "documentation",
+    "meta"
+  ]
+}

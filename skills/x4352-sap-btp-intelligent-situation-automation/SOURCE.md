@@ -1,0 +1,10 @@
+# sap-btp-intelligent-situation-automation
+
+This archived skill provides legacy guidance for SAP BTP Intelligent Situation Automation data export, unsubscription, and configuration review. It should be used only when maintaining existing ISA tenants, exporting data before access is removed, or understanding historical situation automation setups. The skill covers Event Mesh integration, destination configuration, system onboarding, user management with role collections, automatic situation resolution, unsubscription, and troubleshooting for existing deployments. Keywords: SAP BTP, Intelligent Situation Automation, ISA, situation handling, SAP S/4HANA, SAP S/4HANA Cloud, Event Mesh, Business Event Handling, situation automation, situation dashboard, analyze situations, SAP_COM_0345, SAP_COM_0376, SAP_COM_0092, SituationAutomationKeyUser, SituationAutomationAdminUser, Cloud Connector, cf-eu10, CA-SIT-ATM, business situations, situation types, situation actions
+
+- License: **GPL-3.0**
+- Source: https://github.com/secondsky/sap-skills/tree/ba8a2a27c0351bdd5b508ddbc95447ca0e2644df/plugins/sap-btp-intelligent-situation-automation
+- Commit: `ba8a2a27c0351bdd5b508ddbc95447ca0e2644df`
+- KOSIF static inspection: **READ_ONLY_OK** (hooks: 0, MCP servers: 0, scripts: 0)
+
+Unofficial copy for reference. All rights remain with the original authors under the license above.

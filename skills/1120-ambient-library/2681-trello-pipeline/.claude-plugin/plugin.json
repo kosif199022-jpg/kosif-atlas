@@ -1,0 +1,11 @@
+{
+  "name": "trello-pipeline",
+  "description": "Trello-based agentic product pipeline turning an idea into a PRD via staged AI agents on a live board; use for \"run the Trello pipeline\", \"idea to PRD on my board\", \"set up the TrelloAgents board\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

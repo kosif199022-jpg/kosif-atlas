@@ -1,0 +1,27 @@
+{
+  "$comment": "Frozen from a REAL run of this skill, not a synthetic fixture. `command` reproduces it: the baseline test re-runs it into a temp directory and byte-compares against these artifacts.",
+  "label": "the-real-run",
+  "command": "cp evals/baseline/capture.txt evals/baseline/baseline.json \"$OUT\"/ && node scripts/netwatch.js report --snapshot \"$OUT/capture.txt\" --baseline \"$OUT/baseline.json\" > \"$OUT/report.txt\" && node scripts/netwatch.js render --snapshot \"$OUT/capture.txt\" --baseline \"$OUT/baseline.json\" --captured-at 2026-08-12 --out \"$OUT/report.html\"",
+  "artifacts": [
+    {
+      "path": "baseline.json",
+      "bytes": 117,
+      "sha256": "3ea54fe9d2badbd66e4aaa250a2274c1a08f5a02e0507c9985b403747b3a21dd"
+    },
+    {
+      "path": "capture.txt",
+      "bytes": 4307,
+      "sha256": "7c41fdb2e33eadfde89ad38ba3f71634a876becab35ad9fee4a7b995f17dfa6c"
+    },
+    {
+      "path": "report.html",
+      "bytes": 36014,
+      "sha256": "d0b43d14c04e85d37d8781dafadc42b25800fa865f23a82deec8faaf195c4bc1"
+    },
+    {
+      "path": "report.txt",
+      "bytes": 8448,
+      "sha256": "b8a2ff30316b9db1b820f76b3f9ae85a2e5e4a358110b31d6794e11904f9e9d3"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- chat-n-build widget frame. The renderer puts one widget's JS in the slot and loads this as
+     <iframe sandbox="allow-scripts" srcdoc>. No same-origin, no network (CSP below): data comes in
+     and act/height/errors go out only by postMessage. Contract: references/widget-authoring.md -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<style>
+  :root { --card:#fff; --ink:#1d1d1f; --mute:#6e6e73; --line:#e3e1dc; --accent:#c2410c; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --card:#1e1e1e; --ink:#ececec; --mute:#9a9a9a; --line:#2e2e2e; --accent:#fb923c; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; } }
+  html, body { margin:0; background:transparent; color:var(--ink); font:14px/1.5 system-ui, sans-serif; overflow:hidden; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// Installed before the widget's code so its load-time errors are reported too.
+addEventListener('error', e => parent.postMessage({ kind: 'error', type: 'error', message: String(e.message) }, '*'));
+addEventListener('unhandledrejection', e => parent.postMessage({ kind: 'error', type: 'rejection', message: String(e.reason?.message ?? e.reason) }, '*'));
+</script>
+<script>
+/*__WIDGET_JS__*/
+</script>
+<script>
+(() => {
+  const root = document.getElementById('root');
+  const post = m => parent.postMessage(m, '*'); // '*': a sandboxed frame has no origin to name; only the renderer listens
+  const api = {
+    root,
+    esc: s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`),
+    act: id => post({ kind: 'act', action: String(id) }),
+    resize: () => post({ kind: 'height', px: Math.ceil(document.documentElement.getBoundingClientRect().height) }),
+  };
+  addEventListener('message', e => {
+    if (e.source !== parent || e.data?.kind !== 'data') return;
+    try {
+      root.replaceChildren();
+      const out = render(e.data.widget, api);
+      if (typeof out === 'string') root.innerHTML = out;
+      post({ kind: 'rendered' });
+      api.resize();
+    } catch (err) {
+      post({ kind: 'error', type: 'render', message: String(err?.message ?? err) });
+    }
+  });
+  new ResizeObserver(api.resize).observe(document.documentElement);
+  post({ kind: 'ready' });
+})();
+</script>
+</body>
+</html>

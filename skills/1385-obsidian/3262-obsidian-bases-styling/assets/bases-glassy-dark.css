@@ -1,0 +1,63 @@
+/* =========================================
+   Obsidian Bases — Glassy Dark
+   Based on known .bases-* selectors
+   ========================================= */
+
+.theme-dark {
+  --bases-glass-bg: rgba(255, 255, 255, 0.06);
+  --bases-glass-header: rgba(255, 255, 255, 0.1);
+  --bases-glass-border: rgba(255, 255, 255, 0.12);
+  --bases-row-odd: rgba(255, 255, 255, 0.03);
+  --bases-row-even: rgba(255, 255, 255, 0.08);
+  --bases-row-hover: rgba(255, 255, 255, 0.14);
+}
+
+.theme-dark .bases-view {
+  background: transparent;
+}
+
+.theme-dark .bases-view .bases-table {
+  background: var(--bases-glass-bg) !important;
+  border: 1px solid var(--bases-glass-border) !important;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.35),
+    0 10px 30px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.theme-dark .bases-view .bases-thead .bases-tr {
+  background: var(--bases-glass-header) !important;
+  border-bottom: 1px solid var(--bases-glass-border) !important;
+}
+
+.theme-dark .bases-view .bases-th {
+  color: var(--text-normal) !important;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.theme-dark .bases-view .bases-td,
+.theme-dark .bases-view .bases-th {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.theme-dark .bases-view .bases-td:last-child,
+.theme-dark .bases-view .bases-th:last-child {
+  border-right: none;
+}
+
+/* Alternating row colors */
+.theme-dark .bases-view .bases-tbody .bases-tr:nth-child(odd) {
+  background: var(--bases-row-odd) !important;
+}
+
+.theme-dark .bases-view .bases-tbody .bases-tr:nth-child(even) {
+  background: var(--bases-row-even) !important;
+}
+
+.theme-dark .bases-view .bases-tbody .bases-tr:hover {
+  background: var(--bases-row-hover) !important;
+}

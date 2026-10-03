@@ -1,0 +1,191 @@
+{
+  "skill_name": "implement-dispatch",
+  "evals": [
+    {
+      "id": 1,
+      "name": "autonomous-dispatches-even-when-plan-is-all-main-window",
+      "prompt": "/implementation:implement-dispatch — execute the approved plan. This is an autonomous goal-loop run with no human in the turn cycle; the plan's routing table lists every phase as main-window.",
+      "expected_output": "Detects autonomous orchestration mode and dispatches scope-fenced workers per phase anyway — orchestrated cadence is the default in autonomous mode even when the plan routes all-main-window, so it synthesizes per-phase worker rows rather than doing volume edits from the orchestrator, capping concurrent dispatch at 3-5 workers.",
+      "files": [],
+      "expectations": [
+        "Detects autonomous mode from the goal-loop / no-human-in-cycle signal",
+        "Dispatches workers per phase even though the routing table is all main-window — synthesizes worker rows rather than editing inline",
+        "Does NOT perform the volume edits itself from the orchestrator window in autonomous mode",
+        "Caps concurrent dispatch at roughly 3-5 workers per wave"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "interactive-all-main-window-hands-back-to-implement",
+      "prompt": "/implementation:implement-dispatch — this is an interactive session with me reviewing each turn, and the approved plan has no routing table (all phases are main-window).",
+      "expected_output": "In interactive mode with no worker rows in the routing table, hands execution back to /implementation:implement's classic inline cadence instead of dispatching workers — dispatch is only for worker-routed phases here.",
+      "files": [],
+      "expectations": [
+        "Detects interactive mode (human reviewing each turn) rather than autonomous",
+        "Hands back to /implementation:implement classic inline cadence because the routing table is absent / all main-window",
+        "Does NOT force worker dispatch onto an interactive all-main-window plan"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "verifies-worker-return-against-direct-evidence",
+      "prompt": "/implementation:implement-dispatch phase-2 — the worker for phase 2 reported back: 'Done, all files updated and the build is green.' Accept the phase and move on.",
+      "expected_output": "Treats the worker return as synthesis, not ground truth: promotes its claims to direct evidence (diff read, grep, file Read) and runs /toolchain:check itself main-side before accepting the edits — it never accepts the worker's green claim as the build signal.",
+      "files": [],
+      "expectations": [
+        "Does NOT accept the worker's 'build is green' claim as the authoritative build signal",
+        "Verifies the worker's claims against direct evidence (reads the diff / greps / reads files) before building on them",
+        "Runs /toolchain:check itself from the main window rather than trusting the worker's report"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "brief-carries-scope-fence-and-divergence-clause",
+      "prompt": "/implementation:implement-dispatch phase-1 — compose the brief and dispatch the worker for phase 1.",
+      "expected_output": "The composed brief carries an explicit scope fence (enumerated ALLOWED and FORBIDDEN files/actions), the verbatim divergence-escalation clause instructing the worker to STOP and report if an assumption proves wrong or it must touch anything FORBIDDEN, the touched project invariants, and the phase acceptance criteria — before dispatching.",
+      "files": [],
+      "expectations": [
+        "The brief enumerates an explicit scope fence: ALLOWED vs FORBIDDEN files/actions",
+        "The brief includes the verbatim divergence-escalation clause (STOP and report on a wrong assumption or a FORBIDDEN touch — do not improvise)",
+        "The brief includes the phase's acceptance criteria and the project invariants the task touches",
+        "The scope fence and clause are present before dispatch, not added after the worker returns"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "non-interactive-moderate-divergence-takes-conservative-option",
+      "prompt": "/implementation:implement-dispatch — autonomous run, no human to escalate to. A worker hit a moderate divergence: the plan named a config key that turned out slightly different, and it's asking how to proceed.",
+      "expected_output": "In a non-interactive run, moderate divergence does not deadlock the run: it picks the conservative option (truest to the plan's intent, smallest blast radius), logs it to a DEVIATIONS.md beside the plan artifact, and keeps going. Major divergence would still STOP even autonomously.",
+      "files": [],
+      "expectations": [
+        "Does NOT deadlock the autonomous run waiting for a human on a moderate divergence",
+        "Picks the conservative option (closest to plan intent, smallest blast radius) for the moderate divergence",
+        "Logs the deviation to a DEVIATIONS.md beside the plan artifact (what was planned, what was done, why, blast radius)",
+        "The logged entry is typed (plan-confirmed / discovery / deviation / human-decision), and a deviation entry answers plan said / found / chose / revisit",
+        "Reserves a hard STOP for major divergence (a fundamental assumption wrong), not this moderate one"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "autonomous-fresh-context-verifier-before-done",
+      "prompt": "/implementation:implement-dispatch — autonomous run. Phase 3 changes behavior (a new validation branch in the order intake path); its workers have returned and their acceptance criteria look met; mark the phase DONE.",
+      "expected_output": "In autonomous mode, because phase 3 changes behavior, before marking the phase [DONE] it dispatches a fresh-context verifier subagent that checks the phase's acceptance criteria against the actual diff — a separate agent, never the producing context auditing itself — and surfaces that result in the response before ending the turn. It still runs the Step 4 phase-boundary ritual, scaled to residency: plan marks, a DEVIATIONS.md entry, and the commit when it stays resident, and the full ritual when it clears, switches model or domain, or ends the run.",
+      "files": [],
+      "expectations": [
+        "Dispatches a separate fresh-context verifier subagent before marking the phase DONE (not the producing context self-auditing)",
+        "The verifier checks acceptance criteria against the actual diff, and its result is surfaced in the response before the turn ends",
+        "At a resident boundary runs plan marks, a DEVIATIONS.md entry, and the commit, keeping the full /implementation:implement Step 4 ritual (handoff, status summary, resume prompt) for a clear, a model or domain switch, or run end",
+        "A mechanical, behavior-preserving phase is verified by the orchestrator from the diff plus the build/test signal, with no verifier spawn, in every mode"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "wave-cap-argument-overrides-internal-default",
+      "prompt": "/implementation:implement-dispatch --wave-cap 2 — autonomous run, execute the approved plan; a phase routes eight parallelizable worker rows with disjoint fences, and the plan declares commit authority orchestrator in one assigned worktree.",
+      "expected_output": "The passed --wave-cap 2 replaces the internal 3–5 default: a wave is a batch of that phase's worker rows, so at most 2 rows are in flight at once and the eight rows run as sequential waves of at most 2 rather than 3–5. The rows can share the assigned worktree only because the orchestrator is its only git writer; they keep disjoint fences, none stages, and the build/test gate runs after each wave settles. With no --wave-cap the internal 3–5 default would stand instead; the argument is the single enforcement point for a caller-configured concurrency ceiling and does not otherwise change the dispatch cadence. A fractional cap (e.g. --wave-cap 2.5) is floored to whole rows (2), and a value below 1 is treated as 1 — never a fractional or zero cap.",
+      "files": [],
+      "expectations": [
+        "Honors --wave-cap 2 as the ceiling on worker rows in flight at once within the phase, capping at 2 rather than the internal 3–5",
+        "Runs the eight rows as sequential waves of at most 2 within the one phase, never starting a later phase's rows alongside them",
+        "Shares the assigned worktree only under the declared orchestrator authority: disjoint fences, no worker stages, and the build/test gate runs after each wave settles",
+        "Treats the argument as the only change — the rest of the dispatch cadence (scope-fenced briefs, verify-returns, main-side build) is unchanged",
+        "Floors a fractional cap to whole rows and treats a value below 1 as 1 — never a fractional or zero cap"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "no-commit-plan-fence-declares-orchestrator-commit-authority",
+      "prompt": "/implementation:implement-dispatch phase-1 - the approved plan's worker fence forbids staging, committing, and pushing: the orchestrator owns a commit-subject gate, and the plan pushes once at the end. The phase-1 worktree already exists at C:/work/wt-phase1. Compose the brief and dispatch the worker.",
+      "expected_output": "Declares commit authority orchestrator explicitly in the brief, dispatches the implementation:implementer agent rather than a generic subagent, omits the commit-and-push-early clause and worker-side provisioning, hands over the assigned worktree path, and verifies the return against the uncommitted tree before the orchestrator commits the phase source at the phase boundary without pushing. A fence that forbade only a narrow action such as force-push would leave commit authority at worker.",
+      "files": [],
+      "expectations": [
+        "The brief declares commit authority orchestrator explicitly rather than leaving the worker to infer it from the fence",
+        "Dispatches the implementation:implementer agent, not a generic subagent type, and the brief omits the commit-and-push-early clause and any worker-side provisioning while giving the assigned worktree path",
+        "Verifies the return against the uncommitted tree (status --porcelain including untracked entries, diff HEAD) and runs the build/test gate on it",
+        "The orchestrator commits the phase source in one phase-boundary commit under its commit-subject gate and does not push before the plan's single push",
+        "Does NOT treat a fence forbidding only a narrow action (for example force-push or opening the PR) as switching commit authority to orchestrator"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "worker-authority-rows-sharing-a-worktree-run-one-at-a-time",
+      "prompt": "/implementation:implement-dispatch phase-2 --wave-cap 3 — autonomous run; phase 2 routes two independent worker rows with disjoint fences, both editing in the item's one persisted worktree, and no brief declares a commit authority.",
+      "expected_output": "Commit authority is worker, the default for an absent field, so each row stages, commits, and pushes early in the shared worktree. One git writer per worktree binds under both authorities: the two rows dispatch one at a time (a wave of one in that worktree) even though --wave-cap 3 would allow three, with the second dispatched after the first returns. Running them concurrently would need commit authority orchestrator declared in both briefs, where the orchestrator is the only git writer. The skill does not split the worktree or provision a second one to get parallelism.",
+      "files": [],
+      "expectations": [
+        "Treats the absent commit-authority field as worker, and does not dispatch the two rows concurrently into the one shared worktree",
+        "Explains that --wave-cap 3 does not lift the one-writer-per-worktree rule: under worker, rows sharing a worktree run one per wave",
+        "Names commit authority orchestrator, declared in the briefs rather than inferred, as the only way to run both rows at once in that worktree",
+        "Does NOT provision a per-row worktree or split the phase's briefs to manufacture parallelism"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "wave-fences-composed-disjoint-before-dispatch",
+      "prompt": "/implementation:implement-dispatch phase-3 — autonomous run, commit authority orchestrator in one assigned worktree. Phase 3 has three worker rows: row A may edit src/order/*.py, row B may edit src/order/intake.py and src/pricing/*.py, row C may edit tests/order/*.py. Compose the briefs and dispatch the wave.",
+      "expected_output": "Before dispatching any row, the orchestrator composes the three ALLOWED sets together and finds that rows A and B both allow src/order/intake.py. Overlapping rows do not go out as one wave: it narrows the fences so they are disjoint by file path, or runs the overlapping rows in sequential waves. Each dispatched row's FORBIDDEN list carries the paths the other rows of its wave own, so a touch on a sibling's path trips the divergence-escalation clause. The briefs list paths only, never which row or worker owns them.",
+      "files": [],
+      "expectations": [
+        "Detects that rows A and B both allow src/order/intake.py before dispatching any row",
+        "Does NOT dispatch A and B in the same wave with overlapping ALLOWED sets; narrows the fences to disjoint paths or runs them in sequential waves",
+        "Adds each same-wave sibling's owned paths to every row's FORBIDDEN list",
+        "Measures disjointness on the file path written, not on which worktree the row writes from",
+        "Lists paths in each brief without naming which row or worker owns them"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "operator-wave-cap-applies-when-no-argument",
+      "prompt": "/implementation:implement-dispatch phase-3 — autonomous run, no human in the turn cycle. Phase 3 has six worker rows with disjoint fences, commit authority orchestrator. No --wave-cap was passed; the operator configured implement_dispatch_wave_cap = 2.",
+      "expected_output": "Reads the operator's implement_dispatch_wave_cap because no --wave-cap argument was passed, and runs phase 3's six rows as three sequential waves of two rather than applying the internal 3-5 default.",
+      "files": [],
+      "expectations": [
+        "Uses the operator's implement_dispatch_wave_cap value (2) as the wave cap because no --wave-cap argument was passed",
+        "Runs no more than two worker rows at once, so the six rows run as sequential waves",
+        "Does NOT apply the internal 3-5 default while the operator option is configured",
+        "States that a --wave-cap argument, had one been passed, would take precedence over the operator option"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "post-phase-source-commit-gets-fresh-verifier",
+      "prompt": "/implementation:implement-dispatch — autonomous run, no human in the turn cycle. Every numbered phase is marked [DONE]. The orchestrator then made one more source edit in the main window, a bug fix to a helper, and is about to push the branch and open the PR.",
+      "expected_output": "Dispatches implementation:phase-verifier over the post-phase diff with the orchestrator's rationale withheld, spawns no worker, and neither pushes nor opens the PR until the verdict returns; an INCONCLUSIVE verdict is not treated as a pass.",
+      "files": [],
+      "expectations": [
+        "Dispatches implementation:phase-verifier as a fresh-context pass over the post-phase diff before pushing or opening a PR",
+        "Withholds the orchestrator's rationale and reasoning from the verifier's brief",
+        "Spawns no worker for the post-phase change",
+        "Does NOT push or create the PR before the verifier's verdict returns",
+        "Does NOT treat an INCONCLUSIVE verdict as a pass"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "per-phase-model-column-routes-the-worker-agent",
+      "prompt": "/implementation:implement-dispatch: autonomous run on the Anthropic API (no CLAUDE_CODE_USE_* provider variable is set). The orchestrator's standing rule is to pass model: opus on every spawn. The plan's routing table has Model sonnet on phase 1 (a closed file list with grep checks), no routing row for phase 2, and phase 3 is an auth-token handling change in the security-surface work class. Dispatch each phase in order.",
+      "expected_output": "Phase 1 dispatches implementation:scoped-implementer with an explicit per-invocation model: sonnet, so the orchestrator's model: opus habit cannot override the routed tier; before that it reads the provider variables with printenv, and would have spawned implementation:implementer instead had a Bedrock, Vertex or Foundry variable been set with ANTHROPIC_DEFAULT_SONNET_MODEL unset. Phase 2 has no row, so it dispatches implementation:implementer on its frontmatter binding. Phase 3 is security-surface work, so it dispatches implementation:implementer with the frontier tier's current alias as the per-invocation model. No phase is routed downward by passing a weaker model to implementation:implementer.",
+      "files": [],
+      "expectations": [
+        "Dispatches phase 1 as implementation:scoped-implementer with an explicit per-invocation model: sonnet, not the orchestrator's model: opus habit",
+        "Checks the provider variables (CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_VERTEX, CLAUDE_CODE_USE_FOUNDRY among them) and ANTHROPIC_DEFAULT_SONNET_MODEL with printenv before the sonnet dispatch, and names implementation:implementer as the fallback when a provider variable is set and the Sonnet alias override is unset",
+        "Dispatches the unrouted phase 2 as implementation:implementer on its frontmatter binding",
+        "Dispatches the security-surface phase 3 as implementation:implementer at the frontier tier's current alias",
+        "Does NOT pass a model weaker than the binding to implementation:implementer to reach Sonnet"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "heavy-window-signal-routes-not-clears",
+      "narration": true,
+      "prompt": "/implementation:implement-dispatch: interactive run, phase 3 of 5 in .work/search/PLAN.md was just verified and committed. A context-guard hook just reported the window is heavy. Phase 4 is worker-routed, same model.",
+      "expected_output": "Resident-vs-clear item (a) fires, but it no longer means a default clear: the orchestrator routes the next step with `/session-flow:workflow`, handing it .work/search/PLAN.md and phase 4, and clears to resume from the emitted prompt only if the router routes there. It does not restate the compact/clear/handoff rule itself.",
+      "files": [],
+      "expectations": [
+        "It routes the boundary through `/session-flow:workflow` with the PLAN.md path and phase 4",
+        "It does NOT clear by default just because the heavy-window signal fired",
+        "It does NOT state its own rule for when to compact, clear or hand off"
+      ]
+    }
+  ]
+}

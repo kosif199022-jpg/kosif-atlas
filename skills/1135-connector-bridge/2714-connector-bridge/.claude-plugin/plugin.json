@@ -1,0 +1,11 @@
+{
+  "name": "connector-bridge",
+  "description": "Resolves a folder's declared .aai/connectors.md needs against whatever the current harness actually offers (MCP tools, CLIs, or nothing), caching successful matches in .aai/memory/; use for \"wire up this connector\", \"resolve connectors.md\", \"what can reach X here\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

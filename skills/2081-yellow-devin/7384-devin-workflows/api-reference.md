@@ -1,0 +1,381 @@
+# Devin API V3 Reference
+
+Base URL: `https://api.devin.ai/v3/`
+
+Authentication: `Authorization: Bearer $DEVIN_SERVICE_USER_TOKEN`
+
+Headers: `Content-Type: application/json` for all POST requests.
+
+## Sessions — Organization Scope
+
+### Create Session
+
+```http
+POST /v3/organizations/{org_id}/sessions
+```
+
+Permission: `UseDevinSessions`
+
+Request body (construct via jq):
+
+```json
+{
+  "prompt": "Task description (required)",
+  "title": "Short title for dedup (optional, max 80 chars)",
+  "tags": ["optional", "tag-array"],
+  "max_acu_limit": 50,
+  "repos": ["owner/repo"]
+}
+```
+
+Other optional fields (not used by this plugin):
+
+- `advanced_mode`: `analyze`, `create`, `improve`, `batch`, `manage`
+- `playbook_id`: string
+- `knowledge_ids`: string array
+- `secret_ids`: string array (use this, NOT `session_secrets`)
+- `attachment_urls`: URI array
+- `structured_output_schema`: JSON Schema (Draft 7)
+
+**Forbidden fields (security):**
+
+- `create_as_user_id`: Never use (impersonation risk)
+- `session_secrets`: Never use (inline secrets leak in shell)
+
+Response:
+
+```json
+{
+  "session_id": "string",
+  "url": "https://app.devin.ai/sessions/...",
+  "status": "new",
+  "org_id": "string",
+  "user_id": "string|null",
+  "tags": [],
+  "created_at": 1234567890,
+  "updated_at": 1234567890,
+  "acus_consumed": 0.0,
+  "pull_requests": [],
+  "title": "string|null",
+  "is_advanced": false,
+  "is_archived": false,
+  "parent_session_id": null,
+  "child_session_ids": [],
+  "structured_output": null
+}
+```
+
+Notes:
+
+- **No `idempotent` field** — V3 does not support idempotent session creation.
+  Implement dedup by checking for active sessions with matching `title`.
+- `acus_consumed` starts at 0.0 on creation.
+- `pull_requests` is an empty array on creation.
+
+### Get Session
+
+```http
+GET /v3/organizations/{org_id}/sessions/{devin_id}
+```
+
+Permission: `ViewOrgSessions`
+
+Response: Same `SessionResponse` schema as create.
+
+**Note:** Prefer using the list endpoint with `session_ids` filter instead — it
+works with `ViewOrgSessions` and avoids per-session permission edge cases:
+
+```http
+GET /v3/organizations/{org_id}/sessions?session_ids={devin_id}&first=1
+```
+
+This returns the same data in `{ items: [SessionResponse] }`. See Session Lookup
+Pattern in SKILL.md.
+
+### List Sessions (Org-Scoped)
+
+```http
+GET /v3/organizations/{org_id}/sessions
+```
+
+Permission: `ViewOrgSessions`
+
+Query parameters: same pagination (`first`, `after`) and filtering (`session_ids`,
+`tags`, `origins`, `playbook_id`, `schedule_id`, date ranges) as the enterprise
+list endpoint — but inherently scoped to this org, no `org_ids` parameter needed.
+
+Use this endpoint when listing or searching within a single org. The enterprise
+`GET /v3/enterprise/sessions` endpoint is only needed when querying across
+multiple orgs.
+
+Response: same `{ items, has_next_page, end_cursor, total }` shape as enterprise.
+
+### Terminate Session
+
+```http
+DELETE /v3/organizations/{org_id}/sessions/{devin_id}
+```
+
+Permission: `ManageOrgSessions`
+
+Notes:
+
+- V3 uses DELETE (not POST cancel like V1)
+- DELETE is idempotent by HTTP spec — may return 200 even if already terminated
+- Check response `status` field to confirm actual state
+
+### Archive Session
+
+```http
+POST /v3/organizations/{org_id}/sessions/{devin_id}/archive
+```
+
+Permission: `ManageOrgSessions`
+
+Request body: None.
+
+Response: `SessionResponse` with `is_archived: true`.
+
+Notes:
+
+- No unarchive endpoint documented in V3
+- Archived sessions remain queryable via list endpoint with filters
+
+### Send Message (Org-Scoped)
+
+```http
+POST /v3/organizations/{org_id}/sessions/{devin_id}/messages
+```
+
+Permission: `ManageOrgSessions`
+
+Request body:
+
+```json
+{
+  "message": "Follow-up text here"
+}
+```
+
+**Forbidden field:** `message_as_user_id` — never use (impersonation risk).
+
+Response: `SessionResponse` with updated status.
+
+Notes:
+
+- Prefer this over the enterprise-scoped endpoint when possible — it only
+  requires `ManageOrgSessions` instead of `ManageAccountSessions`
+- **Auto-resumes suspended sessions** — same behavior as enterprise endpoint
+- Same 2000 character limit on messages
+
+### PR Comment Fallback (on 403)
+
+When both org-scoped and enterprise message endpoints return 403 (missing
+`ManageOrgSessions` and `ManageAccountSessions`), review feedback can be
+delivered via GitHub PR comments instead of the Devin API.
+
+**Mechanism:** Devin automatically responds to PR comments as long as the
+session has not been archived
+([docs](https://docs.devin.ai/integrations/gh)).
+
+**Mention-only filtering:** If the org has "Only respond to PR comments that
+mention Devin" enabled, comments must start with `@devin` or `DevinAI`
+([docs](https://docs.devin.ai/product-guides/bot-comment-settings)). The
+`@devin` prefix must be at the very start of the comment body (prefix match,
+not substring search).
+
+**Bot comment filter:** `gh pr comment` posts as the authenticated GitHub user
+(human), so the bot comment filter does not apply. Only the mention-only
+filter is relevant.
+
+**Command:**
+
+Compose the body with `@devin` prefix first, then sanitize, then post.
+Variable names are illustrative — callers substitute their own (e.g.,
+`$PR_NUM`/`$REPO` in `review-prs.md`, `$PR_NUMBER`/`$REPO_SLUG` in
+`message.md`):
+
+```bash
+COMMENT_BODY="@devin ${BODY}"
+SAFE_BODY=$(printf '%s' "$COMMENT_BODY" | sed 's/\(cog\|apk\)_[a-zA-Z0-9_-]*/***REDACTED***/g')
+gh pr comment "$PR_NUMBER" --repo "$REPO_SLUG" --body "$SAFE_BODY"
+```
+
+**Character limits:**
+
+- GitHub PR comments support up to 65536 characters
+- Truncate at 4000 characters for readability (Devin processes long comments
+  less effectively)
+
+**Requirements:**
+
+- `gh` CLI installed and authenticated (`gh auth status`)
+- Devin's GitHub integration enabled on the repository
+- Session not archived (Devin ignores PR comments on archived sessions)
+
+**Used by:** `/devin:message` (Step 5b), `/devin:review-prs` (Option 2b and
+403 auto-escalation from Option 2).
+
+## Sessions — Enterprise Scope
+
+### List Sessions
+
+```http
+GET /v3/enterprise/sessions
+```
+
+Permission: `ViewAccountSessions`
+
+Query parameters:
+
+**Pagination (cursor-based):**
+
+- `first` (integer, default 100, max 200): Items per page
+- `after` (string): Cursor for next page
+
+**Filtering:**
+
+- `session_ids` (string array): Filter by specific IDs
+- `org_ids` (string array): **Always include DEVIN_ORG_ID** to prevent cross-org
+  access
+- `tags` (string array): Filter by tags
+- `origins` (string array): `webapp`, `slack`, `teams`, `api`, `linear`, `jira`,
+  `scheduled`, `other`
+- `playbook_id` (string): Filter by playbook
+- `schedule_id` (string): Filter by schedule
+
+**Date filters (Unix timestamps):**
+
+- `created_after` / `created_before`
+- `updated_after` / `updated_before`
+
+Response:
+
+```json
+{
+  "items": [SessionResponse, ...],
+  "has_next_page": true,
+  "end_cursor": "cursor_string",
+  "total": 42
+}
+```
+
+Notes:
+
+- Always filter by `org_ids` to prevent cross-org data access — omitting it
+  returns sessions from all orgs in the enterprise account
+- `total` is optional and may be null
+- Use `first=10` for interactive listing, `first=100` for bulk operations
+- Single-session lookups should use the org-scoped list endpoint with
+  `session_ids` filter (see Session Lookup Pattern in SKILL.md) — it avoids
+  per-session permission edge cases
+
+### Send Message
+
+```http
+POST /v3/enterprise/sessions/{devin_id}/messages
+```
+
+Permission: `ManageAccountSessions`
+
+Request body:
+
+```json
+{
+  "message": "Follow-up text here"
+}
+```
+
+**Forbidden field:** `message_as_user_id` — never use (impersonation risk).
+
+Response: `SessionResponse` with updated status.
+
+Notes:
+
+- **Auto-resumes suspended sessions** — sending a message to a `suspended`
+  session automatically resumes it
+- Session transitions: `suspended` → `resuming` → `running`
+- Response may show `resuming` status immediately after message
+
+## Tags
+
+### Update Session Tags (V1 Endpoint)
+
+```http
+PUT /v1/sessions/{session_id}/tags
+```
+
+Request body:
+
+```json
+{
+  "tags": ["tag1", "tag2"]
+}
+```
+
+Notes:
+
+- V3-specific tag update endpoint not yet documented
+- Try V3 org-scoped endpoint first during implementation
+- Fall back to V1 endpoint if V3 doesn't have one
+- Test that V1 endpoint accepts `cog_` tokens
+
+## Pagination Pattern
+
+```bash
+list_with_pagination() {
+  local base_url="$1"
+  local cursor=""
+
+  while true; do
+    local url="${base_url}?first=10"
+    url="${url}&$(jq -nr --arg org "$DEVIN_ORG_ID" '@uri "org_ids=\($org)"')"
+    [ -n "$cursor" ] && url="${url}&after=${cursor}"
+
+    # ... curl + error handling ...
+
+    local has_next end_cursor
+    has_next=$(printf '%s' "$body" | jq -r '.has_next_page')
+    end_cursor=$(printf '%s' "$body" | jq -r '.end_cursor // empty')
+
+    # Display items...
+
+    if [ "$has_next" != "true" ] || [ -z "$end_cursor" ]; then
+      break
+    fi
+
+    # Prompt user before next page
+    cursor="$end_cursor"
+  done
+}
+```
+
+## Timestamp Formatting
+
+V3 returns Unix timestamps (integers). Format for display:
+
+```bash
+format_timestamp() {
+  local ts="$1"
+  if [ -z "$ts" ] || ! printf '%s' "$ts" | grep -qE '^[0-9]+$'; then
+    printf 'unknown'
+    return
+  fi
+  local now
+  now=$(date +%s)
+  local diff=$((now - ts))
+  if [ "$diff" -lt 60 ]; then
+    printf 'just now'
+  elif [ "$diff" -lt 3600 ]; then
+    local mins=$((diff / 60))
+    if [ "$mins" -eq 1 ]; then printf '1 minute ago'; else printf '%d minutes ago' "$mins"; fi
+  elif [ "$diff" -lt 86400 ]; then
+    local hrs=$((diff / 3600))
+    if [ "$hrs" -eq 1 ]; then printf '1 hour ago'; else printf '%d hours ago' "$hrs"; fi
+  else
+    date -d "@$ts" '+%Y-%m-%d %H:%M' 2>/dev/null || \
+      date -r "$ts" '+%Y-%m-%d %H:%M' 2>/dev/null || \
+      printf '%s' "$ts"
+  fi
+}
+```

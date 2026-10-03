@@ -1,0 +1,168 @@
+# Measurement engine contract
+
+The record shapes `scripts/measure.mjs` emits, the mechanism claims the skill relies on with their
+official citations, and the comparability rules the engine enforces. Method is the durable content
+here; values are deliberately absent. Every number the plugin ever shows was measured by the run
+that shows it, at the consumer's binary, and stamped with that binary's version.
+
+## Degradation ladder
+
+| Rung | Mode | Precision | Requires | Recorded caveats |
+|---|---|---|---|---|
+| 1 | `sdk` | `exact` (integer tokens) | `@anthropic-ai/claude-agent-sdk` resolvable from `--sdk-dir` or the working directory | none |
+| 2 | `cli-parse` | `display-rounded` (table cells like `11.4k`) | `<binary> -p "/context"` producing the category table | rounded values; headless `/context` is undocumented as a `-p`-capable command, so this rung depends on unsanctioned behavior. When the token-counting API is unavailable, `/context` uses a local estimate instead of extra small-model requests (Claude Code 2.1.261). The commands page `/context` row, fetched 2026-09-28, does not yet say that; the changelog is the behavior source until the row does |
+| 3 | n/a | n/a | n/a | exit 3 with a `context-budget.error/1` record naming the remediation; **never a wrong number** |
+
+The `/context` output format carries no stability guarantee in either direction and has materially
+changed several times; the parser therefore refuses loudly (rung 3) when the expected sections are
+absent rather than guessing. Known parse traps handled: an unredirected-stdin warning line
+prepended to output; skill token cells formatted `~<int>` or `< <int>` unlike every other table;
+`--output-format json` returning the same markdown as a string (the engine parses plain output
+instead).
+
+`cli-parse` also recognizes two harness-only lines that a real `/context` render never emits:
+`Caveat: <text>` and `<!-- synthesized-zero: <bucket> -->`. They let the hermetic test's
+`cli-parse` fake exercise caveat merging and the additivity saturation guard. Against real output
+the guard runs only in `sdk` mode.
+
+## Mechanism claims and citations
+
+| Claim the skill relies on | Source |
+|---|---|
+| A bare tool name in a deny rule removes the tool's definition from the request, except `EndConversation`; a scoped rule (`Bash(rm *)`) is a runtime guard whose schema still ships | [Permissions: tool-name rules](https://code.claude.com/docs/en/permissions), [Agent SDK permissions: allow and deny rules](https://code.claude.com/docs/en/agent-sdk/permissions#allow-and-deny-rules) |
+| Deferred tool loading controls what enters the context window, not what is sent. The full schema still goes out in the request | [Tool search: deferred tool loading](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool#deferred-tool-loading) |
+| `--disallowedTools` exists as a per-invocation CLI flag; there is **no** `disallowedTools` settings key. Persistent config uses `permissions.deny` | [CLI reference: flags](https://code.claude.com/docs/en/cli-reference#cli-flags), [settings](https://code.claude.com/docs/en/settings) |
+| The Agent SDK exposes structured context usage over the control protocol (`getContextUsage()`) | [Agent SDK TypeScript reference](https://code.claude.com/docs/en/agent-sdk/typescript) |
+| When the token-counting API is unavailable, `/context` counts with a local estimate instead of extra small-model requests. The commands page `/context` row fetched 2026-09-28 does not say this; the 2.1.261 changelog does | [Claude Code changelog](https://code.claude.com/docs/en/changelog) (2.1.261) and [commands](https://code.claude.com/docs/en/commands) (`/context` row, which does not yet name the estimate) |
+
+The bare-name row was re-read on 2026-09-28 against
+[permissions](https://code.claude.com/docs/en/permissions). The page now says: "Bare-name removal
+applies to every tool except `EndConversation`: a deny rule can't remove it while any other tool
+remains, and an ask rule never prompts for it." The local-estimate row is verified 2026-09-28
+against the 2.1.261 changelog and a fetch of the commands page that still omits the estimate.
+The other rows in the table stay as verified 2026-09-06 against Claude Code 2.1.263. Recheck a
+row when its page stops carrying the statement, or when a release note names deny rules, the
+`EndConversation` exception, deferred tool loading, the `--disallowedTools` flag, the Agent SDK
+control protocol, or `/context` token counting.
+
+Where the engine's behavior rests on empirical observation rather than documentation (headless
+`/context`, the skill-listing subtraction below), the record says so in `caveats`. The engine
+reports the observation and never silently assumes it durable.
+
+## Comparability rules (enforced, not advisory)
+
+1. **Skill-listing signature.** The prefix `System tools` bucket has listed skill-frontmatter
+   tokens subtracted from it, so its value is only meaningful relative to a run with an identical
+   skill listing. Every snapshot carries `skillListing.signature`, a hash of the sorted
+   (name, source) listing. On a mismatch, `compare`/`attribute` mark `systemToolsComparable: false`
+   and put the reason in `comparability.reasons`. The deferred bucket is a separate pool
+   and listing or Skills-token drift does not poison it: per-bucket additivity applies this gate
+   only to the prefix column. Denying a tool changes no skills, which is what makes per-tool
+   attribution well-posed under this rule.
+2. **One mode, one binary.** Deltas across modes mix precisions; deltas across binary versions or
+   paths measure the upgrade, not the lever. Both mark the row incomparable. These shared checks
+   apply to both attributed buckets (`comparability.modeBinaryComparable`).
+3. **Signed deltas.** `delta` is after-minus-before (a saving is negative); `attribute` rows carry
+   `savedTokens` with the sign flipped for ranking. `prefixDelta` and `deferredDelta` stay
+   separate: a deferred-bucket saving reduces request weight without moving the context-usage
+   headline, and merging them would misstate both.
+4. **Headline semantics.** `totalTokens` excludes the deferred pools, free space, and the
+   autocompact buffer in both modes, matching the renderer's own headline. Deferred pools are
+   plural: built-in and MCP deferred tools are accounted in separate `... (deferred)` categories
+   (measured on the binary and version each run stamps), and both are excluded from the *headline*, not from the
+   *request*. See the deferral citation above.
+
+## Record schemas
+
+All records are JSON on stdout (and `--out <file>`), schema-tagged:
+
+- `context-budget.snapshot/1` is one measured run: `mode`, `precision`, `sessionKind: "headless"`,
+  `binary {path, version}`, `sdk {version, entry} | null`, `model`, `cwd`, `deny[]`,
+  `categories {name: tokens}`, `totalTokens`, `maxTokens`, `tools[]` (live enumeration, sdk mode),
+  `agents[]`, `mcpTools[]`, `memoryFiles[]`, `slashCommands[]` (sdk mode keeps the
+  control-protocol list; cli-parse records `[]` because `/context` markdown does not carry it),
+  `skillListing {totalSkills, includedSkills, collapsedSkills, tokens, signature, rows, frontmatter}`.
+  `collapsedSkills` is `totalSkills - includedSkills` when both are numbers, else null. Each
+  `frontmatter` row keeps `name` and `source`, and in sdk mode also `tokens` and `pluginName` when
+  the control protocol sent them. `caveats[]`.
+- `context-budget.attribution/1` holds `baseline` (summary), ranked `perTool[]` rows
+  `{tool, prefixDelta, deferredDelta, savedTokens, comparable, reasons}`, optional `additivity`
+  (`--verify-additivity`: one combined-deny run checked against the sum of parts, with its own
+  `comparable`/`reasons`, plus `perBucket` carrying `{sumOfParts, combinedSaved, additive,
+  reasons}` for each attributed bucket, read off the `prefixDelta`/`deferredDelta` the saver rows
+  already carry rather than from any extra run; a bucket absent from both runs is outside the
+  binary's category vocabulary and gets no verdict row). Per-bucket measurability is independent:
+  skill-listing and Skills-token checks gate only the prefix column, while the shared mode/binary
+  checks gate both, so a combined-run listing mismatch leaves a measurable deferred verdict in
+  place. Every `additive` field, top level and per bucket, is tri-state: `true` and `false` are
+  measured verdicts, `null` means the reading could not be measured, so an incomparable run is
+  never published as a definite negative. A combined run whose bucket is a synthesized
+  zero (sdk omitted it and the engine filled 0) publishes `additive: null` for that bucket
+  and for the summed verdict, with the reason on the record; the numeric comparison is not
+  used. A measured pair within 1 token counts as additive. The two buckets are reported separately because they
+  do not compose alike: the deferred side adds, the prefix side double-counts.
+  `knownUncovered` (interactive-only product tools from
+  [`interactive-only-tools.json`](interactive-only-tools.json) that were not candidates this
+  run because they are structurally unreachable from a headless inventory, not silent zeros),
+  the binary stamp, and `skillListingSignature`.
+  `knownUncovered.deniedAbsent` lists names from that file that were also passed in
+  `--operator-deny`: the operator's bare-name deny explains their absence, so they are not
+  labeled structurally unreachable. `EndConversation` is on the interactive-only list because it
+  never enters either attributed headless bucket, and a bare-name deny cannot remove it while any
+  other tool remains. A deny can empty a
+  summed bucket out of the snapshot entirely; the bucket's delta is then null and the row (or
+  additivity record) reports `savedTokens`/`combinedSaved` as `null` with `comparable: false` and
+  the reason: a missing measurement, never a coerced zero. That vanish path fires in
+  **cli-parse** mode, where an omitted bucket is genuinely ambiguous (format drift vs emptied
+  bucket). In **sdk** mode the two attributed buckets are recorded as an explicit `0` when the
+  SDK omits them (numbers are exact and the vocabulary is known), so a combined deny yields a
+  real delta; a `caveats[]` entry names every synthesized zero so a raw `snapshot`/`ledger`
+  consumer can tell a reported 0 from a filled-in omission. The attribution record's `caveats`
+  are the baseline's caveats merged with every deny run and, when it ran, the combined
+  additivity run, in that order, with duplicates dropped. A deny run's disclosure is not
+  discarded. A bucket absent from *both* runs is
+  outside that binary's category vocabulary and simply contributes nothing.
+- `context-budget.ledger/1` is one before/after: `lever`, `emittedConfig`, `before`/`after`
+  summaries, `delta` per category, `totalDelta`, `comparability` (`ok`, `systemToolsComparable`
+  for the prefix bucket, `modeBinaryComparable` for the shared mode/binary checks, `reasons`).
+  A category present in only one run gets `null`, never an invented number.
+- `context-budget.catalogue-verify/1` is the `verify-catalogue` record: a docs-independent
+  existence check. Reads the stamped binary and reports `present`/`absent` (with hit counts) for
+  every settings key and env name the catalogue row names. The binary is the authority on *existence
+  at the measured version*; a fresh docs fetch remains the authority on *semantics*. Rows with
+  no extractable key/env name are `skipped`. Absence is a finding in the record (`absent[]`,
+  `missing`), not an invented number and not a degradation. `--find-unstored` adds `unstored[]`:
+  env names of the `CLAUDE_CODE_` / `ENABLE_` / `DISABLE_` shape found in the binary that no row
+  cites. The catalogue's purpose is the recorded set, not a proof of completeness. Without the
+  flag the field is omitted.
+- `context-budget.error/1` is the degradation record: `error`, `detail`, `remediation`. Exit 3.
+
+## Ledger layout
+
+Under the caller-derived data dir (`${CLAUDE_PLUGIN_DATA}/audit/<state-key>/`, where the state key
+is the marketplace's shared per-project scheme; the engine itself never derives keys):
+
+```text
+runs/<UTC-timestamp>-<lever-slug>.json   one file per run
+ledger.jsonl                             one appended line per run — the trend source of truth
+```
+
+One file per run plus an appended history line, so a same-day rerun never erases an earlier
+point. `ledger --append` validates the row's schema; `ledger --list` returns rows plus an honest
+note when the ledger does not exist yet ("nothing measured for this project"), never an empty
+success.
+
+## Session-kind boundary
+
+Every measurement is a **headless** session spawned against the pinned binary. Interactive
+sessions can compose the payload differently (deferral eligibility is partly server-decided), so
+records carry `sessionKind: "headless"` and reports repeat it. The spawned session's prompt is
+`/context`. **Claim:** that count is the token-counting API, or, from Claude Code 2.1.261, a
+local estimate when the token-counting API is unavailable, instead of extra small-model
+requests. It is not a generation call, and it is not always a measured API count. Connectors
+can also arrive after the first turn.
+**Basis:** [changelog](https://code.claude.com/docs/en/changelog) 2.1.261 ("Changed `/context`
+token counting to use a local estimate when the token-counting API is unavailable") and 2.1.260
+("Fixed claude.ai connectors staying absent for the whole session when the startup connector
+fetch timed out"). **As of:** 2026-09-28. **Recheck trigger:** a release note says `/context`
+always calls the token-counting API, or that a missed connector fetch is no longer retried.

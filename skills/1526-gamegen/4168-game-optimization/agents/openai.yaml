@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Optimization"
+  short_description: "GameGen: game optimization workflow"
+  default_prompt: "Use $game-optimization for this game using its saved GameGen preferences."

@@ -1,0 +1,10 @@
+# deep-learning-book
+
+Study companion and working knowledge base for the Deep Learning textbook by Goodfellow, Bengio & Courville (MIT Press, 2016), free to read at deeplearningbook.org. Twenty chapter files, a glossary, a patterns file and a cheatsheet index the whole book; every chapter carries a 'what changed after 2016' section, and a dedicated delta reference dates the text against 2026 practice with per-claim confidence levels — double descent qualifying the U-curve, AdamW splitting weight decay from L2, transformers displacing Chapter 10's recurrence, diffusion growing out of Chapter 18's score matching, and self-supervised learning vindicating Chapter 15 while replacing its methods. Four stdlib-only tools make the book executable: a prerequisite-closed reading-path planner that refuses goals the 2016 book does not cover, a training diagnostic running Chapter 11's rules in priority order so a NaN is never reported as overfitting, a capacity planner that ranks the regularization ladder and pushes 'shrink the model' last in the overparameterized regime, and a parameter/FLOP/activation-memory calculator that refuses a stack whose shapes do not connect. Deliberately a companion, not a compilation: the book is copyrighted, so nothing here reproduces its text — every chapter file is original synthesis linking to the official free chapter. Use when studying or teaching this book, planning a route through it, or checking whether one of its recommendations is still current.
+
+- License: **MIT** (no license file shipped; see the source repository)
+- Source: https://github.com/alirezarezvani/claude-skills/tree/19392f7a08264ed00486a251f5b2098321771f94/engineering/deep-learning-book
+- Commit: `19392f7a08264ed00486a251f5b2098321771f94`
+- KOSIF static inspection: **REVIEW_BEFORE_INSTALL** (hooks: 0, MCP servers: 0, scripts: 4). Read the scripts before running anything.
+
+Unofficial mirror of the skill text for reference. All rights remain with the original authors under the license above.

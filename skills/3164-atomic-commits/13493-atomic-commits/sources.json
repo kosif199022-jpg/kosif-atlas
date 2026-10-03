@@ -1,0 +1,28 @@
+{
+  "created_at": "2026-09-21T00:00:00.000Z",
+  "type": "copy",
+  "sources": [
+    {
+      "url": "https://github.com/thoughtbot/atomic-commits-plugin/tree/main/skills/atomic-commits",
+      "repository": "thoughtbot/atomic-commits-plugin",
+      "path": "skills/atomic-commits",
+      "branch": "main",
+      "sha": "06c9b8ed9979c452a51da466b1d3a0da50be91f2",
+      "original_name": "atomic-commits",
+      "fetched_at": "2026-09-21T00:00:00.000Z"
+    },
+    {
+      "url": "https://github.com/thoughtbot/atomic-commits-plugin/tree/main/hooks",
+      "repository": "thoughtbot/atomic-commits-plugin",
+      "path": "hooks",
+      "branch": "main",
+      "sha": "06c9b8ed9979c452a51da466b1d3a0da50be91f2",
+      "original_name": "hooks",
+      "fetched_at": "2026-09-21T00:00:00.000Z"
+    }
+  ],
+  "license": "MIT",
+  "copyright": "Copyright (c) thoughtbot",
+  "license_override": false,
+  "license_override_reason": null
+}

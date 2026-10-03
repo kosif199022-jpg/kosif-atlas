@@ -1,0 +1,222 @@
+> Source: https://chat-sdk.dev/adapters/vendor-official/matrix.md
+
+---
+title: Beeper Matrix
+description: Matrix adapter for Chat SDK that runs over Matrix sync, with support for E2EE, Beeper conversations, and bridged networks like WhatsApp, Telegram, Instagram, and Signal.
+tagline: Matrix adapter built and maintained by Beeper. Runs over Matrix sync (no webhooks) and works with Beeper conversations and bridged networks like WhatsApp, Telegram, Instagram, and Signal.
+package: @beeper/chat-adapter-matrix
+---
+
+# Beeper Matrix
+
+
+## Install
+
+Requires Node.js 22+.
+
+
+## Quick start
+
+`createMatrixAdapter()` reads its configuration from environment variables when called without arguments.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createMatrixAdapter } from "@beeper/chat-adapter-matrix";
+
+const matrix = createMatrixAdapter();
+
+const bot = new Chat({
+  userName: process.env.MATRIX_BOT_USERNAME ?? "beeper-bot",
+  state: createMemoryState(),
+  adapters: { matrix },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await thread.post(`Hi ${message.author.userName}. Mention me or run /ping.`);
+});
+
+bot.onSlashCommand("/ping", async (event) => {
+  await event.channel.post("pong");
+});
+
+await bot.initialize();
+```
+
+[Threads](/docs/threads-messages-channels), [direct messages](/docs/direct-messages), subscriptions, and handlers work the same as with other adapters. The Matrix adapter maps them onto Matrix rooms and threaded replies.
+
+## Authentication
+
+The adapter supports two login modes. Both take the homeserver URL in `baseURL`.
+
+### Access token
+
+Use a long-lived access token from your Matrix homeserver:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createMatrixAdapter } from "@beeper/chat-adapter-matrix";
+
+createMatrixAdapter({
+  baseURL: process.env.MATRIX_BASE_URL,
+  auth: {
+    type: "accessToken",
+    accessToken: process.env.MATRIX_ACCESS_TOKEN,
+    userID: process.env.MATRIX_USER_ID,
+  },
+});
+```
+
+### Username and password
+
+```typescript title="lib/bot.ts" lineNumbers
+createMatrixAdapter({
+  baseURL: process.env.MATRIX_BASE_URL,
+  auth: {
+    type: "password",
+    username: process.env.MATRIX_USERNAME,
+    password: process.env.MATRIX_PASSWORD,
+    userID: process.env.MATRIX_USER_ID,
+  },
+});
+```
+
+The adapter persists the resulting login session through your state adapter, so subsequent restarts reuse the existing session instead of logging in again.
+
+## Configuration
+
+```typescript title="lib/bot.ts" lineNumbers
+createMatrixAdapter({
+  baseURL: process.env.MATRIX_BASE_URL,
+  auth: {
+    type: "accessToken",
+    accessToken: process.env.MATRIX_ACCESS_TOKEN,
+    userID: process.env.MATRIX_USER_ID,
+  },
+  recoveryKey: process.env.MATRIX_RECOVERY_KEY,
+  commandPrefix: "/",
+  roomAllowlist: ["!room:beeper.com"],
+  inviteAutoJoin: {
+    inviterAllowlist: ["@alice:beeper.com", "@ops:beeper.com"],
+  },
+  matrixSDKLogLevel: "error",
+});
+```
+
+Default behavior:
+
+* Persistence turns on automatically whenever the `Chat` instance has a `state` adapter. Redis is recommended so state survives restarts.
+* `deviceID` is inferred from the auth payload when possible, then read back from state, and generated only as a last resort.
+* `recoveryKey` enables E2EE and key-backup bootstrap.
+* `inviteAutoJoin: {}` enables invite auto-join. Pass `inviterAllowlist` to limit it to specific accounts.
+
+### Advanced options
+
+```typescript
+createMatrixAdapter({
+  baseURL: process.env.MATRIX_BASE_URL,
+  auth: {
+    type: "accessToken",
+    accessToken: process.env.MATRIX_ACCESS_TOKEN,
+    userID: process.env.MATRIX_USER_ID,
+  },
+  e2ee: {
+    useIndexedDB: false,
+    cryptoDatabasePrefix: "beeper-matrix-bot",
+  },
+  persistence: {
+    keyPrefix: "my-bot",
+    session: {
+      ttlMs: 86_400_000,
+    },
+    sync: {
+      persistIntervalMs: 10_000,
+    },
+  },
+});
+```
+
+### Environment variables
+
+When you call `createMatrixAdapter()` with no arguments, the adapter reads only these variables:
+
+| Variable                           | Required | Description                                               |
+| ---------------------------------- | -------- | --------------------------------------------------------- |
+| `MATRIX_BASE_URL`                  | Yes      | Matrix homeserver base URL                                |
+| `MATRIX_ACCESS_TOKEN`              | Yes\*    | Access token for access-token auth                        |
+| `MATRIX_USERNAME`                  | Yes\*    | Username for password auth                                |
+| `MATRIX_PASSWORD`                  | Yes\*    | Password for password auth                                |
+| `MATRIX_USER_ID`                   | No       | User ID hint                                              |
+| `MATRIX_DEVICE_ID`                 | No       | Explicit device ID override                               |
+| `MATRIX_RECOVERY_KEY`              | No       | Enables E2EE and key-backup bootstrap                     |
+| `MATRIX_BOT_USERNAME`              | No       | Mention-detection username                                |
+| `MATRIX_COMMAND_PREFIX`            | No       | Slash command prefix (default: `/`)                       |
+| `MATRIX_INVITE_AUTOJOIN`           | No       | Enable invite auto-join                                   |
+| `MATRIX_INVITE_AUTOJOIN_ALLOWLIST` | No       | Comma-separated Matrix user IDs allowed to invite the bot |
+| `MATRIX_SDK_LOG_LEVEL`             | No       | Matrix SDK log level                                      |
+
+\*Use either `MATRIX_ACCESS_TOKEN`, or `MATRIX_USERNAME` plus `MATRIX_PASSWORD`.
+
+## Persistence
+
+For production, pair the adapter with a durable state adapter such as Redis:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createRedisState } from "@chat-adapter/state-redis";
+import { createMatrixAdapter } from "@beeper/chat-adapter-matrix";
+
+const matrix = createMatrixAdapter({
+  baseURL: process.env.MATRIX_BASE_URL,
+  auth: {
+    type: "accessToken",
+    accessToken: process.env.MATRIX_ACCESS_TOKEN,
+    userID: process.env.MATRIX_USER_ID,
+  },
+  recoveryKey: process.env.MATRIX_RECOVERY_KEY,
+});
+
+const bot = new Chat({
+  userName: process.env.MATRIX_BOT_USERNAME ?? "beeper-bot",
+  state: createRedisState({ url: process.env.REDIS_URL }),
+  adapters: { matrix },
+});
+```
+
+The state adapter persists:
+
+* Generated or inferred device IDs
+* Password-login sessions
+* DM room mappings
+* Matrix sync snapshots
+* E2EE secrets bundles when E2EE is enabled
+
+## Message history
+
+The adapter implements the standard fetch methods:
+
+* `fetchMessage(threadId, messageId)`
+* `fetchMessages(threadId, options)`
+* `fetchChannelMessages(channelId, options)`
+* `fetchThread(threadId)`
+* `fetchChannelInfo(channelId)`
+* `listThreads(channelId, options)`
+* `openDM(userId)`
+
+## Thread model
+
+* A Matrix room is a Chat SDK channel.
+* Top-level room messages live on the channel timeline.
+* Matrix threaded replies map to Chat SDK threads using `roomID + rootEventID`.
+* `openDM(userId)` reuses an existing direct room when one is already in state and creates a new one otherwise.
+
+## Limitations
+
+* `handleWebhook()` returns `501` by design, because the adapter receives events through Matrix sync polling rather than webhooks.
+* Cards, modals, and ephemeral messages are not implemented because Matrix has no native equivalent.
+* Native streaming is not implemented at the adapter layer.
+* Slash commands are parsed from plain text messages because Matrix does not emit native slash command events.
+
+## Feature support
+
+

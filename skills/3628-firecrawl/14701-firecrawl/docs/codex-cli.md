@@ -1,0 +1,60 @@
+> Source: https://docs.firecrawl.dev/quickstarts/codex-cli.md
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.firecrawl.dev/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# MCP Web Search & Scrape in Codex CLI
+
+> Add Firecrawl web scraping and search to OpenAI Codex CLI
+
+Connect [OpenAI Codex CLI](https://github.com/openai/codex) to Firecrawl through the hosted OAuth MCP server.
+
+## Quick setup
+
+### 1. Add Firecrawl
+
+```bash theme={null}
+codex mcp add firecrawl --url https://mcp.firecrawl.dev/v2/mcp-oauth
+codex mcp login firecrawl
+```
+
+The URL is a client configuration value, not a page to open directly in a browser. Codex opens the Firecrawl sign-in flow, where you choose a team and approve the connection.
+
+### 2. Start Codex and verify
+
+```bash theme={null}
+codex
+```
+
+Enter `/mcp` and confirm that `firecrawl` is connected. If you changed an existing Firecrawl connection, start a new Codex session before retrying.
+
+Try:
+
+```text theme={null}
+Search the web for the latest Next.js App Router release notes and summarize the sources.
+```
+
+```text theme={null}
+Scrape https://docs.firecrawl.dev and list the top-level sections.
+```
+
+## Other connection modes
+
+* [Try keyless MCP](/mcp-server/keyless#try-keyless) for Search, Scrape, and Parse without an account or key.
+* [Configure an API key](/mcp-server/keyless#add-an-api-key) with `bearer_token_env_var` for unattended use. Keep the secret outside agent chat and source control.
+* [Run MCP locally](/mcp-server/local) only when you need a local process or a self-hosted Firecrawl API. The local package requires Node.js 22 or newer.
+
+## Optional: literature research
+
+For paper and literature work, the research-index skill routes those queries to the `firecrawl_research_*` tools and the [Research Index](/features/research) instead of general web search:
+
+```bash theme={null}
+npx skills add firecrawl/skills@firecrawl-research-index
+```
+
+## Troubleshooting
+
+* **Codex does not see the tools:** run `codex mcp list`, confirm that only one `firecrawl` entry exists, and restart Codex.
+* **OAuth returns `401`:** run `codex mcp login firecrawl` and complete sign-in. A bare request to the OAuth server is expected to return `401` before authentication.
+* **An API-key connection returns `401`:** replace the key in the environment that starts Codex, then start a new session.

@@ -1,0 +1,138 @@
+> Source: https://chat-sdk.dev/adapters/community/zalo.md
+
+---
+title: Zalo
+description: Community Zalo Bot adapter for Chat SDK using the Zalo Bot Platform API.
+tagline: Community Zalo Bot adapter for Chat SDK using the Zalo Bot Platform API. Buffered streaming, auto-chunking, typing indicators, and webhook signature verification.
+package: chat-adapter-zalo
+---
+
+# Zalo
+
+
+## Install
+
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createZaloAdapter } from "chat-adapter-zalo";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    zalo: createZaloAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+When called with no arguments, `createZaloAdapter()` reads its credentials from environment variables.
+
+## Platform setup
+
+### 1. Create a Zalo Bot
+
+1. Go to [bot.zapps.me](https://bot.zapps.me) and sign in with your Zalo account.
+2. Create a new bot and copy your **Bot Token** (format: `12345689:abc-xyz`).
+3. In the **Webhooks** section, set your webhook URL.
+
+### 2. Configure webhooks
+
+1. In the Zalo Bot dashboard, navigate to **Webhooks**.
+2. Set **Webhook URL** to `https://your-domain.com/api/webhooks/zalo`.
+3. Set a **Secret Token** of your choice (8–256 characters). You'll use it as `ZALO_WEBHOOK_SECRET`.
+4. Subscribe to the message events you need (`message.text.received`, `message.image.received`, etc.).
+
+### 3. Get credentials
+
+Copy these values from the dashboard:
+
+* **Bot Token** → `ZALO_BOT_TOKEN`
+* The **Secret Token** you set in the webhook config → `ZALO_WEBHOOK_SECRET`
+
+## Configuration
+
+All options are auto-detected from environment variables when not provided.
+
+
+### Environment variables
+
+| Variable              | Required | Description                                                                              |
+| --------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `ZALO_BOT_TOKEN`      | Yes      | Bot token from the Zalo Bot dashboard, unless you pass `botToken`.                       |
+| `ZALO_WEBHOOK_SECRET` | Yes      | Secret token for `X-Bot-Api-Secret-Token` verification, unless you pass `webhookSecret`. |
+| `ZALO_BOT_USERNAME`   | No       | Bot display name. Defaults to `zalo-bot`.                                                |
+
+For example:
+
+```bash title=".env.local"
+ZALO_BOT_TOKEN=12345689:abc-xyz   # Bot token from Zalo Bot dashboard
+ZALO_WEBHOOK_SECRET=your-secret   # Secret token for X-Bot-Api-Secret-Token verification
+ZALO_BOT_USERNAME=mybot           # Optional, defaults to "zalo-bot"
+```
+
+## Webhooks
+
+```typescript title="app/api/webhooks/zalo/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request) {
+  return bot.webhooks.zalo(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+Zalo delivers all events as POST requests with an `X-Bot-Api-Secret-Token` header. The adapter verifies this header with a timing-safe comparison before processing any payload.
+
+## Streaming
+
+Streaming is buffered: tokens accumulate and the adapter auto-chunks at 2000 characters.
+
+## Thread IDs
+
+```
+zalo:{chatId}
+```
+
+Example: `zalo:1234567890`
+
+The `chatId` is the conversation ID from the Zalo webhook payload: the group ID for group chats, or the user ID for private chats.
+
+## Limitations
+
+* Zalo does not expose message history APIs to bots, so `fetchMessages` returns an empty array.
+* All formatting (bold, italic, code blocks) is stripped to plain text, because Zalo renders no markdown.
+* Group chats aren't supported yet, and the adapter doesn't detect @-mentions. `isDM()` always returns `true`, because Zalo thread IDs don't encode chat type, so every message follows the [direct message routing rules](/docs/handling-events#how-routing-works). Messages reach `onDirectMessage` if you register it, and otherwise `onNewMention` for unsubscribed conversations.
+* The bot token is embedded in the API URL path. The adapter never logs it.
+
+## Troubleshooting
+
+### Webhook verification failing
+
+* Confirm `ZALO_WEBHOOK_SECRET` matches the value you entered in the Zalo Bot dashboard.
+* The adapter compares the `X-Bot-Api-Secret-Token` header using a timing-safe byte comparison, so make sure the secret contains only ASCII characters and has no trailing whitespace.
+
+### Messages not arriving
+
+* Verify your webhook URL is reachable and returns `200 OK`.
+* Check that the event types you need are subscribed in the Zalo Bot dashboard.
+
+### "Zalo API error" on send
+
+* Confirm `ZALO_BOT_TOKEN` is correct. It should be in `12345689:abc-xyz` format.
+* The adapter calls `getMe` during `initialize()` to validate the token; check logs for initialization errors.
+
+## Feature support
+
+

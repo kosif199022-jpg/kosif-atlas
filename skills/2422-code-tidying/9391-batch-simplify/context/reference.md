@@ -1,0 +1,87 @@
+# batch-simplify: grouping & output reference
+
+Detail the SKILL.md phases point to: how to group changed files for simplification waves (Phase 4), the summary-report template (Phase 8), and generic per-ecosystem verification fallbacks (Phase 7).
+
+## Grouping & dependency order (Phase 4)
+
+Group files by project/ecosystem relatedness. Each group should contain files that share enough context for the simplifier to reason about them together.
+
+**Grouping rules** (in priority order):
+
+1. **Same project directory**: files in the same project (identified by the nearest `*.csproj`, `package.json`, `pyproject.toml`, `Cargo.toml`, or equivalent manifest) go together
+2. **Source vs tests**: separate source code from test code within the same project if the combined count exceeds ~15 files
+3. **Root config files**: all root-level config files (`.editorconfig`, build-system props, formatter configs) form one group
+4. **Standalone scripts**: skill/tool scripts group by parent directory
+
+Agent & enforcement configuration (`.claude/hooks/**`, `.claude/settings*.json`, `.mcp.json`, CI workflows, git-hook manager config) is excluded in Phase 2. It never forms a simplification group; changed files there surface as read-only deferred items.
+
+**Dependency ordering.** Process groups in this order:
+
+1. Root build/tooling config (everything depends on these)
+2. Standalone scripts (skills, tools)
+3. Shared/platform libraries (other code depends on these)
+4. Application code (depends on shared libs)
+5. Architecture/cross-cutting tests (depend on libs + apps)
+6. Independent polyglot services, by ecosystem, source before tests
+
+## Summary report template (Phase 8)
+
+Present a final report:
+
+```text
+## Batch Simplify Results
+
+Native step: simplify
+State: ran | resolved but degraded (<disclosure>) | did not resolve in this session (<axis>) | invocation refused (<reason>) | identity mismatch | skipped (docs mode | unattended) | mutation detected after a scoped invocation
+Scope: <file groups the step ran over, or none>
+Outside-scope changes: none | <paths>
+
+## Deferred items remaining (user decides)
+
+- <site>: <what>. Ground: <Needs-human|Too-large|the recorded ground of a deferral the resolution wave could not finish>. <agent's recorded rationale> (Group 2)
+
+Scope: {scope}  (e.g., "48h", "branch chore/misc-maintenance vs main", or "repo, whole repository")
+Files scanned: {total_files}
+Groups processed: {group_count}
+
+| # | Group | Files | Changes | Deferred | Verification |
+|---|-------|-------|---------|----------|-------------|
+| 1 | Root Config | 13 | 2 files modified | 0 | PASS |
+| 2 | Agent Hooks | 13 | 4 files modified | 2 | PASS |
+| ... | ... | ... | ... | ... | ... |
+
+Final cross-ecosystem verification: PASS/FAIL
+
+## Deferred items resolved in-run
+
+- <path>: <what> (resolution wave; in repo mode add: commit <sha>, or `staged` under `in-place`)
+- ...
+```
+
+No work items are filed by default; the remaining-deferrals section is where they land. Offer to file them only if the user asks.
+
+If zero items were deferred across all groups, state explicitly: *"No items deferred. All identified simplifications were applied or determined to be no-ops."*
+
+## Ecosystem verification commands (Phase 7)
+
+Resolve each group's verification command through the registered ecosystem-command owner.
+Do not maintain a command table here. In order:
+
+1. When the `toolchain` plugin is installed, invoking `/toolchain:check` via the Skill tool
+   (scoped to the group's files) IS the verification step. It resolves the consuming project's tracked
+   per-ecosystem command config and its own portable defaults.
+2. Otherwise, the consuming project's own canonical commands (its `CLAUDE.md` / CI config
+   usually names them, e.g. warnings-as-errors flags, custom test runners).
+3. Otherwise, the ecosystem's ordinary build/lint/test entry points, inferred from the
+   group's manifests (never a memorized command list: read the project's scripts,
+   `Makefile`, or manifest to pick them).
+
+Include the group's verification step in each simplifier agent's prompt so the agent self-verifies before returning; Phase 7 re-runs it as the safety net.
+
+## Why narrowing is a path, not a lane (Arguments)
+
+`repo <lane>` was the other candidate narrowing surface and is deliberately rejected. A lane in
+`/code-tidying:tidy` is a seven-part object and this skill would consume only its scope globs,
+leaving `lane` meaning two things in sibling skills of one plugin. A path also composes where a
+lane does not: lanes are defined per project under `.claude/tidy-lanes/`, and every repo has
+paths.

@@ -1,0 +1,11 @@
+{
+  "name": "gmail-manager",
+  "description": "General Gmail management across accounts via the gmail MCP (search, read, send, label, archive, drafts); use for \"send an email\", \"find that thread\", or mailbox actions beyond triage.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

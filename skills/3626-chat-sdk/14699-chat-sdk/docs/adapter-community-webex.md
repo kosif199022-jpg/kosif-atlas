@@ -1,0 +1,104 @@
+> Source: https://chat-sdk.dev/adapters/community/webex.md
+
+---
+title: Webex
+description: Community Webex adapter for Chat SDK with support for spaces, threads, adaptive cards, and modals.
+tagline: Community Webex adapter for Chat SDK. Supports spaces, threads, adaptive cards (buttons, selects, fields, sections), modals, and webhook signature verification.
+package: @bitbasti/chat-adapter-webex
+---
+
+# Webex
+
+
+## Install
+
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createWebexAdapter } from "@bitbasti/chat-adapter-webex";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    webex: createWebexAdapter({
+      botToken: process.env.WEBEX_BOT_TOKEN,
+      webhookSecret: process.env.WEBEX_WEBHOOK_SECRET,
+    }),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`Hello from Webex! You said: ${message.text}`);
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/webex/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.webex(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+1. Go to the [Webex Developer Portal](https://developer.webex.com/) and sign in.
+2. Navigate to **My Webex Apps → Create a New App → Create a Bot**.
+3. Fill in the bot name, username, and icon, then click **Add Bot**.
+4. Copy the **Bot Access Token** and use it as `WEBEX_BOT_TOKEN`. Store it securely, because it is only shown once.
+5. Create a webhook pointing to your server:
+   * **Target URL:** `https://your-domain.com/api/webhooks/webex`
+   * **Resource:** `messages` | **Event:** `created`
+   * **Resource:** `attachmentActions` | **Event:** `created`
+   * **Secret:** a random string, which you use as `WEBEX_WEBHOOK_SECRET`
+6. Add the bot to a Webex space and mention it to verify the integration.
+
+See the [Webex Webhooks Guide](https://developer.webex.com/messaging/docs/api/guides/webhooks) for details on webhook registration.
+
+## Configuration
+
+
+### Environment variables
+
+| Variable               | Required    | Description                                                           |
+| ---------------------- | ----------- | --------------------------------------------------------------------- |
+| `WEBEX_BOT_TOKEN`      | Yes         | Bot access token from the Webex Developer Portal                      |
+| `WEBEX_WEBHOOK_SECRET` | Recommended | Shared secret for webhook signature verification                      |
+| `WEBEX_BASE_URL`       | No          | Override the Webex API base URL (default: `https://webexapis.com/v1`) |
+| `WEBEX_BOT_USERNAME`   | No          | Override the bot display name                                         |
+
+## Webhooks
+
+The adapter verifies webhook signatures (HMAC-SHA1) with `webhookSecret`. Register webhooks for the `messages` and `attachmentActions` resources as described in [Platform setup](#platform-setup).
+
+## Messages and threads
+
+The bot responds to mentions and DMs. Messages support rich text (bold, italic, code, links) via Markdown and can include a file upload. Threads map to Webex parent IDs.
+
+You can edit and delete messages the bot posted. Edits can change the text or card but can't add files; the adapter throws a `ValidationError` if an edit includes one.
+
+## Cards and modals
+
+Chat SDK cards render as Adaptive Cards with buttons, selects, radio selects, fields, and sections. Modals render as form cards with submit and close actions.
+
+## Limitations
+
+* Webex bot tokens don't support reactions. `addReaction` and `removeReaction` throw `NotImplementedError`.
+* Typing indicators are not available in the Webex Messaging API.
+* Only one file upload per message is supported.
+* Cards and file uploads cannot be combined in the same message.
+
+## Feature support
+
+

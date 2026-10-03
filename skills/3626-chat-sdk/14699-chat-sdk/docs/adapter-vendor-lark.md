@@ -1,0 +1,154 @@
+> Source: https://chat-sdk.dev/adapters/vendor-official/lark.md
+
+---
+title: Lark / Feishu
+description: Chat SDK adapter for Lark / Feishu with WebSocket long-connection event subscription, native cardkit typewriter streaming, interactive cards, and reactions.
+tagline: Chat SDK adapter for Lark / Feishu, built on the official @larksuiteoapi/node-sdk. Receives events over a WebSocket long connection and supports native cardkit streaming, interactive cards, and reactions.
+package: @larksuite/vercel-chat-adapter
+---
+
+# Lark / Feishu
+
+
+## Install
+
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createLarkAdapter } from "@larksuite/vercel-chat-adapter";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    lark: createLarkAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await thread.post(`You said: ${message.text}`);
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`Got your DM: ${message.text}`);
+});
+
+await bot.initialize();
+```
+
+`bot.initialize()` opens the Lark WebSocket connection and keeps it alive until you call `bot.shutdown()`. The open connection keeps the process running, so a long-running environment doesn't need a separate server.
+
+When you pass no explicit config, the adapter reads `LARK_APP_ID`, `LARK_APP_SECRET`, and `LARK_BOT_USERNAME` from environment variables.
+
+## Platform setup
+
+Create a Lark app in one of two ways. Scan-to-create is recommended because it configures the permissions and event subscriptions the adapter needs for you.
+
+### Create an app with scan-to-create
+
+`registerLarkApp` drives Lark's official scan-to-create flow. The SDK generates a one-time URL, you render it as a QR code, and the user scans it with the Lark mobile app and approves. You get back `client_id` and `client_secret`, with the permissions and event subscriptions this adapter needs already configured.
+
+```typescript title="scripts/register-app.ts" lineNumbers
+import {
+  registerLarkApp,
+  createLarkAdapter,
+} from "@larksuite/vercel-chat-adapter";
+import qrcode from "qrcode-terminal"; // pnpm add -D qrcode-terminal
+
+const { client_id, client_secret } = await registerLarkApp({
+  onQRCodeReady: ({ url }) => {
+    console.log("Scan this QR with your Lark mobile app:");
+    qrcode.generate(url, { small: true });
+  },
+  onStatusChange: ({ status }) => console.log("status:", status),
+});
+
+console.log("LARK_APP_ID=", client_id);
+console.log("LARK_APP_SECRET=", client_secret);
+```
+
+You only need to run this once. Persist the returned credentials and provide them through `LARK_APP_ID` and `LARK_APP_SECRET` on later runs.
+
+### Create an app in the developer console
+
+Create an **Intelligent Agent** app in the developer console:
+
+* Lark: [open.larksuite.com/app](https://open.larksuite.com/app)
+* Feishu: [open.feishu.cn/app](https://open.feishu.cn/app)
+
+Copy the app's `client_id` and `client_secret` and pass them as `appId` and `appSecret`, or set `LARK_APP_ID` and `LARK_APP_SECRET`.
+
+## Configuration
+
+
+### Environment variables
+
+| Variable            | Required                          | Description                                        |
+| ------------------- | --------------------------------- | -------------------------------------------------- |
+| `LARK_APP_ID`       | Yes, unless `appId` is passed     | Lark app ID. Overridden by `config.appId`.         |
+| `LARK_APP_SECRET`   | Yes, unless `appSecret` is passed | Lark app secret. Overridden by `config.appSecret`. |
+| `LARK_BOT_USERNAME` | No                                | Bot display name. Overridden by `config.userName`. |
+
+## Transport
+
+The adapter receives events over a WebSocket only, using Lark's long-connection mode, which works in production. `handleWebhook()` returns HTTP 501. Webhook transport is on the roadmap.
+
+Because the SDK opens an outbound WebSocket to Lark's servers and receives events through it, you can run a Lark bot without exposing an HTTP endpoint. This suits long-running environments such as a Node process, a worker, or a VM. Serverless platforms that recycle the process on every request won't keep the connection alive.
+
+## Streaming
+
+`bot.adapter.stream()` uses Lark's native cardkit typewriter API. Chunks emitted from your stream handler are appended directly inside a single card message, with no post-and-edit polling.
+
+```typescript
+await thread.stream(async (controller) => {
+  for await (const chunk of llmStream) {
+    controller.write(chunk);
+  }
+});
+```
+
+If the thread has a `rootId`, the streamed reply is posted as a thread reply through the SDK's `replyTo` parameter.
+
+## Message history
+
+`fetchMessages` is built on `im.v1.messages.list` plus the SDK's `normalize()`, which covers Lark's 23 native message types and produces the same `NormalizedMessage` shape as live events.
+
+`listThreads` is derived client-side by grouping list results on `root_id`. Lark has no server-side list-threads API, so paginate carefully in very active chats.
+
+`author.isMe` is resolved for historical bot-authored messages as well as live events. The adapter maps the historical entry's `app_id` back to the bot's `open_id` through the SDK's `botIdentity` resolver.
+
+## Safety layer
+
+The adapter disables `LarkChannel`'s built-in safety features: stale-message detection, dedup, per-chat queue, and text batch. Chat SDK's per-thread lock and the state adapter handle message deduplication and subscription consistency, and running the SDK's safety layer on top would double-process or drop messages.
+
+## Thread IDs
+
+Lark thread IDs use the format `lark:{chatId}:{rootId}`:
+
+* `chatId`: `oc_*` for both group and p2p chats, or `ou_*` for `openDM()` placeholders before the first message is delivered.
+* `rootId`: the message's `root_id` if it is a reply, otherwise its own `message_id`, since the message is its own root.
+
+The adapter doesn't use Lark's native `thread_id` (`omt_*`) as the `rootId` segment. That value identifies a topic container rather than a message, and the send API can't accept it as `replyTo`.
+
+### DM detection
+
+Lark's p2p chat IDs share the `oc_*` prefix with group chats, so `isDM()` relies on a chat-type cache populated by inbound events. After a process restart, the first DM may route through `onNewMention` until the cache catches up.
+
+## Limitations
+
+The adapter supports a single app. A future version may support `setInstallation()` for multi-tenant fan-out; open an issue if you need it.
+
+The following operations are not supported and throw `NotImplementedError`:
+
+* `handleWebhook`: returns HTTP 501. The adapter uses WebSocket transport only.
+* `startTyping`: Lark has no typing-indicator API.
+* `postChannelMessage`: Lark requires every message to belong to a chat, so there are no channel-level top-level messages distinct from threads.
+* `scheduleMessage`, `openModal`, `postEphemeral`: not yet implemented.
+
+## Feature support
+
+

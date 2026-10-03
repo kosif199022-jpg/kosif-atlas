@@ -1,0 +1,11 @@
+{
+  "name": "wrap",
+  "description": "Full session close-out ritual \u2014 commit, export conversation, teaching narrative, handoff, memory harvest; use for \"wrap up\", \"close out\", \"export this conversation\". For a plain .context/ checkpoint, prefer session.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

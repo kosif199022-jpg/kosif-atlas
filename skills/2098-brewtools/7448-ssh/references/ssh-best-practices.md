@@ -1,0 +1,231 @@
+# SSH Best Practices
+
+> Reference for key management, configuration, and hardening.
+
+All commands are scoped templates, not permission to change a host. Classify the exact command/target with `safety-rules.md`; remote/shared mutation, trust/config/permission changes and service actions require main-session approval or a delegate's exact incoming `APPROVED:` envelope ids. Recheck host/preconditions before execution; stop on drift. Use only explicitly named nonsensitive diagnostics; never dump env, private keys, auth files or credential-bearing logs.
+
+## Key Types
+
+| Type | Algorithm | Recommended | Notes |
+|------|-----------|-------------|-------|
+| ed25519 | EdDSA | **Yes (preferred)** | Fastest, smallest, most secure |
+| ecdsa | ECDSA | Acceptable | NIST curves, some concerns |
+| rsa | RSA | Fallback only | Minimum 4096 bits, slow |
+| dsa | DSA | **Never** | Deprecated, insecure |
+
+### Key Generation
+
+```bash
+# Preferred: ed25519
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_SERVERNAME -C "user@purpose"
+
+# Fallback: RSA 4096
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_SERVERNAME -C "user@purpose"
+```
+
+### Key Naming Convention
+
+| Pattern | Example | Use |
+|---------|---------|-----|
+| `id_ed25519_{server}` | `id_ed25519_vps-main` | Per-server key |
+| `id_ed25519_{purpose}` | `id_ed25519_deploy` | Per-purpose key |
+| `id_ed25519_{org}_{env}` | `id_ed25519_acme_prod` | Per-org per-env |
+
+## SSH Config Patterns
+
+### Basic Host Block
+
+```
+Host vps-main
+    HostName 79.132.136.83
+    User deploy
+    Port 22
+    IdentityFile ~/.ssh/id_ed25519_vps-main
+    StrictHostKeyChecking accept-new
+```
+
+### Jump Host (ProxyJump)
+
+```
+Host bastion
+    HostName bastion.example.com
+    User admin
+    IdentityFile ~/.ssh/id_ed25519_bastion
+
+Host internal-server
+    HostName 10.0.1.50
+    User deploy
+    ProxyJump bastion
+    IdentityFile ~/.ssh/id_ed25519_internal
+```
+
+### Wildcard Patterns
+
+```
+Host *.prod.example.com
+    User deploy
+    IdentityFile ~/.ssh/id_ed25519_prod
+    LogLevel ERROR
+
+Host *.staging.example.com
+    User admin
+    IdentityFile ~/.ssh/id_ed25519_staging
+```
+
+### Connection Optimization
+
+```
+Host *
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    ControlMaster auto
+    ControlPath ~/.ssh/sockets/%r@%h-%p
+    ControlPersist 600
+    AddKeysToAgent yes
+    IdentitiesOnly yes
+```
+
+> Create sockets dir: `mkdir -p ~/.ssh/sockets`
+
+## Server Hardening (sshd_config)
+
+### Essential Settings
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `PermitRootLogin` | `no` | Prevent root SSH access |
+| `PasswordAuthentication` | `no` | Force key-only auth |
+| `PubkeyAuthentication` | `yes` | Enable key auth |
+| `MaxAuthTries` | `3` | Limit brute force |
+| `PermitEmptyPasswords` | `no` | Block empty passwords |
+| `X11Forwarding` | `no` | Disable unless needed |
+| `AllowTcpForwarding` | `no` | Disable unless needed |
+| `UsePAM` | `yes` | System auth integration |
+
+### Restrict Users
+
+```
+AllowUsers deploy admin
+AllowGroups ssh-users
+DenyUsers root
+```
+
+### Port Change
+
+```
+Port 2222
+```
+
+> Update firewall: `ufw allow 2222/tcp && ufw deny 22/tcp`
+
+Both commands are PRIVILEGE actions: obtain exact approval and verify access on the new port before denying the old one; maintain a tested recovery path to avoid lockout.
+
+## ssh-agent
+
+### When to Use Forwarding
+
+| Scenario | Forward? | Why |
+|----------|----------|-----|
+| Deploy from CI to server | No | Use deploy keys |
+| Jump through bastion | No by default | Prefer ProxyJump; forwarding needs a specific justified/approved exception |
+| Interactive dev session | Maybe | Convenience vs security |
+| Production servers | **Never** | Attack surface |
+
+### Agent Forwarding Risks
+
+- Compromised intermediate host can use your agent
+- Any user with root on intermediate can hijack socket
+- Mitigation: `ssh -J bastion target` (ProxyJump) instead of ForwardAgent
+
+### Start Agent
+
+```bash
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519_vps-main
+```
+
+## known_hosts Management
+
+### Initial Setup — scan, VERIFY, then trust
+
+A key appended straight from `ssh-keyscan` is whatever the network handed back. On an intercepted
+network that pins a MITM as trusted forever, for every credential you send afterwards.
+
+```bash
+# 1. Scan to a temp file. No 2>/dev/null: a failed scan must be visible.
+KH_TMP=$(mktemp)
+ssh-keyscan -p PORT HOST > "$KH_TMP"
+
+# 2. Print SHA256 fingerprints and match them out-of-band
+ssh-keygen -lf "$KH_TMP"
+
+# 3. Only after a match, append and clean up
+umask 077 && cat "$KH_TMP" >> ~/.ssh/known_hosts && rm -f "$KH_TMP"
+
+# Hash known_hosts for privacy
+ssh-keygen -H -f ~/.ssh/known_hosts
+```
+
+| Out-of-band source | How |
+|--------------------|-----|
+| Provider console | VPS panel host-key panel / first-boot console output |
+| cloud-init log | `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` in the serial console |
+| Existing trusted path | Same fingerprint seen from a second, already-trusted host |
+
+> No match, no trust: clean up the temporary scan and stop. Never `StrictHostKeyChecking=no`. Changed host keys require independent verification; approval alone does not prove a key authentic.
+
+### Config Option
+
+```
+HashKnownHosts yes
+StrictHostKeyChecking accept-new
+```
+
+| Setting | Behavior |
+|---------|----------|
+| `accept-new` | Auto-accept new hosts, reject changed keys |
+| `yes` | Reject unknown hosts (most secure) |
+| `no` | Accept everything (insecure) |
+| `ask` | Interactive prompt (default) |
+
+### Key Rotation
+
+A changed key is a MITM until proven otherwise — rotation is exactly when verification matters most,
+so the new key goes through the SAME scan -> fingerprint -> out-of-band match -> append sequence:
+
+```bash
+KH_TMP=$(mktemp)
+ssh-keyscan -p PORT HOST > "$KH_TMP"
+ssh-keygen -lf "$KH_TMP"          # verify independently before approving replacement
+ssh-keygen -R HOST                # exact approved trust-store change only
+umask 077 && cat "$KH_TMP" >> ~/.ssh/known_hosts && rm -f "$KH_TMP"
+```
+
+## File Permissions
+
+| Path | Permission | Numeric |
+|------|-----------|---------|
+| `~/.ssh/` | `drwx------` | 700 |
+| `~/.ssh/config` | `-rw-------` | 600 |
+| `~/.ssh/id_*` (private) | `-rw-------` | 600 |
+| `~/.ssh/id_*.pub` | `-rw-r--r--` | 644 |
+| `~/.ssh/known_hosts` | `-rw-r--r--` | 644 |
+| `~/.ssh/authorized_keys` | `-rw-------` | 600 |
+
+### Fix Permissions
+
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/config ~/.ssh/id_* ~/.ssh/authorized_keys
+chmod 644 ~/.ssh/*.pub ~/.ssh/known_hosts
+```
+
+## Connection Troubleshooting
+
+| Symptom | Debug Command | Common Fix |
+|---------|--------------|------------|
+| Permission denied | `ssh -vvv user@host` | Check key permissions, authorized_keys |
+| Connection timeout | `ssh -o ConnectTimeout=5 user@host` | Check firewall, port, IP |
+| Host key changed | Compare stored/scanned fingerprints | Independently verify the change before approving `ssh-keygen -R host` and installing its replacement |
+| Agent forwarding fails | `ssh-add -l` | Add key to agent |
+| Too many auth failures | `ssh -o IdentitiesOnly=yes -i key user@host` | Specify exact key |

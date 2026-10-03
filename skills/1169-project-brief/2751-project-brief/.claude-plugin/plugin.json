@@ -1,0 +1,11 @@
+{
+  "name": "project-brief",
+  "description": "Creates a one-page project overview; use for \"write a brief\", \"summarize this project\", \"project overview\", \"what is this project\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

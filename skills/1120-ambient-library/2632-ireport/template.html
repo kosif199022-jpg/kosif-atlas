@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{REPORT_TITLE}}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Table of Contents Sidebar -->
+  <nav class="toc-fixed">
+    <h2>Contents</h2>
+    <ul>
+      {{TOC_ITEMS}}
+    </ul>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- Hero Section -->
+    <section class="hero-gradient" id="hero">
+      <h1 class="font-display" style="font-size: 3.75rem; font-weight: 700; line-height: 1.15;">
+        <span class="text-teal-700" style="font-style: italic;">{{HERO_EMPHASIS}}</span><br>
+        <span>{{HERO_TITLE}}</span>
+      </h1>
+      <p class="hero-description">
+        {{HERO_DESCRIPTION}}
+      </p>
+      <div class="hero-tags">
+        {{HERO_TAGS}}
+      </div>
+
+      <!-- Stats Cards -->
+      <div class="stats-grid">
+        {{STATS_CARDS}}
+      </div>
+    </section>
+
+    <!-- Report Sections -->
+    {{REPORT_SECTIONS}}
+
+    <!-- Footer -->
+    <footer class="report-footer">
+      <h3 class="font-display">{{FOOTER_TITLE}}</h3>
+      <p>{{FOOTER_DESCRIPTION}}</p>
+      <div class="footer-tags">{{FOOTER_TAGS}}</div>
+    </footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# Commit under the OpenCode harness
+
+The topology is the same as the Claude Code flow: spawn ONE Lawspeaker and let it
+run the whole flow itself. Only the two items below differ.
+
+## The agent name is bare
+
+OpenCode agents carry no `chronicle:` prefix:
+
+```text
+subagent_type: "lawspeaker"
+```
+
+## Nothing is inherited
+
+OpenCode task-tool subagents do **not** inherit parent context. Pass
+`contextBrief`, `branch`, `mode`, and any `exclude` explicitly on the spawn, exactly as in the
+Claude Code flow, plus the **skill directory** as a literal:
+
+```text
+skill directory = /Users/<you>/.config/opencode/skills/commit
+```
+
+`CLAUDE_PLUGIN_ROOT` is empty and there is no skill base-directory banner, so that
+path has to be stated rather than resolved. State it **tilde-free** — the agent
+quotes it, and `~` does not expand inside quotes. Expand `$HOME` yourself and pass
+the result.
+
+## Spawn depth
+
+This skill is flat: the Lawspeaker spawns nobody, so it runs at OpenCode's default
+`subagent_depth` of `1`. Every chronicle skill is flat now.

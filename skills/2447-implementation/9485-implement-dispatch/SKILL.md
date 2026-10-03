@@ -1,0 +1,243 @@
+---
+description: "Orchestrate worker subagents to execute an approved plan. The main window composes scope-fenced briefs, dispatches workers, verifies their returns against direct evidence, and builds main-side instead of editing inline. Use when: 'dispatch this to workers', 'run this with subagents', 'execute the plan in parallel', 'fan the plan out', or the plan routes phases to worker surfaces or the session runs autonomously; for interactive all-inline execution use /implementation:implement instead."
+argument-hint: "[phase] [--wave-cap <N>]"
+user-invocable: true
+disable-model-invocation: false
+metadata:
+  workflow-stage: implement
+  summary: Orchestrate worker subagents to execute an approved plan
+---
+
+**Arguments.** `[phase] [--wave-cap <N>]`. e.g., /implementation:implement-dispatch, /implementation:implement-dispatch phase-2 --wave-cap 3
+
+## Purpose
+
+Structural variant of `/implementation:implement` for orchestrated execution: the main window orchestrates instead of editing. Same stage, same plan, different execution mechanism, `/implementation:implement` edits inline; this skill dispatches scope-fenced workers and verifies their returns.
+
+## Gates
+
+- **One git writer per worktree, under either authority.** A worktree has one index and one HEAD, so two workers staging or committing in one worktree at once can collide on the index or commit each other's paths. Under `worker`, where every worker stages and commits, rows that share a worktree run one at a time, whatever `--wave-cap` allows. Concurrent rows in one worktree need `orchestrator`, where the orchestrator is the only git writer (see Concurrency). (A linked worktree is linked to its repository "sharing everything except per-worktree files such as HEAD, index", per <https://git-scm.com/docs/git-worktree>, verified 2026-09-27. Recheck when a git release note changes per-worktree state.)
+- **Verify before accepting.** Verify the return against direct evidence before accepting edits. Never accept a worker's green claim as the build signal; the orchestrator runs the build or `/toolchain:check`.
+- **Verify each phase before marking it `[DONE]`:** in every mode, dispatch the fresh-context `phase-verifier` for any phase beyond a mechanical, behavior-preserving change; the orchestrator verifies a mechanical, behavior-preserving phase from the diff plus the build/test signal. A separate rule covers an orchestrator source commit made after the last phase's `[DONE]`: it is verified in every mode, with no mechanical-change exemption, before it is pushed or a PR is created. Both are defined under Phase boundaries.
+- **Major divergence (fundamental assumption wrong) still STOPS even autonomously.** Park the run with a handoff rather than improvising a new design.
+- **An `INCONCLUSIVE` return, the `phase-verifier` contract's answer when it could not decide every criterion, is not a verdict:** the phase stays unmarked, and the orchestrator re-dispatches a *fresh* verifier against the gap the return named (narrower criteria, or the specific files it could not reach), never accepting the partial coverage and never marking `[DONE]` on it; a second inconclusive return on the same criteria is an escalation, handled like a divergence report in the dispatch cadence. Surface subagent results in the response before ending the turn.
+
+## When this skill applies (vs `/implementation:implement`)
+
+**Orchestration mode detection**. Infer autonomous vs interactive from the session shape: a goal/loop harness driving turns with no human in the cycle, a plan that declares itself autonomous-ready, or an explicit orchestration instruction means **autonomous**; a human reviewing each turn means **interactive**.
+
+**Autonomous:** the main window is orchestrator only. Dispatch workers per phase; orchestrated cadence is the **default** even when the plan's routing is all-main-window (synthesize per-phase worker rows from the plan). A **wave** is a batch of one phase's worker rows dispatched together: each row is an independent brief with its own disjoint fence, waves never span phases (see Arguments), and a phase with more rows than the cap runs them as sequential waves. Cap each wave at 3–5 concurrent worker rows by default; `--wave-cap <N>` and the operator's `implement_dispatch_wave_cap` option override that (see Arguments). Rows that share a worktree are further limited by the one-writer rule (see Gates).
+
+**Interactive:** read the plan's execution-shape/routing table. Worker rows present (any surface other than main-window) → this skill's dispatch cadence for those phases. Routing table absent or all main-window → `/implementation:implement` classic inline cadence instead.
+
+`/implementation:implement` shares this detection at its Step 0 and chains here; invoking this skill directly with a worker-routed plan is equivalent.
+
+## Boundary, the bundled `batch` skill
+
+Both fan work out to parallel agents in isolated worktrees, so "run this in parallel" can reach for
+either.
+
+- **`/batch` (bundled skill)**: takes an `<instruction>`, researches the codebase, decomposes the
+  change into 5 to 30 independent units, and presents a plan; once approved, it spawns one
+  background agent per unit in its own worktree, and each implements, tests, and opens its own PR.
+  Reserved for the person to run; the model does not invoke it.
+- **This skill (marketplace plugin).** Executes an already-approved plan's phases: scope-fenced
+  briefs, capped waves, return verification against direct evidence, the main-side build gate, the
+  phase-verifier, and divergence routing.
+
+**Routing.** When no approved plan exists and the work is a large mechanical change that splits
+into independent PRs, offer it to the person at the prerequisite check, before any brief: "you can
+run `/batch <instruction>` instead of or alongside this skill". With an approved plan, this skill
+runs. An unattended run records the offer in its output instead of asking.
+
+**Mutation gate.** `/batch` creates worktrees, commits, and opens one PR per unit. This skill never
+triggers it on its own behalf.
+
+**Availability is never assumed.** `disableBundledSkills` or a `skillOverrides` entry hides it, and
+it needs a git repository or a `WorktreeCreate` hook; this section states what to do when it
+resolves, never that it is present. The four-part records live in
+[reference/native-batch.md](reference/native-batch.md).
+
+## Arguments
+
+`$ARGUMENTS`, an optional phase selector plus an optional `--wave-cap <N>`, in any order.
+
+The **phase selector** (e.g. `phase-2`) scopes the dispatch cadence to that plan phase only. Otherwise walk the remaining plan phases strictly in order. Never dispatch a later worker-routed phase past an incomplete earlier phase: dispatch each worker-routed phase as it becomes current; in interactive mode, at the first inline-routed phase hand back by invoking `/implementation:implement` via the Skill tool (classic cadence) and re-enter here when a later worker-routed phase becomes current. Under autonomous mode every remaining phase dispatches in order, synthesizing worker rows per the Autonomous rule above when the routing table lacks them.
+
+`--wave-cap <N>`. An optional positive-integer ceiling on **worker rows in flight at once within one phase**, the size of a wave. When passed, it replaces the internal 3–5 default (see the Autonomous rule); when omitted, the operator option below applies, else the internal default. This is how a chaining caller threads a configured concurrency cap in, and it is the single enforcement point for a caller-configured ceiling; omitting both it and the operator option keeps the internal default, so existing callers are unaffected. `/work-items:work` passes its resolved `${user_config.work_dispatch_concurrency_cap}` here, and passes nothing when that key is unset, so the operator option or the internal default applies. Rows are discrete: floor a fractional argument to `⌊N⌋` (e.g. `2.5` → `2`) and treat `< 1` as `1`, so a stray non-integer never produces a fractional or zero cap.
+
+**Operator wave cap.** When no `--wave-cap` was passed, read this plugin's `${user_config.implement_dispatch_wave_cap}`. A positive number there is the cap, floored and clamped the same way. The key declares no manifest default, so when it is unset it renders as the literal `${user_config.…}` placeholder or, defensively, an empty value; either means unset, so the internal default applies, not `0` and not a hard `1`. Claim: Claude Code substitutes a non-sensitive `${user_config.KEY}` into skill content; how an unset key renders is not documented, so both forms above are read as unset. Basis: <https://code.claude.com/docs/en/plugins-reference#environment-variables>, `${user_config.KEY}` entry. As of: 2026-09-28. Recheck: that entry documents the rendering of an unset key, or stops substituting into skill content.
+
+## Prerequisites (before any dispatch)
+
+Apply `/implementation:implement`'s "Step 1: Prerequisite Check" preflight criteria here. Enumerated in place, not by invoking that skill (its Step 0 chains back here, so invoking it would re-enter this one): approved plan present, branch correct (never the default branch), no unrelated dirty-tree changes. Chaining in from `/implementation:implement` Step 0 arrives with this already done; a DIRECT invocation of this skill must run it before composing the first brief.
+
+**Exception when edits land in a dedicated worktree the brief names** (worker-side provisioning, the autonomous work-lane, or an assigned worktree under either commit authority; see Commit authority below): Step 1's *branch correct (never the default branch)* check governs where the worker's **edits land**, that worktree/branch, not the orchestrator's checkout. The orchestrator never edits source, so it legitimately **remains on the default branch**. Under worker-side provisioning each worker discharges the non-default-branch invariant by materializing its branch as its **first step** (see the provisioning clause below) before any edit; under an assigned worktree, including every `orchestrator` run, that worktree's branch discharges it. A default-branch start is therefore valid and does not stop this preflight. The invariant is satisfied by the worktree's branch, never by the orchestrator's own session sitting on a feature branch. Only the plan-present and no-unrelated-dirty-tree checks apply to the orchestrator's own session.
+
+Because the orchestrator stays on the default branch, **every source-touching operation it runs targets the returned worktree, never its own checkout**, which does not contain the worker's changes. That covers the return verification (cadence step 3), the build/test gate (cadence step 4. `main-side` means the *orchestrator* runs the gate, not that it runs in the orchestrator's checkout), and the phase-boundary commit (Phase boundaries, committed on the worker's branch and pushed per the commit authority): each runs against the worker's worktree via `git -C <path>` (or from that directory). Running them in the orchestrator's default checkout would inspect the wrong tree (a worker-branch failure could pass) or land the commit on the local default branch, diverging it from the remote and off the PR branch.
+
+## Dispatch cadence (per worker-routed phase)
+
+1. **Compose the brief**. The reason in item 5 is not decoration on a scope fence: a fence says what a worker may not touch, and a worker that knows only its boundaries resolves every in-bounds ambiguity toward the literal brief instead of the outcome, which is how a phase comes back conforming and useless. Every brief carries:
+   1. An explicit scope fence: ALLOWED files/actions and FORBIDDEN files/actions, enumerated. **Compose a wave's fences together before dispatching any row of it.** The rows of one wave hold mutually disjoint ALLOWED sets, measured on the file path written, not on the worktree it is written from: two rows in separate worktrees writing one path still collide, at integration instead of at edit time. Each row's FORBIDDEN list carries the paths the other rows of its wave own, since the divergence-escalation clause fires only on a FORBIDDEN touch and a path in a sibling's ALLOWED set and nobody's FORBIDDEN list would be edited without a stop. The brief lists the paths, never which row or worker owns them. Rows that will not split into disjoint fences do not go out as one wave; they run in sequential waves.
+   2. The divergence-escalation clause, verbatim: "if an assumption in this brief proves wrong or the task requires touching anything FORBIDDEN, STOP and report. Do not improvise".
+   3. The project invariants the task touches, from the consuming project's `CLAUDE.md` / rules.
+   4. The phase's acceptance criteria.
+   5. **The reason the phase exists**: the goal it serves and what the output enables.
+   6. Its **commit authority**: `worker` by default, or `orchestrator`. Commit authority below also says which of the clauses in items 8 to 10 change under `orchestrator`.
+   7. Any model routing the plan specifies.
+   8. **When the worker edits in a dedicated worktree** (an out-of-tree sibling or any checkout other than the session's default): that worktree's absolute path, plus the anchoring rule in the Gotchas bullet "A worker's worktree cwd does not persist across tool calls". The interactive default is a pre-existing worktree path the brief supplies.
+   9. **When provisioning is worker-side** (the autonomous work-lane; see Commit authority): materializing that isolated worktree is the worker's **first step**. The orchestrator cannot itself invoke `/source-control:worktree create`, whose `EnterWorktree` terminal would transition the orchestrator's session. The worker invokes `/source-control:worktree` via the Skill tool for its non-entering creation seam when installed, or a plain `git worktree add` otherwise, and works in it under the item 8 anchoring, never entering it. Provisioning happens **once per item, on the first dispatched phase**: the worktree persists across the item's phases, so every **later** phase of the same item is handed that same worktree path and works in it. Never re-provision the already-checked-out item branch; both `git worktree add -b <name>` and attaching the branch fail while it is checked out in the persisted worktree. The first phase's brief also instructs the worker to bring the branch current with the default branch, commit, and push before returning, then **return the worktree's absolute path plus the branch name** so the orchestrator can open the PR against the pushed branch. A worker that cannot provision an isolated worktree STOPs and reports rather than editing the default checkout.
+   10. **The three CI-hygiene clauses, front-loaded**: the Gotchas bullets on issue-number comments, new shebang files and early push, the last two under `worker`.
+2. **Dispatch** each worker by its phase's routing row, the `Model` column. Never rely on root
+   inheritance, and never dispatch source-editing work through a generic subagent type. This holds
+   for a no-commit plan too.
+   - **No row, no `Model` value, `opus`, or any value not listed here**: this plugin's `implementer` agent (subagent type
+     `implementation:implementer`). Its `model` frontmatter is the structural capability-tier
+     binding, the strong tier's current alias, so an unqualified dispatch lands on the intended
+     tier regardless of the orchestrator's own model.
+   - **`sonnet`**: first read the provider with
+     `printenv | grep -E '^(CLAUDE_CODE_USE_(BEDROCK|VERTEX|FOUNDRY|ANTHROPIC_AWS|MANTLE)|ANTHROPIC_DEFAULT_SONNET_MODEL)='`.
+     When a `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`,
+     `CLAUDE_CODE_USE_ANTHROPIC_AWS` or `CLAUDE_CODE_USE_MANTLE` value is non-empty and
+     `ANTHROPIC_DEFAULT_SONNET_MODEL` is unset or empty, we do not trust the unpinned `sonnet`
+     alias on that provider, so dispatch `implementation:implementer` instead. Otherwise dispatch
+     `implementation:scoped-implementer` with an explicit per-invocation `model: sonnet`, because
+     we treat the per-invocation `model` as outranking frontmatter, so a caller's standing
+     per-spawn model (a "pass `model: opus` on every spawn" rule) must not be left to apply.
+     Downward routing happens only this way, by spawning `scoped-implementer`.
+   - **`frontier`, or a security-surface work class whatever the row says**:
+     `implementation:implementer` at the frontier tier's current alias, per the next rule.
+
+   Pass `implementation:implementer` a per-invocation `model` only to route a phase **upward**: a
+   security-surface work class, or plan-declared frontier routing, dispatches at the frontier
+   tier's current alias, and a run that cannot resolve that alias STOPs (autonomously: escalates)
+   rather than dispatching lower, and a session whose own model resolves above the binding may
+   pass that model to a single dispatch. Never pass a `model` that undercuts the frontmatter binding for source-editing
+   work.
+
+   **A concurrent wave never runs on the frontier tier.** When more than one `implementer` or
+   `phase-verifier` will run at once and the session model or the upward route resolves to the
+   frontier tier (`fable` or `best`), every agent in that wave runs at `opus`: pass `model: opus`
+   explicitly, or keep the `opus` frontmatter pin and pass no raise. The frontier tier is allowed
+   only on a single, sequential dispatch: one security-surface or frontier-routed implementer at a
+   time with its one verifier, and a single final verification. A phase that needs the frontier
+   tier runs alone, as a wave of one; a security-surface row leaves its wave and runs alone rather
+   than dropping to `opus`, and it never raises the rest of the wave. Alone means no other
+   frontier-tier agent is in flight: frontier dispatches run one at a time, and the wave's `opus`
+   rows may run beside one. This follows rule 2 of the
+   marketplace's `docs/plugin-philosophy.md` "Model tiers": a fan-out of independent items
+   delegates to a cheaper worker model than the coordinator. For generic (unnamed-agent) dispatch
+   routing and a configurable fan-out guard, invoke `/multi-agent:route` when that skill resolves
+   in this session; when it does not, this rule stands on its own.
+
+   - **Pointer**: for the subagent model resolution order, see
+     <https://code.claude.com/docs/en/sub-agents#choose-a-model>; for what the `sonnet` alias
+     resolves to per provider, see <https://code.claude.com/docs/en/model-config#model-aliases>;
+     for the provider variables, see <https://code.claude.com/docs/en/env-vars#variables>. When an
+     operator override from the resolution-order section is set, report it in the run summary: it
+     is an operator choice, not a reason to refuse dispatch.
+   - **As of**: 2026-10-02
+   - **Recheck trigger**: a release note touches subagent model selection, the model-aliases
+     provider table changes, or the env-vars page adds a provider variable.
+
+   Dispatch a wave, up to the cap's worker rows from the current phase, and keep working while it
+   runs: verify returns from the same phase as they arrive, compose the next brief, and run the
+   build/test gate on accepted returns, except under commit authority `orchestrator` in a shared worktree, where the gate runs after the wave settles (see Concurrency). Rows in a shared worktree dispatch one per wave unless commit authority is `orchestrator` (see Gates). Intervene when
+   a worker goes off track or is missing context. Do not block on the slowest worker before
+   starting orchestrator-side work that does not depend on it.
+3. **Verify the return against direct evidence before accepting edits**. Worker returns are synthesis, not ground truth; promote their claims to direct evidence (diff read, grep, file Read) before building on them. Under commit authority `orchestrator` the return is an uncommitted tree; read it as Commit authority describes
+4. **Build/test main-side**. Invoke `/toolchain:check` via the Skill tool from the main window when the `toolchain` plugin is installed, otherwise run the project's own build/test command main-side; never accept a worker's green claim as the build signal. When the edits land in a dedicated worktree (worker-side provisioning or an assigned path), run it against that worktree (`git -C <path>` or from that directory), not the orchestrator's default checkout. See the Prerequisites exception
+5. **Route worker divergence reports into `/implementation:implement`'s "Step 3: Divergence Detection"** (apply that ladder here). A worker STOPping per the divergence-escalation clause is a divergence signal, severity-assessed the same way; the orchestrator revises the brief or routes back to the planning skill (`/planning:plan review` when installed)
+
+### Commit authority
+
+Every brief states **commit authority**: `worker` (the default, and what an absent field means, so existing callers are unchanged) or `orchestrator`. Declare `orchestrator` when the plan's worker fence forbids staging, committing, or pushing, when the orchestrator owns a commit-subject gate, or when the plan has a push-once rule. Write the field into the brief; the worker never infers it from a fence. A worker handed a fence that forbids those writes with no declared mode STOPs and reports the conflict, and a fence that forbids only a narrow action (a force-push, opening the PR) leaves the mode at `worker`. A no-commit plan therefore needs no fenced generic subagent: the implementer honors the mode and keeps its tier binding.
+
+Worktree sharing follows the one-writer rule in Gates. This skill provisions no per-row worktrees; a phase whose rows must run concurrently under `worker` is a plan question, not a dispatch-time split.
+
+Under `orchestrator`:
+
+- **Worktree.** The brief carries an assigned worktree path. Worker-side provisioning cannot combine with this mode, because a provisioning worker must commit and push before returning; a brief asking for both makes the worker STOP. The orchestrator creates the worktree itself (a non-entering `git worktree add`, or the project's own tool) and hands over the path.
+- **Brief.** Omit the commit-and-push-early clause, and shrink the exec-bit clause to `chmod +x <path>` plus listing the file in the return. The worker never runs `git add`, `git commit`, `git push`, `git stash`, or any other index or ref write; it returns `git -C <path> status --porcelain --untracked-files=all` output in place of a commit sha.
+- **Verification.** Return verification (step 3) reads the uncommitted tree with `git -C <path> status --porcelain --untracked-files=all`, `git -C <path> diff HEAD`, and `git -C <path> ls-files --others --exclude-standard`; a plain `git diff` misses untracked files. The build/test gate (step 4) runs on that tree. The phase-verifier gets the worktree path plus the base ref and is told the changes are uncommitted, so it reads untracked files with `status --porcelain --untracked-files=all` or `ls-files --others --exclude-standard` as well as `git diff <base>`, or gets the diff itself: `diff HEAD` output plus the content of every file `ls-files --others --exclude-standard` lists (plain `status --porcelain` collapses a new directory to one entry).
+- **Commit.** The orchestrator commits in the assigned worktree via `git -C <path>`, never in its own checkout, at the phase boundary: the phase's source in one commit (see Phase boundaries), under the project's commit convention and gate, staging each listed shebang file in the order the Gotchas bullet "New shebang files need `chmod`" gives. It pushes per the plan's push rule, and as under `worker` when the plan states none. Commit as soon as the phase is accepted: until then the work exists only on local disk. When the commit gate is one only the user can pass, follow `/implementation:implement` Step 4 item 3: complete the plan marks and status summary first, then hand the commit to the user, and write the handoff last.
+- **Concurrency.** The orchestrator is the only git writer, so this is the one mode where several rows may share a worktree. Prefer one worker per worktree at a time. When several must share one, up to the wave cap, give them disjoint fences, let none stage, attribute returned paths by fence, and run the build/test gate only after the wave settles.
+
+## Divergence in non-interactive runs
+
+In a session with no human to escalate to, stop-and-escalate on Moderate divergence deadlocks the run. There: pick the CONSERVATIVE option, the one truest to the plan's intent with the smallest blast radius, log it to a `DEVIATIONS.md` beside the plan artifact at deviation time (what was planned, what was done instead, why, blast radius), and keep going; the deviation log is the escalation, reviewed at PR time.
+
+**The log is append-only, and each entry carries its evidence and its outcome.** Nobody watched this run, so the log is the only record of it, and a reader who cannot check an entry has to take it on trust:
+
+- **Append; never edit or delete.** A call that later proves wrong gets a NEW entry superseding the old one, naming what it supersedes. Rewriting history hides the reversal, which is the part a PR reviewer most needs to see.
+- **Evidence is a pointer, not prose**. A commit SHA, a `file:line`, a test name, an artifact path. Prefer evidence a committed script produced over a hand-made one-off, so the reviewer can re-run it rather than believe it.
+- **Carry the outcome, not just the choice.** An entry whose result is still unknown says so (`unverified`) rather than reading as settled; an entry claiming a result names the check that produced it. State which work is unverified rather than omitting the distinction, the same grounding rule `work-items:work-loop` and `source-control:babysit-loop` apply to their cycle reports.
+- **One entry is one decision.** If it does not fit on a line or two, the decision is not crisp yet, split it, or say plainly that it is still open.
+- **Entries are typed, and a deviation carries four fields.** Type each entry as one of: plan-confirmed (a load-bearing plan assumption checked out), discovery (something learned the plan never spoke to), deviation (the plan said X, the run did Y), or human-decision (a call only a person can make, marked blocking or non-blocking). A deviation entry answers: plan said / found / chose / revisit. This taxonomy is this plugin's own output contract for its own log file, never a format imposed on consumer repos.
+
+Interactive sessions may opt into this same log rather than leaving Moderate adjustments in scrollback (see `/implementation:implement` "Step 3: Divergence Detection"); the house posture and rationale live in `docs/finding-your-unknowns.md` in the marketplace repository.
+
+An entry whose evidence does not resolve, or whose result was never verified, is the PR review catching a gap. That is the log working. Major divergence still stops the run; the rule is under Gates, above. Park the run with a handoff note rather than improvising a new design. Interactive sessions keep the `/implementation:implement` "Step 3: Divergence Detection" escalation ladder unchanged.
+
+## Phase boundaries
+
+**The ritual scales with residency.** A boundary where the orchestrator clears, where a model or domain switch is pending, or where the run ends runs `/implementation:implement`'s "Step 4: Task Tracking and Phase-Boundary Handoff" ritual in full: plan marks, status summary, the commit, then the handoff entry with its resume prompt, last. A resident boundary, where the orchestrator stays in the window and dispatches the next phase (see Resident-vs-clear below), runs only the durable part: the acceptance verdict and plan marks (Step 4 item 1), a `DEVIATIONS.md` entry for the boundary when the run keeps that log (every non-interactive run does), and the commit (item 3). The handoff entry, status summary and resume prompt exist for a session that restarts cold. A resident orchestrator is their only reader and already holds their content, and the plan marks plus the deviations log are what a crashed run resumes from.
+
+**The phase-boundary commit carries source only**, as in inline mode: the plan and the deviations log are self-ignored memory-slice files and never enter a commit. A dispatched worker that already committed and pushed its source early (per the push-early clause above) leaves the phase boundary with nothing to commit, only plan marks to update in place. Under commit authority `orchestrator` the worker committed nothing, so the phase-boundary commit carries the source and is pushed per the plan's push rule (see Commit authority). Under worker-side provisioning the phase's commits land on the worker's branch, committed in the returned worktree via `git -C <path>` **and pushed**, never in the orchestrator's default checkout (which would put them on the local default branch, off the PR branch. See the Prerequisites exception). Pushing is not optional: it keeps the worktree tip in sync with the remote, which `/source-control:pull-request create --pushed`'s HEAD-equals-remote precondition requires. Orchestration changes who edits and when the source lands, not whether progress gets recorded; when marking changes the plan, refresh its paste in the pull request body or the linked issue.
+
+**Fresh-context verifier before marking a phase `[DONE]`:** the Step 4 ritual's acceptance-criteria verdict (item 1) is, in orchestrated runs, *dispatched* rather than rendered inline. Dispatch this plugin's `phase-verifier` agent (subagent type `implementation:phase-verifier`; its `model` frontmatter structurally binds the verifier at least as capable as the implementer it checks) to check the phase's acceptance criteria against the actual diff, handed binary criteria and the diff with your rationale withheld. Frontmatter binds a floor and cannot follow a phase routed upward, so when the phase's implementer ran above that binding (the frontier alias for security-surface work, or a session model above it), pass that one verifier a per-invocation `model` at or above the model the implementer ran on; the verdict rule this keeps is the checked-work row of the ladder in the marketplace's `docs/plugin-philosophy.md` "Model tiers". Upward only. Inside a wave held at `opus` (see Dispatch cadence step 2) the implementer ran on `opus`, so the verifier's `opus` binding already meets this rule; a phase that needs a frontier verifier runs alone. Where the phase's outcome is high-stakes and correlated blind spots are the risk, prefer a cross-vendor advisor for that verifier **when one is installed and set up**. E.g. the OpenAI Codex plugin, when its documented surface can take this artifact, invoked per its own docs. With the fresh-context same-vendor verifier sub-agent as the stated fallback, never a route to a command that may not resolve (per `docs/plugin-philosophy.md` "Fresh-eyes checkpoints" in the marketplace repository). It applies in every mode: dispatch it for any phase beyond a mechanical, behavior-preserving change, and verify a mechanical, behavior-preserving phase from the diff plus the build/test signal. The verifier does not substitute for implement Step 5's end gate. An inconclusive verifier return is not a verdict; the rule is under Gates, above.
+
+**Fresh-context verifier for a post-phase source commit:** an orchestrator source commit made after the last numbered phase's `[DONE]` and before the push or PR gets the same fresh-context `phase-verifier` dispatch, with no worker. The diff is the commit against the last phase-boundary commit. The binary criteria are the commit's stated purpose plus any Brief outcome criteria it touches. Rationale is withheld, the model binding and `INCONCLUSIVE` handling are the paragraph above's and Gates', and it applies in every mode. The verdict comes back before the commit is pushed or a PR is created. Docs-only commits are exempt.
+
+### Resident-vs-clear at phase boundaries
+
+The orchestrator stays resident across phase boundaries by default. Clear and resume from the emitted prompt only when one of these holds:
+
+- **(a) The harness or operator signals a heavy window**. A compaction notice, a context-guard hook, or the user saying the session is heavy. Route the next step with `/session-flow:workflow` rather than clearing by default, handing it the PLAN.md path and the next phase; clear and resume from the emitted prompt when it routes there. Do not poll your own context statistics to decide this; a budget reading is not a decay signal (see `/implementation:implement` Step 4, "Mid-phase")
+- **(b) The next phase is inline-routed** per the routing table (an inline-routed phase wants a fresh window for its own reads)
+- **(c) A model/domain switch is pending** for the next phase
+
+Which way the boundary goes decides its ritual (see Phase boundaries): a clear gets the full Step 4 ritual, ending in the resume prompt the fresh session starts from; a resident boundary gets the plan marks, the deviations entry, and the commit. In autonomous mode a boundary is not a stopping point: unless (a), (b), or (c) above calls for a clear, dispatch the next phase in the same turn. Otherwise stop only on Major divergence, when blocked on something only the human can supply, or before a destructive, hard-to-undo, or outward action the plan does not cover.
+
+We treat the phases of one approved plan as one task, so the orchestrator's window question at a boundary goes to the workflow router rather than to a default clear. Without session-flow, see the pointer below.
+
+- **Pointer**: for what to do when the window fills, see <https://code.claude.com/docs/en/context-window#when-your-context-fills-up>.
+- **As of**: 2026-10-02
+- **Recheck trigger**: that section changes its `/compact` or `/clear` guidance.
+
+## Integration with workflow
+
+| Condition | Action |
+|-----------|--------|
+| Phase is inline-routed (main-window), interactive mode | Hand back by invoking `/implementation:implement` via the Skill tool (classic cadence) |
+| Phase is inline-routed or routing table absent, autonomous mode | Synthesize a worker row with no `Model` value (so `implementation:implementer`) and dispatch, the orchestrator never does volume edits |
+| Worker divergence report | Severity-assess per `/implementation:implement`'s "Step 3: Divergence Detection"; Major → the planning skill (invoke `/planning:plan review` via the Skill tool when installed) |
+| Every worker return | Verify against direct evidence, then invoke `/toolchain:check` via the Skill tool main-side (when the `toolchain` plugin is installed; else the project's own build) |
+| Phase sanity check passes | `/implementation:implement`'s "Step 4" ritual (its item-1 verifier gate applies in every mode; orchestrated runs dispatch it. See Phase boundaries) |
+| All phases complete | Invoke `/implementation:implement` via the Skill tool for its "Step 5: Completion and Handoff" (outcome verification is that step's `/verification:confirm` route). A source commit made after the last phase's `[DONE]` first gets the post-phase verifier (see Phase boundaries) |
+
+## What this skill does NOT do
+
+- **Does not edit inline**. Inline execution cadence, commit discipline, and mode context files (feature/bugfix/refactor) are `/implementation:implement`'s
+- **Does not create or revise plans**. A planning pass produces plans; this skill executes routing tables
+- **Does not replace `/toolchain:check`**. The `toolchain` plugin's check skill (when installed) is the SSOT; this skill invokes it main-side at the right moments, falling back to the project's own build command when that plugin is absent
+
+## Next
+
+`/review:quality-gate`. It reviews the finished change before outcome verification, the order `/implementation:implement` Step 5 hands off in.
+
+## Gotchas
+
+- **Do not treat a worker's build report as the signal.** See Gates. Workers report synthesis; the main window invokes `/toolchain:check` via the Skill tool (or runs the project's own build when the `toolchain` plugin is absent) itself after every accepted return, except under commit authority `orchestrator` in a shared worktree, where the gate runs after the wave settles (see Concurrency)
+- **A worker STOP is a divergence signal, not a failure.** Route it through `/implementation:implement`'s Step 3 severity ladder; revising the brief is the cheap fix, a plan review the escalation
+- **Surface subagent results before ending the turn.** Results left unsurfaced at turn end are lost to the user
+- **A worker's worktree cwd does not persist across tool calls.** Brief every dedicated-worktree worker to anchor every command, edits AND git status/add/commit/diff/log, with `git -C <worktree-path>` or a re-`cd` per call, never a one-time `cd`
+- **No issue-number back-references in code comments.** Brief every worker that a comment citing an issue number (`# Issue #NNN ...`, `(issue #NNN obs #N)`) trips the `comment-hygiene` check; `TODO(#issue)` is the sanctioned exception
+- **New shebang files need `chmod`, then `git add`, then `git update-index --chmod=+x`. In that order.** Brief every `worker`-authority worker (for `orchestrator`, see Commit authority): `chmod +x <path>`, then `git add <path>` (a not-yet-tracked file fails `git update-index --chmod=+x` outright. It can't override the index mode of a path that isn't staged yet), then `git update-index --chmod=+x <path>` to force the index mode explicitly (skip symlinks, staged `120000`, they fail the same command). A shebang file staged non-executable trips the `exec-bit` check
+- **Push early, before the CI-poll tail. But never the PR.** Brief every `worker`-authority worker to commit and push as early as practical rather than deferring until its fix-and-verify loop is done, so a mid-session death never orphans unpushed work. This is a source-only checkpoint commit. The phase-boundary ritual (Step 4) still runs separately, orchestrator-side, once the phase's acceptance criteria are verified. PR creation stays out of every worker brief. It happens in the orchestrator's post-verification flow (`/implementation:implement` Step 5) after every return is verified and the build/test gate passes. Commit authority `orchestrator` forgoes the early push: uncommitted work lives only on local disk until the orchestrator commits.
+- **Shared worktrees follow the one-writer rule.** See Gates and Concurrency
+- **Two well-formed fences can overlap unseen.** See Dispatch cadence item 1.1
+- **Scope-fence drift applies to agent returns.** Every worker return is a decision boundary. Classify proposed follow-ups per `/implementation:implement` "Step 3.5: Scope-fence drift detector (run at every decision boundary)" before announcing them
+- **The capability-tier binding lives in agent frontmatter. Don't undercut it.** Workers dispatch as `implementation:implementer`, or as `implementation:scoped-implementer` for a plan-routed `sonnet` phase, and phase verifiers as `implementation:phase-verifier`; a generic subagent type inherits the orchestrator's model, which under a fast orchestrator root silently runs implementers at orchestrator strength. A per-invocation `model` on `implementer` routes only upward (frontier-alias for security-surface work, or the session's own higher tier, never on a concurrent wave, which stays at `opus` under a frontier session; see Dispatch cadence step 2), and the phase's `phase-verifier` follows it up to the model that implementer ran on (see Phase boundaries); the one downward route is spawning `scoped-implementer` with `model: sonnet` passed explicitly (see Dispatch cadence step 2). We treat `CLAUDE_CODE_SUBAGENT_MODEL` as ranking below both the per-invocation parameter and the frontmatter (record in Dispatch cadence step 2), so it cannot undercut the binding; it decides only where neither is set, which is the generic-subagent case this bullet already rules out. An operator override from that resolution-order section can still win over the binding; report it when it is set rather than refusing to dispatch
+- **An omitted `--wave-cap` with the operator option unset keeps the internal 3–5. Never coerce an absent value into a number.** See Arguments

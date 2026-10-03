@@ -1,0 +1,178 @@
+# B3 — 冲突解决与自洽化
+
+> 当 SKILL.md 主流程进入 B3 时读取本文件作为执行指引。引用 `references/pattern-language.md` 加深理论理解。
+
+## 你的任务
+
+把 B2 的候选集（100–200 条）通过**确定性图算法**收敛为一个自洽规则子集（典型 40–60 条）。**不让模型判断冲突**——所有判断都基于 `grammar/graph/rules_graph.json` 的有向图结构。
+
+---
+
+## Step 1 — 加载关系图
+
+读 `grammar/graph/rules_graph.json`。如果文件不存在或损坏 → 提示用户运行 `scripts/rebuild-graph.md`，停下。
+
+把图加载为四张邻接表：
+
+- `depends_on[rule_id] = [{rule, reason}, ...]`
+- `constrains[rule_id] = [rule_id, ...]`
+- `co_occurs_with[rule_id] = [{rule, frequency}, ...]`
+- `conflicts_with[rule_id] = [{rule, reason}, ...]`
+
+## Step 2 — 冲突消解
+
+对候选集中的每个 `(A, B)` 对：
+
+1. 若 `B ∈ conflicts_with[A]`：保留 `final_score` 高的，剔除另一个
+2. 若 final_score 在 5% 以内的微差 → 保留 `confidence` 高的（B2 给的 final_score 包含 confidence 加权，通常已稳定）
+3. 若 confidence 也相同 → 保留 `emerges_from` 数量多的（更普适）
+
+**记录每次剔除**：在工作日志里写 `dropped: <rule>, reason: conflicts_with <kept_rule> (<conflict_reason>)`，B6 阶段会作为产物的 `provenance.yaml` 元数据。
+
+## Step 3 — 依赖补全
+
+对剔除冲突后剩下的每条规则 `R`：
+
+1. 沿 `depends_on[R]` 反向闭包，把所有传递依赖加入候选
+2. 如果某个依赖项**不在原候选集**且**不在规则库**（罕见，意味着关系图引用了不存在的规则）→ 记录损坏并提示用户重建关系图
+3. **依赖再引入冲突的级联剔除（v1.8.1 修复）**：如果某个依赖项 `D` 与 step 2 已留的规则 `K` 在 `conflicts_with` 关系中——说明 `D` 在 step 2 已被剔（`K` score 更高）。此时 **不要再把 `D` 加进来**，反而要**级联剔除**所有 `requires D` 的依赖方规则 `R`，原因：`R` 的 preconditions（包含 `requires`）不被满足，把 `R` 留在 dark canvas 上等于在错误前提下应用规则。
+   - 记录到日志：`cascade_dropped: <R>, reason: requires <D> which conflicts with kept <K>`
+   - **不要**反过来"保留依赖剔除冲突方"——那会让 step 2 的 score 优先选择被推翻
+
+**实现伪代码**：
+
+```python
+for R in kept:
+    for D in depends_on[R]:
+        if D not in kept and D not in to_add:
+            # 检查 D 是否与已留的某条规则冲突
+            blockers = [K for K in kept if D in conflicts_with[K] or K in conflicts_with[D]]
+            if blockers:
+                cascade_drop(R, reason=f"requires {D} which conflicts with kept {blockers[0]}")
+                continue  # 不加 D，也丢 R
+            to_add.add(D)
+```
+
+**为什么这样**：原始 v1.5.0 spec 写"保留依赖剔除冲突方"，但这让 step 2 的 score-based 决定被 step 3 的 dep-closure 反复推翻，造成规则集不稳定。v1.8.1 改为"级联剔除依赖方"——保持 step 2 的决定权威，只是要求依赖方一起退出。
+
+## Step 4 — Anchor + Productive Tension（**v1.13.0 反极性 / 改动2**；旧称"风格岛聚集"）
+
+> **语义反转（改动2）**：旧逻辑"留最密的风格岛、剔除孤立点"——但**独特性恰恰活在孤立点里**（与主流低共现、但被概念背书的组合）。把它们当 outlier 删掉，就是在系统性地制造平庸（见对话诊断：Mednick 陡峭联想层级 / Koestler bisociation）。所以本步现在：选一个**anchor**（协调骨架）+ **保留并标注 productive_tension**（独特性原料），只剔除真正无关的 bottom-quartile。**注意：冲突已经在 Step 2/3 按 `conflicts_with` 剪过了——那是真逻辑矛盾。本步不再因"统计稀有"而删任何东西。**
+
+构建子图 `G_kept`：节点 = 当前留下的规则，边 = `co_occurs_with` 关系（带频率权重）。
+
+### v1.5.0 Issue 7 修复 — 按规则库尺寸分支
+
+**先看规则库总规模**（grammar/rules/*.yaml 里所有 yaml 解析后的 rule 总数）：
+
+| 规则库尺寸 | 处理方式 |
+|---|---|
+| **< 30 条**（极小） | **完全 skip 风格岛聚类**——co_occurs 数据量不够形成有意义 cluster。直接按 `final_score` 排序保留 top 50%（保 section 覆盖前提下） |
+| **30 – 100 条**（小） | 用宽松阈值（μ - σ 而非 μ）；允许多个小 cluster 共存，不强求收敛到 1-2 个主岛 |
+| **100 – 300 条**（中） | 标准算法（μ 阈值 + 主岛 1-2 个） |
+| **> 300 条**（大） | 标准算法 + 增加 cluster 数量上限（5 个主岛） |
+
+### 标准算法（中规模）
+
+1. 计算每条边的频率均值 `μ` 和标准差 `σ`
+2. 保留权重 ≥ `μ` 的边（高 co-occurrence 是"自洽风格岛"信号）
+3. 用连通分量算法找出所有 cluster
+4. 对每个 cluster，计算 `cluster_score = mean(rule.final_score for rule in cluster)`
+5. **anchor（协调骨架）= 规模加权最高的 cluster**（v1.14.0 #6：按 size×score 选而非纯 mean_score，避免一个 2-node 高分对冒充 anchor；候选集很宽/共现稀疏时自适应放松阈值 μ-σ → μ-1.5σ → μ-2σ 直到 backbone 成形）。记录其 dominant_systems；次高的可留作辅助岛
+6. 主岛之外的孤立点（= 与 anchor 低共现）：**v1.13.0 反转**——若 final_score ≥ 候选集 **p25**（旧为 median）→ 保留并标 `productive_tension`（**独特性来源，B4 要主动据此发散、用候选 concept 背书这个组合**，不是"补充规则"）；只有真正 bottom-quartile（< p25，连张力都不配）才剔除
+
+### 小规模 fallback
+
+```python
+if len(all_rules_in_library) < 30:
+    # Skip clustering entirely; co_occurs signal is too sparse
+    final_set = sorted(kept_set, key=lambda rid: -score_map[rid])
+    final_set = section_aware_top_n(final_set, target_size=max(15, len(kept_set) // 2))
+    cluster_metadata = {'skipped_reason': 'small_library', 'library_size': len(all_rules_in_library)}
+elif len(all_rules_in_library) < 100:
+    # Loose threshold: keep edges with freq >= μ - σ (instead of >= μ)
+    threshold = max(0.0, mu - sigma)
+    # ... rest as standard
+```
+
+**为什么这样做**：高频共现的规则形成"被验证过的协调骨架"——这是 **anchor** 的价值（reference-driven 的单一强信号，不是 40 条规则的平均）。**但识别度不来自 anchor，来自张力**：把 anchor 没有的、平时不一起出现的高相关规则**接上去**，由概念证成。旧逻辑把这些 tension 当 outlier 删了，正是"很普通"的成因之一。v1.13.0 反转：anchor 保协调（下限），productive_tension 给识别度（上限原料），B4 负责用 concept 把张力变成签名而非冲突。**当素材库太小时（< 30 条），共现统计本身不够稳定，强行聚类会得到伪 cluster——此时直接 score 排序更诚实。**
+
+## Step 5 — Section 覆盖最终核查
+
+9 个 section 每个必须至少 1 条规则。缺的 section：
+
+1. 先回到 B2 候选集找该 section 分数最高的，加入
+2. 仍缺 → 从 `defaults.yaml` 取该 product_category 该 section 的 backstop 规则
+3. 仍缺（极端情况）→ 标记该 section 为"degraded"，B4 时用通用安全默认（白底黑字、4/8/16 spacing 等），但 B5 闸门会扣分
+
+## Step 6 — 输出自洽子集
+
+```yaml
+self_consistent_subset:
+  rules:
+    - rule_id: ...
+      section: ...
+      final_score: ...
+      kept_reason: anchor | cluster_main | dependency | recovered_for_coverage | productive_tension
+  clusters:
+    - id: main_cluster_1
+      mean_score: 0.78
+      member_count: 32
+      dominant_systems: [linear-app, vercel]
+  anchor:                     # v1.13.0 — 协调骨架（top cluster）
+    mean_score: 0.78
+    member_count: 32
+    dominant_systems: [linear-app, vercel]
+  productive_tensions:        # v1.13.0 — 与 anchor 低共现、被保留供 B4 发散的独特性原料
+    - rule_id: ...
+      section: ...
+      final_score: ...
+      tension_with: [linear-app, vercel]    # 它与 anchor 的哪些主系统形成张力
+  dropped:
+    - rule_id: ...
+      reason: conflicts_with <id> | bottom_quartile_isolated | reverse_constraint
+  section_coverage:
+    color: 8
+    typography: 6
+    ...
+  degraded_sections: []
+```
+
+把自洽子集传给 B4。
+
+---
+
+## 算法细节：连通分量
+
+对 `G_kept`（仅保留高频边后的子图）跑标准 BFS/DFS，得到所有 connected components。每个 component 就是一个 cluster。Python 风格伪代码：
+
+```
+visited = set()
+clusters = []
+for node in nodes:
+    if node not in visited:
+        cluster = []
+        queue = [node]
+        while queue:
+            n = queue.pop()
+            if n in visited: continue
+            visited.add(n)
+            cluster.append(n)
+            queue.extend(neighbors_in_G_kept(n))
+        clusters.append(cluster)
+```
+
+---
+
+## 检查清单（B3 产出前必过）
+
+- [ ] 自洽子集规模 ≥ max(9, 5 * rule_bearing_section_count)（小规则库下放宽下限；大规则库下保持 ≤ 80 上限）
+  - 小规则库（总规则 < 50）：下限 9（每 rule-bearing section 至少 1 条 + 4 个安全规则补底）
+  - 中规则库（50-200）：下限 20，上限 60
+  - 大规则库（>200）：下限 40，上限 80
+- [ ] 5 个 rule-bearing section（color / typography / components / layout / depth_elevation）都有规则覆盖（除非显式标 degraded）
+- [ ] 任意两条规则之间**没有** `conflicts_with` 关系
+- [ ] 每条规则的 `depends_on` 闭包都已纳入子集
+- [ ] anchor 已识别（dominant_systems 记录）+ productive_tensions 已保留并标注（不被当 outlier 删）
+- [ ] `dropped` 列表完整、每条有 reason
+- [ ] **没有向用户追问任何信息**

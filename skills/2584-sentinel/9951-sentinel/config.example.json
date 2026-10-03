@@ -1,0 +1,21 @@
+{
+  "_comment": "Copy to config.json (gitignored) and keep only the repos that have earned a token. Absent config = tier 1 only.",
+  "my-edge-api": {
+    "source": "cloudflare-workers",
+    "account_id": "REPLACE_ME",
+    "script_name": "my-edge-api",
+    "token_env": "CF_ANALYTICS_TOKEN",
+    "thresholds": {
+      "cpu_time_p99_ms": 350,
+      "error_rate": 0.01
+    },
+    "bands": {
+      "metrics": [
+        "cpu_time_p99_ms",
+        "error_rate"
+      ],
+      "baseline_days": 28,
+      "min_samples": 14
+    }
+  }
+}

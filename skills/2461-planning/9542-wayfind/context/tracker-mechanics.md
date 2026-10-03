@@ -1,0 +1,182 @@
+# Tracker mechanics: the `gh` commands
+
+`/planning:wayfind` operates the map through the GitHub Issues backend directly, the same idiom as the
+sibling `work-items` plugin (backend-agnostic "work items" language, plain `gh`). All commands
+run against the current repository. Where the consuming project routes tracker **writes**
+through a bot identity or wrapper, follow that project's own rules, with one exception: the
+claim assignment (`--add-assignee "@me"`) always runs on the session identity, never a shared
+bot, or the collision check silently breaks.
+
+Native primitives (gh ≥ 2.94; the flags and the JSON shapes below were verified on gh 2.97.0 on
+2026-09-02, recheck when `gh issue create --help` stops listing `--parent`): sub-issues via
+`--parent`, dependency edges via `--add-blocked-by` (or `--blocked-by` at create time), both
+queryable as JSON fields. **Shape gotcha:** `subIssues` and `blockedBy` are objects,
+`{"nodes": [...], "totalCount": N}`, NOT flat arrays. Use `.subIssues.nodes[]` and read blockers from
+`.blockedBy.nodes[]`; `.blockedBy | length` returns the key count (always 2), never the
+blocker count. (`assignees` and `labels` ARE flat arrays, so `| length` is correct for those.)
+**A closed blocker stays in the edge set:** `blockedBy.totalCount` still counts it after it
+closes. Frontier must count only **OPEN** blockers (`.blockedBy.nodes[] | select(.state=="OPEN")`),
+or every item whose blocker ever closed is stranded off the frontier forever.
+
+## Resolve the container label (once per session, before any map read or write)
+
+The map marker is the **container label** the work-item tracker seam defines, the same
+`config.container_label` binding key, same shipped default (`work-items` CONTRACT.md,
+"Containers and state"). Resolving it here instead of hardcoding `work-map` keeps wayfind
+maps and decompose containers on ONE marker: a repo that remaps the label would otherwise
+strand wayfind maps on the old string, where the seam's frontier exclusion no longer
+matches them and `/work-items:work-loop` would surface a map as a claimable item.
+
+```shell
+# Same key + same type rule as the seam's lib/binding.sh: absent/empty → shipped default;
+# a PRESENT non-string value is a configuration error, never a silent fallback.
+ROOT=$(git rev-parse --show-toplevel)
+t=$(jq -r '.config.container_label | type' "$ROOT/.work-item-tracker.json" 2>/dev/null || echo null)
+case "$t" in
+  string) CONTAINER_LABEL=$(jq -r '.config.container_label' "$ROOT/.work-item-tracker.json" 2>/dev/null) ;;
+  null)   CONTAINER_LABEL= ;;   # no binding, no key, or jq missing
+  *)      echo "ERROR: config.container_label must be a string (got $t). Fix .work-item-tracker.json" >&2
+          # Real stop — works sourced or standalone; never proceed with a coerced label.
+          return 1 2>/dev/null || exit 1
+          ;;
+esac
+CONTAINER_LABEL=${CONTAINER_LABEL:-work-map}
+```
+
+The snippets below use `"$CONTAINER_LABEL"`; prose that says `work-map` means the shipped
+default. Wayfind reads the binding file directly (it never routes through the seam's
+loader), so the type check above repeats the seam's rule on this path rather than assuming
+the seam already ran. On the ERROR branch, stop and report instead of creating anything.
+
+## Bootstrap labels (first use in a repo)
+
+`/planning:wayfind` uses its own taxonomy: the container label (default `work-map`), `wayfind: research|interview|design|prototype|task`
+(axis labels follow the colon-space grammar so label-as-code owners with a `prefix: value` convention
+can declare them verbatim), `needs-human`. At chart-mode entry, **verify** the taxonomy is present because an unknown `--label`
+fails `gh issue create`. Read the consuming repository's instructions and configuration for label
+ownership. If they declare a label-as-code source of truth, treat that declared system as the writer,
+report the exact missing set to its owner, and stop. If no ownership policy is declared, report the
+missing set and ask the user how labels are provisioned. The plugin never assumes an organization or
+provisioning repository and never creates labels ad hoc:
+
+```shell
+# Presence check only — never create. Route missing labels to the repository-declared owner.
+have=$(gh label list --json name --jq '.[].name')
+for L in "$CONTAINER_LABEL" 'wayfind: research' 'wayfind: interview' 'wayfind: design' 'wayfind: prototype' 'wayfind: task' needs-human; do
+  grep -qxF "$L" <<<"$have" || echo "MISSING (route to repository label owner): $L"
+done
+```
+
+## Create / extend the map
+
+```shell
+# Map issue: bare container-label marker + any repo program labels. Body per context/map-anatomy.md.
+gh issue create --title "Map: <effort>" --label "$CONTAINER_LABEL" --body-file <map-body.md>
+```
+
+A map is never assigned and never carries a claim label: it is a container, not a work item.
+
+## Create a typed decision item (sub-issue of the map)
+
+```shell
+# Type label routes + sets default mode. HITL types add `needs-human`; research omits it.
+gh issue create --parent <map#> \
+  --title "<sharp question>" \
+  --label "wayfind: <research|interview|design|prototype|task>" \
+  --body "<what must be decided, options if known, the item body picks logic/ui for prototype>"
+
+# HITL item — materialize the mode:
+gh issue edit <item#> --add-label needs-human      # interview | design | prototype (default)
+# research → leave `needs-human` off (autonomous-capable). task → per-item.
+```
+
+## Wire a dependency edge (only where one decision genuinely gates another)
+
+```shell
+gh issue edit <item#> --add-blocked-by <blocker#>
+```
+
+Never invent edges to impose order. An edge means the blocker's resolution is a genuine
+precondition for phrasing or answering the dependent decision.
+
+## Compute the frontier
+
+`frontier = open ∧ blocked-by count == 0 ∧ unassigned` (in non-interactive sessions, also
+`∧ NOT needs-human`). Core-side derivation over the map's sub-issues, with no server-side search
+syntax needed:
+
+```shell
+# 1. Sub-issue numbers of the map (subIssues is {nodes,totalCount} — read .nodes).
+MAP=<map#>
+gh issue view "$MAP" --json subIssues --jq '.subIssues.nodes[].number' | tr -d '\r' | while read -r n; do
+  # 2. Per item: keep open, zero blockers, no assignee (blockedBy is {nodes,totalCount} — read .totalCount).
+  gh issue view "$n" --json number,title,state,blockedBy,assignees,labels --jq '
+    select(.state == "OPEN")
+    | select(([.blockedBy.nodes[] | select(.state == "OPEN")] | length) == 0)
+    | select((.assignees | length) == 0)
+    | "#\(.number) \(.title) [\([.labels[].name] | map(select(startswith("wayfind: ")))[])]"' | tr -d '\r'
+done
+# Non-interactive: also drop needs-human items — add
+#   | select((.labels | map(.name) | index("needs-human")) | not)
+# to the per-item jq filter above.
+```
+
+## Claim a frontier item (mirrors the `work-items` plugin, one claim model across both)
+
+Optimistic locking via **claim-comment order** (the sibling's mechanism). Assignee comparison
+is NOT sufficient: two same-identity sessions both assign `@me` and resolve to one login, so
+neither can tell who won. The discriminator is the claim comment: GitHub timestamps each, and
+the earliest wins. Embed a per-session marker in the comment so you can recognize your own.
+
+```shell
+# 1. Pre-check (read): not already assigned by someone else. The claim is assignee + lease —
+#    there is NO claim label.
+gh issue view <item#> --json assignees \
+  --jq '{assignees:[.assignees[].login]}' | tr -d '\r'
+
+# 2. Post a claim marker comment (the lease — embed a per-session marker), then assign self.
+#    @me MUST be the session identity so the timeline is honest.
+gh issue comment <item#> --body "🔒 claim: <session-marker>"
+gh issue edit <item#> --add-assignee "@me"
+
+# 3. Collision check via claim-comment ORDER (not assignees). The EARLIEST claim comment wins.
+gh issue view <item#> --json comments \
+  --jq '[.comments[] | select(.body | startswith("🔒 claim:"))] | sort_by(.createdAt) | .[0].body' | tr -d '\r'
+#    If the earliest claim comment is NOT yours (marker mismatch): back off — delete your claim
+#    comment. Re-read assignees (step 1's command): if another login besides your own is present
+#    (a foreign race — the winner assigned under a different identity), remove ONLY your own
+#    assignee. If you are the item's sole assignee, leave it: a same-identity `@me` collision
+#    means that slot is shared with the winner, so removing it would also un-claim their item and
+#    let it re-enter the frontier out from under them. Either way, pick the next frontier item.
+```
+
+Session-start `reclaim` is idempotent: clear your own assignee (and claim comment) on items you
+hold that have no in-progress signal (open PR / branch pushes / recent comments), noting the
+release in a comment.
+
+## Graduate + close a decision item
+
+In-scope close-out is atomic: comment → Decisions-so-far → close. A wrongly scoped item
+(on the tracker but not this effort) closes with one Out-of-scope line and no
+Decisions-so-far pointer: see the Decisions-so-far / Out-of-scope sections in
+[`map-anatomy.md`](map-anatomy.md).
+
+```shell
+# In-scope — comment → Decisions-so-far → close
+# 1. Resolution comment on the item (the decision's durable home).
+gh issue comment <item#> --body "Resolved: <decision>. Basis: <one line>"
+# 2. Add the one-line pointer to the map's Decisions-so-far index (edit the map body).
+# 3. Close the item (closing removes it from the frontier — the claim is assignee + lease, no label to clear).
+gh issue close <item#> --reason completed
+
+# Wrongly scoped — Out-of-scope line on the map first (no Decisions-so-far
+# pointer), then close only after that map update succeeds:
+gh issue close <item#> --reason "not planned"
+```
+
+## Close the map (frontier empty ∧ all items closed)
+
+```shell
+gh issue close <map#> --reason completed \
+  --comment "Destination coherent, handed to <\/planning:interview | \/planning:prd | \/planning:plan>."
+```

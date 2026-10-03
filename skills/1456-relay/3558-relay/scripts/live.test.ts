@@ -1,0 +1,1237 @@
+import { describe, expect, it } from "bun:test";
+import { join } from "path";
+import {
+  BOOTSTRAP_ACTIVITY_WAIT_MS,
+  collectLive,
+  compareVersionsDesc,
+  DEFAULT_WAIT_TIMEOUT_MS,
+  extractFinalText,
+  liveGate,
+  resolveCallerLocation,
+  resolveHerdScript,
+  runLive,
+  shellArg,
+  type CollectLiveOpts,
+  type HerdClient,
+  type LocatorDeps,
+  type RunLiveDeps,
+  type RunLiveOpts,
+} from "./live";
+import { RESULT_END_MARKER } from "./relay-prompt";
+import { BACKENDS } from "./backends";
+
+// ---------------------------------------------------------------------------
+// resolveHerdScript
+// ---------------------------------------------------------------------------
+
+const SIBLING = "/repo/packages/herdr/skills/herdr/scripts/herd.ts";
+
+function locator(overrides: Partial<LocatorDeps> = {}): LocatorDeps {
+  return {
+    env: {},
+    scriptDir: "/repo/packages/relay/skills/relay/scripts",
+    homeDir: "/home/q",
+    fileExists: () => false,
+    listDir: () => [],
+    ...overrides,
+  };
+}
+
+describe("resolveHerdScript", () => {
+  it("prefers the HERD_SCRIPT_PATH override when it exists", () => {
+    const deps = locator({
+      env: { HERD_SCRIPT_PATH: "/custom/herd.ts" },
+      fileExists: (p) => p === "/custom/herd.ts" || p === SIBLING,
+    });
+
+    expect(resolveHerdScript(deps)).toBe("/custom/herd.ts");
+  });
+
+  it("ignores a HERD_SCRIPT_PATH that does not exist", () => {
+    const deps = locator({
+      env: { HERD_SCRIPT_PATH: "/missing/herd.ts" },
+      fileExists: (p) => p === SIBLING,
+    });
+
+    expect(resolveHerdScript(deps)).toBe(SIBLING);
+  });
+
+  it("finds the repo-sibling herd.ts (4-up marketplace layout)", () => {
+    const deps = locator({ fileExists: (p) => p === SIBLING });
+
+    expect(resolveHerdScript(deps)).toBe(SIBLING);
+  });
+
+  it("scans plugin caches newest-version-first, across both harnesses", () => {
+    const claudeRoot = "/home/q/.claude/plugins/cache";
+    const codexRoot = "/home/q/.codex/plugins/cache";
+    const newest = join(
+      codexRoot,
+      "q-lab-marketplace/herdr/0.10.0/skills/herdr/scripts/herd.ts",
+    );
+    const older = join(
+      codexRoot,
+      "q-lab-marketplace/herdr/0.9.1/skills/herdr/scripts/herd.ts",
+    );
+
+    const deps = locator({
+      fileExists: (p) => p === newest || p === older,
+      listDir: (p) => {
+        if (p === claudeRoot) return []; // herdr not installed for Claude here
+        if (p === codexRoot) return ["q-lab-marketplace"];
+        if (p === join(codexRoot, "q-lab-marketplace/herdr"))
+          // Directory order is arbitrary — numeric-aware sort must pick 0.10.0
+          return ["0.9.1", "0.10.0"];
+        return [];
+      },
+    });
+
+    expect(resolveHerdScript(deps)).toBe(newest);
+  });
+
+  it("returns null when nothing resolves", () => {
+    expect(resolveHerdScript(locator())).toBeNull();
+  });
+});
+
+describe("compareVersionsDesc", () => {
+  it("sorts numerically, not lexically", () => {
+    expect(["0.2.0", "0.10.0", "0.9.1"].sort(compareVersionsDesc)).toEqual([
+      "0.10.0",
+      "0.9.1",
+      "0.2.0",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// liveGate
+// ---------------------------------------------------------------------------
+
+describe("liveGate", () => {
+  const base = {
+    env: { HERDR_ENV: "1" },
+    headless: false,
+    mode: "delegate" as const,
+    backend: BACKENDS.codex,
+    herdScriptPath: "/x/herd.ts",
+  };
+
+  it("goes live when everything lines up", () => {
+    expect(liveGate(base)).toEqual({ live: true });
+  });
+
+  it("stays headless outside herdr, silently", () => {
+    expect(liveGate({ ...base, env: {} })).toEqual({ live: false });
+  });
+
+  it("stays headless on --headless, silently", () => {
+    expect(liveGate({ ...base, headless: true })).toEqual({ live: false });
+  });
+
+  it("stays headless for image mode, silently", () => {
+    expect(liveGate({ ...base, mode: "image" })).toEqual({ live: false });
+  });
+
+  it("reports a reason when the backend has no live seam", () => {
+    const backend = { ...BACKENDS.codex, invokeLive: undefined };
+    const gate = liveGate({ ...base, backend });
+
+    expect(gate.live).toBe(false);
+    expect(gate.reason).toContain("no live-pane support");
+  });
+
+  it("reports a reason when herd.ts is unresolved", () => {
+    const gate = liveGate({ ...base, herdScriptPath: null });
+
+    expect(gate.live).toBe(false);
+    expect(gate.reason).toContain("herd.ts not found");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractFinalText
+// ---------------------------------------------------------------------------
+
+describe("extractFinalText", () => {
+  it("strips the marker and trailing whitespace", () => {
+    expect(extractFinalText(`# Answer\n\nbody\n${RESULT_END_MARKER}\n\n`)).toBe(
+      "# Answer\n\nbody",
+    );
+  });
+
+  it("returns null when the marker is absent (mid-write)", () => {
+    expect(extractFinalText("# Answer\n\nbody\n")).toBeNull();
+  });
+
+  it("returns null when text follows the marker", () => {
+    expect(
+      extractFinalText(`body\n${RESULT_END_MARKER}\ntrailing junk\n`),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCallerLocation
+// ---------------------------------------------------------------------------
+
+describe("resolveCallerLocation", () => {
+  const agents = [
+    {
+      name: null,
+      type: "codex",
+      status: "working",
+      paneId: "wT:p1",
+      tabId: "wT:t1",
+      workspaceId: "wT",
+      cwd: "/repo",
+      foregroundCwd: "/repo",
+    },
+  ];
+
+  it("uses a valid caller pane from the inherited environment", () => {
+    expect(
+      resolveCallerLocation(agents, {
+        env: { HERDR_PANE_ID: "wT:p1", CODEX_THREAD_ID: "thread" },
+        cwd: "/repo",
+      }),
+    ).toEqual({
+      workspaceId: "wT",
+      tabId: "wT:t1",
+      paneId: "wT:p1",
+      source: "env",
+    });
+  });
+
+  it("recovers from a stale Codex pane id via a unique cwd match", () => {
+    expect(
+      resolveCallerLocation(agents, {
+        env: { HERDR_PANE_ID: "wS:p6", CODEX_THREAD_ID: "thread" },
+        cwd: "/repo",
+      }),
+    ).toEqual({
+      workspaceId: "wT",
+      tabId: "wT:t1",
+      paneId: "wT:p1",
+      source: "runtime",
+    });
+  });
+
+  it("refuses to guess when multiple active Codex panes share the cwd", () => {
+    expect(
+      resolveCallerLocation(
+        [...agents, { ...agents[0], paneId: "wT:p2", tabId: "wT:t2" }],
+        {
+          env: { HERDR_PANE_ID: "wS:p6", CODEX_THREAD_ID: "thread" },
+          cwd: "/repo",
+        },
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts an inherited pane whose cwd is an ancestor of the caller cwd", () => {
+    expect(
+      resolveCallerLocation(agents, {
+        env: { HERDR_PANE_ID: "wT:p1", CODEX_THREAD_ID: "thread" },
+        cwd: "/repo/packages/relay",
+      }),
+    ).toEqual({
+      workspaceId: "wT",
+      tabId: "wT:t1",
+      paneId: "wT:p1",
+      source: "env",
+    });
+  });
+
+  it("accepts a fully validated inherited caller across sibling repos", () => {
+    expect(
+      resolveCallerLocation(agents, {
+        env: {
+          HERDR_WORKSPACE_ID: "wT",
+          HERDR_TAB_ID: "wT:t1",
+          HERDR_PANE_ID: "wT:p1",
+          CODEX_THREAD_ID: "thread",
+        },
+        cwd: "/other-repo/packages/relay",
+      }),
+    ).toEqual({
+      workspaceId: "wT",
+      tabId: "wT:t1",
+      paneId: "wT:p1",
+      source: "env",
+    });
+  });
+
+  it("rejects stale inherited identity when its Herdr ids do not agree", () => {
+    expect(
+      resolveCallerLocation(agents, {
+        env: {
+          HERDR_WORKSPACE_ID: "wStale",
+          HERDR_TAB_ID: "wStale:t9",
+          HERDR_PANE_ID: "wT:p1",
+          CODEX_THREAD_ID: "thread",
+        },
+        cwd: "/other-repo/packages/relay",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects an inactive stale pane even when its inherited ids still match", () => {
+    expect(
+      resolveCallerLocation([{ ...agents[0], status: "idle" }], {
+        env: {
+          HERDR_WORKSPACE_ID: "wT",
+          HERDR_TAB_ID: "wT:t1",
+          HERDR_PANE_ID: "wT:p1",
+          CODEX_THREAD_ID: "thread",
+        },
+        cwd: "/other-repo/packages/relay",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects an ambiguous duplicated inherited identity across projects", () => {
+    expect(
+      resolveCallerLocation(
+        [
+          ...agents,
+          {
+            ...agents[0],
+            name: "duplicate",
+            cwd: "/other-repo",
+            foregroundCwd: "/other-repo",
+          },
+        ],
+        {
+          env: {
+            HERDR_WORKSPACE_ID: "wT",
+            HERDR_TAB_ID: "wT:t1",
+            HERDR_PANE_ID: "wT:p1",
+            CODEX_THREAD_ID: "thread",
+          },
+          cwd: "/third-repo",
+        },
+      ),
+    ).toBeNull();
+  });
+
+  it("resolves a nested caller cwd via a unique ancestor pane", () => {
+    expect(
+      resolveCallerLocation(agents, {
+        env: { HERDR_PANE_ID: "wS:p6", CODEX_THREAD_ID: "thread" },
+        cwd: "/repo/packages/relay",
+      }),
+    ).toEqual({
+      workspaceId: "wT",
+      tabId: "wT:t1",
+      paneId: "wT:p1",
+      source: "runtime",
+    });
+  });
+
+  it("prefers the deepest ancestor pane when several are ancestors", () => {
+    const deeper = {
+      ...agents[0],
+      paneId: "wT:p2",
+      tabId: "wT:t2",
+      cwd: "/repo/packages",
+      foregroundCwd: "/repo/packages",
+    };
+    expect(
+      resolveCallerLocation([...agents, deeper], {
+        env: { HERDR_PANE_ID: "wS:p6", CODEX_THREAD_ID: "thread" },
+        cwd: "/repo/packages/relay",
+      })?.paneId,
+    ).toBe("wT:p2");
+  });
+
+  it("does not treat a sibling path sharing a name prefix as an ancestor", () => {
+    expect(
+      resolveCallerLocation(agents, {
+        env: { HERDR_PANE_ID: "wT:p1", CODEX_THREAD_ID: "thread" },
+        cwd: "/repo-other/packages",
+      }),
+    ).toBeNull();
+  });
+
+  it("refuses to guess when equally deep ancestors are ambiguous", () => {
+    expect(
+      resolveCallerLocation(
+        [...agents, { ...agents[0], paneId: "wT:p2", tabId: "wT:t2" }],
+        {
+          env: { HERDR_PANE_ID: "wS:p6", CODEX_THREAD_ID: "thread" },
+          cwd: "/repo/packages/relay",
+        },
+      ),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runLive
+// ---------------------------------------------------------------------------
+
+type HerdCall = { verb: string; args: unknown[] };
+
+function fakeHerd(options: {
+  statuses: string[]; // status returned per get() call (last repeats)
+  spawnError?: Error;
+  sendError?: Error;
+  closeError?: Error;
+  getErrorAtGet?: number;
+  preSpawnAgents?: string[]; // list() result before spawn (snapshot)
+  postSpawnAgents?: string[]; // list() result after spawn (leak probe)
+  visible?: string; // what read({source:"visible"}) returns (input-box probe)
+  callerAgents?: Array<{
+    name: string | null;
+    type: string | null;
+    status: string;
+    paneId: string;
+    tabId: string;
+    workspaceId: string;
+    cwd: string;
+    foregroundCwd?: string;
+  }>;
+}): { herd: HerdClient; calls: HerdCall[] } {
+  const calls: HerdCall[] = [];
+  let gets = 0;
+  let lists = 0;
+  const herd: HerdClient = {
+    async spawn(opts) {
+      calls.push({ verb: "spawn", args: [opts] });
+      if (options.spawnError) throw options.spawnError;
+      return { name: "relay-codex-delegate-ab12" };
+    },
+    async list() {
+      calls.push({ verb: "list", args: [] });
+      const names =
+        lists++ === 0
+          ? (options.preSpawnAgents ?? [])
+          : (options.postSpawnAgents ?? options.preSpawnAgents ?? []);
+      const namedAgents = names.map((name) => ({ name }));
+      if (lists === 1 && options.callerAgents) {
+        return [...options.callerAgents, ...namedAgents];
+      }
+      return namedAgents;
+    },
+    async send(target, text, opts) {
+      calls.push({ verb: "send", args: [target, text, opts] });
+      if (options.sendError) throw options.sendError;
+      return {};
+    },
+    async keys(target, ...keys) {
+      calls.push({ verb: "keys", args: [target, ...keys] });
+      return {};
+    },
+    async wait(target, opts) {
+      calls.push({ verb: "wait", args: [target, opts] });
+      return {};
+    },
+    async get(target) {
+      calls.push({ verb: "get", args: [target] });
+      if (options.getErrorAtGet === gets + 1) throw new Error("get failed");
+      const status =
+        options.statuses[Math.min(gets++, options.statuses.length - 1)];
+      return { status };
+    },
+    async read(target, opts) {
+      calls.push({ verb: "read", args: [target, opts] });
+      return options.visible ?? "";
+    },
+    async close(target) {
+      calls.push({ verb: "close", args: [target] });
+      if (options.closeError) throw options.closeError;
+      return {};
+    },
+  };
+  return { herd, calls };
+}
+
+function runLiveHarness(options: {
+  statuses: string[];
+  resultAppearsAtGet?: number; // result.md exists from this get() count on
+  resultContent?: string;
+  waitTimeoutMs?: number;
+  spawnError?: Error;
+  sendError?: Error;
+  closeError?: Error;
+  getErrorAtGet?: number;
+  loadError?: Error;
+  preSpawnAgents?: string[];
+  postSpawnAgents?: string[];
+  visible?: string;
+  keepPane?: boolean;
+  callerAgents?: Parameters<typeof fakeHerd>[0]["callerAgents"];
+  callerEnv?: Record<string, string | undefined>;
+}) {
+  const callerAgents = options.callerAgents ?? [
+    {
+      name: null,
+      type: "codex",
+      status: "working",
+      paneId: "wT:p1",
+      tabId: "wT:t1",
+      workspaceId: "wT",
+      cwd: "/repo",
+      foregroundCwd: "/repo",
+    },
+  ];
+  const { herd, calls } = fakeHerd({ ...options, callerAgents });
+  const errors: string[] = [];
+  let clock = 0;
+  let gets = 0;
+
+  const opts: RunLiveOpts = {
+    backend: "codex",
+    mode: "delegate",
+    spec: { agentBin: "codex", argv: ["-m", "gpt-6"] },
+    herdScriptPath: "/x/herd.ts",
+    bootstrapText: "Read the file /tmp/relay/run/live-prompt.md …",
+    resultPath: "/tmp/relay/run/result.md",
+    cwd: "/repo",
+    waitTimeoutMs: options.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS,
+    keepPane: options.keepPane ?? false,
+    env: ["RELAY_DELEGATED=1"],
+    callerEnv: options.callerEnv ?? {
+      HERDR_PANE_ID: "wT:p1",
+      CODEX_THREAD_ID: "thread",
+    },
+  };
+
+  const deps: RunLiveDeps = {
+    loadHerd: async () => {
+      if (options.loadError) throw options.loadError;
+      return herd;
+    },
+    fileExists: (p) => {
+      if (p !== opts.resultPath) return false;
+      return (
+        options.resultAppearsAtGet !== undefined &&
+        gets >= options.resultAppearsAtGet
+      );
+    },
+    readFile: () => options.resultContent ?? "",
+    stderr: (text) => errors.push(text),
+    now: () => clock,
+    sleep: async (ms) => {
+      clock += ms;
+    },
+  };
+
+  // Track get() count for fileExists gating (herd.get is already counted in
+  // calls; mirror it here without reaching into fakeHerd internals).
+  const originalGet = herd.get.bind(herd);
+  herd.get = async (target) => {
+    gets++;
+    return originalGet(target);
+  };
+
+  return { run: () => runLive(opts, deps), calls, errors, opts };
+}
+
+describe("runLive", () => {
+  it("spawns, sends only the bootstrap line, and captures the marked result", async () => {
+    const content = `# Result\n\nAll done.\n${RESULT_END_MARKER}\n`;
+    const { run, calls, errors } = runLiveHarness({
+      statuses: ["working", "idle"],
+      resultAppearsAtGet: 2,
+      resultContent: content,
+    });
+
+    const result = await run();
+
+    expect(result).toEqual({
+      ok: true,
+      agentName: "relay-codex-delegate-ab12",
+      text: "# Result\n\nAll done.",
+    });
+
+    const spawn = calls.find((c) => c.verb === "spawn")!.args[0] as Record<
+      string,
+      unknown
+    >;
+    expect(spawn.role).toBe("relay-codex-delegate");
+    expect(spawn.agent).toBe("codex");
+    expect(spawn.argv).toEqual(["-m", "gpt-6"]);
+    expect(spawn.env).toEqual(["RELAY_DELEGATED=1"]);
+    // Opens its own tab; split stays as a fallback for an older herd.ts.
+    expect(spawn.newTab).toBe(true);
+    expect(spawn.split).toBe("down");
+    expect(spawn.cwd).toBe("/repo");
+    expect(spawn.workspace).toBe("wT");
+
+    // Exactly one send, carrying the one-line bootstrap — never the prompt body.
+    const sends = calls.filter((c) => c.verb === "send");
+    expect(sends).toHaveLength(1);
+    expect(sends[0].args[1]).toContain("live-prompt.md");
+
+    // Progress lines surfaced each poll.
+    expect(errors.some((e) => e.includes("working"))).toBe(true);
+  });
+
+  it("pins the new tab to the runtime workspace when Codex env is stale", async () => {
+    const content = `# Result\n${RESULT_END_MARKER}\n`;
+    const { run, calls } = runLiveHarness({
+      statuses: ["working", "idle"],
+      resultAppearsAtGet: 2,
+      resultContent: content,
+      callerEnv: { HERDR_PANE_ID: "wS:p6", CODEX_THREAD_ID: "thread" },
+      callerAgents: [
+        {
+          name: null,
+          type: "codex",
+          status: "working",
+          paneId: "wT:p1",
+          tabId: "wT:t1",
+          workspaceId: "wT",
+          cwd: "/repo",
+          foregroundCwd: "/repo",
+        },
+      ],
+    });
+
+    expect((await run()).ok).toBe(true);
+    const spawn = calls.find((c) => c.verb === "spawn")!.args[0] as Record<
+      string,
+      unknown
+    >;
+    expect(spawn.workspace).toBe("wT");
+  });
+
+  it("fails before spawning when the caller workspace is ambiguous", async () => {
+    const shared = {
+      name: null,
+      type: "codex",
+      status: "working",
+      tabId: "wT:t1",
+      workspaceId: "wT",
+      cwd: "/repo",
+      foregroundCwd: "/repo",
+    };
+    const { run, calls } = runLiveHarness({
+      statuses: ["working"],
+      callerEnv: { HERDR_PANE_ID: "wS:p6", CODEX_THREAD_ID: "thread" },
+      callerAgents: [
+        { ...shared, paneId: "wT:p1" },
+        { ...shared, paneId: "wT:p2" },
+      ],
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.pending) throw new Error("expected failure");
+    expect(result.error).toContain("could not uniquely resolve");
+    expect(calls.some((call) => call.verb === "spawn")).toBe(false);
+  });
+
+  it("closes the pane by default after a verified success", async () => {
+    const content = `# Result\n${RESULT_END_MARKER}\n`;
+    const { run, calls } = runLiveHarness({
+      statuses: ["working", "idle"],
+      resultAppearsAtGet: 2,
+      resultContent: content,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(true);
+    expect(calls.filter((c) => c.verb === "close")).toEqual([
+      { verb: "close", args: ["relay-codex-delegate-ab12"] },
+    ]);
+  });
+
+  it("keeps the pane open on verified success when keepPane is true", async () => {
+    const content = `# Result\n${RESULT_END_MARKER}\n`;
+    const { run, calls } = runLiveHarness({
+      statuses: ["working", "idle"],
+      resultAppearsAtGet: 2,
+      resultContent: content,
+      keepPane: true,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(true);
+    expect(calls.some((c) => c.verb === "close")).toBe(false);
+  });
+
+  it("still returns ok when closing the pane fails after verified success", async () => {
+    const content = `# Result\n${RESULT_END_MARKER}\n`;
+    const { run, calls, errors } = runLiveHarness({
+      statuses: ["working", "idle"],
+      resultAppearsAtGet: 2,
+      resultContent: content,
+      closeError: new Error("close failed"),
+    });
+
+    const result = await run();
+
+    expect(result).toEqual({
+      ok: true,
+      agentName: "relay-codex-delegate-ab12",
+      text: "# Result",
+    });
+    expect(calls.some((c) => c.verb === "close")).toBe(true);
+    expect(errors.some((e) => e.includes("failed to close pane"))).toBe(true);
+  });
+
+  it("keeps polling while the marker is missing, then times out pending — without closing", async () => {
+    const { run, calls } = runLiveHarness({
+      statuses: ["working"],
+      resultAppearsAtGet: 1,
+      resultContent: "partial answer, no marker yet\n",
+      waitTimeoutMs: 12_000,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !result.pending) throw new Error("expected pending");
+    expect(result.agentName).toBe("relay-codex-delegate-ab12");
+    expect(result.report).toContain("relay-codex-delegate-ab12");
+    expect(result.report).toContain("/tmp/relay/run/result.md");
+    expect(result.report).toContain("wait");
+    expect(result.report).toContain("close");
+    expect(result.report).toContain("NOT a failure");
+    // relay never kills or closes the pane.
+    expect(calls.some((c) => c.verb === "close")).toBe(false);
+  });
+
+  it("fails without closing when the agent settled at timeout without a verified result", async () => {
+    const { run, calls } = runLiveHarness({
+      statuses: ["done"],
+      waitTimeoutMs: 4_000,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.pending) throw new Error("expected failure");
+    expect(result.agentName).toBe("relay-codex-delegate-ab12");
+    expect(result.error).toContain("settled");
+    expect(result.error).toContain("done");
+    expect(calls.some((c) => c.verb === "close")).toBe(false);
+  });
+
+  it("times out pending when the final status check is unreadable", async () => {
+    const { run, calls } = runLiveHarness({
+      statuses: ["working"],
+      waitTimeoutMs: 4_000,
+      getErrorAtGet: 2,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !result.pending) throw new Error("expected pending");
+    expect(result.agentName).toBe("relay-codex-delegate-ab12");
+    expect(result.report).toContain("NOT a failure");
+    expect(calls.some((c) => c.verb === "close")).toBe(false);
+  });
+
+  it("keeps polling when the marker landed but the agent is still working", async () => {
+    const content = `early write\n${RESULT_END_MARKER}\n`;
+    const { run, calls } = runLiveHarness({
+      statuses: ["working", "working", "idle"],
+      resultAppearsAtGet: 1,
+      resultContent: content,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(true);
+    // Completed on the third poll (first idle), not the first marker sighting.
+    expect(calls.filter((c) => c.verb === "get")).toHaveLength(3);
+  });
+
+  it("completes when the agent parks at 'done' (codex) with a marked result", async () => {
+    const content = `4\n${RESULT_END_MARKER}\n`;
+    const { run, calls } = runLiveHarness({
+      statuses: ["working", "done"], // codex settles to done, not idle
+      resultAppearsAtGet: 2,
+      resultContent: content,
+    });
+
+    const result = await run();
+
+    expect(result).toEqual({
+      ok: true,
+      agentName: "relay-codex-delegate-ab12",
+      text: "4",
+    });
+    // 'done' is treated as activity → it must never trigger a bootstrap nudge.
+    expect(calls.filter((c) => c.verb === "send")).toHaveLength(1);
+  });
+
+  it("re-sends the bootstrap (at most twice) when the pane never leaves idle — lost delivery", async () => {
+    const { run, calls, errors, opts } = runLiveHarness({
+      statuses: ["idle"], // never works, no result file ever appears
+      waitTimeoutMs: 22_000, // 5 polls
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    const sends = calls.filter((c) => c.verb === "send");
+    // Initial bootstrap + exactly two full re-sends (recovers BOTH a swallowed
+    // Enter and lost text — a bare Enter can't restore a lost line), then stop.
+    expect(sends).toHaveLength(3);
+    expect(sends[1].args[1]).toBe(opts.bootstrapText);
+    expect(sends[2].args[1]).toBe(opts.bootstrapText);
+    expect(errors.some((e) => e.includes("re-sending the bootstrap"))).toBe(
+      true,
+    );
+  });
+
+  it("recovers via the bootstrap re-send and never nudges after seeing activity", async () => {
+    const content = `2\n${RESULT_END_MARKER}\n`;
+    const { run, calls } = runLiveHarness({
+      statuses: ["idle", "working", "idle"], // stuck → nudged → runs → done
+      resultAppearsAtGet: 3,
+      resultContent: content,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(true);
+    const sends = calls.filter((c) => c.verb === "send");
+    expect(sends).toHaveLength(2); // bootstrap + one nudge only
+  });
+
+  it("presses Enter only (never re-sends) when the bootstrap sits unsubmitted in the input", async () => {
+    const { run, calls, errors } = runLiveHarness({
+      statuses: ["idle"], // never leaves idle, no result file
+      waitTimeoutMs: 7_000, // one poll → one nudge
+      visible: "Read the file /tmp/relay/run/live-prompt.md …", // full line present
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    // Only the initial bootstrap was sent — the nudge pressed Enter, no duplicate.
+    const sends = calls.filter((c) => c.verb === "send");
+    expect(sends).toHaveLength(1);
+    const keys = calls.filter((c) => c.verb === "keys");
+    expect(keys[0].args).toEqual(["relay-codex-delegate-ab12", "enter"]);
+    expect(errors.some((e) => e.includes("pressing Enter"))).toBe(true);
+  });
+
+  it("clears the line then re-sends on a partial paste (head present, tail missing)", async () => {
+    const { run, calls, errors } = runLiveHarness({
+      statuses: ["idle"],
+      waitTimeoutMs: 4_000, // one poll → one nudge (budget checked before the sleep)
+      visible: "Read the file /tmp/relay/run/liv", // truncated — no tail token
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    const keys = calls.filter((c) => c.verb === "keys");
+    expect(keys[0].args).toEqual([
+      "relay-codex-delegate-ab12",
+      "ctrl+a",
+      "ctrl+k",
+    ]);
+    const sends = calls.filter((c) => c.verb === "send");
+    expect(sends).toHaveLength(2); // initial + one re-send after clearing
+    expect(errors.some((e) => e.includes("partial bootstrap"))).toBe(true);
+  });
+
+  it("falls back cleanly when herd.ts cannot be loaded (nothing spawned)", async () => {
+    const { run, calls } = runLiveHarness({
+      statuses: [],
+      loadError: new Error("module not found"),
+    });
+
+    const result = await run();
+
+    expect(result).toEqual({
+      ok: false,
+      pending: false,
+      error: "failed to load herd.ts: module not found",
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("reports a spawn failure without an agent name (safe to fall back)", async () => {
+    const { run } = runLiveHarness({
+      statuses: [],
+      spawnError: new Error("no herdr session"),
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.pending) throw new Error("expected error");
+    expect(result.agentName).toBeUndefined();
+    expect(result.error).toContain("no herdr session");
+  });
+
+  it("surfaces the leaked pane name when spawn throws AFTER creating it (no headless fallback)", async () => {
+    // agent start created the pane, then returned malformed JSON → spawn threw.
+    const { run } = runLiveHarness({
+      statuses: [],
+      spawnError: new Error("bad JSON envelope"),
+      preSpawnAgents: ["relay-codex-delegate-old1"],
+      postSpawnAgents: [
+        "relay-codex-delegate-old1",
+        "relay-codex-delegate-9x2f",
+      ],
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.pending) throw new Error("expected error");
+    // agentName present → relay reports instead of double-running headless.
+    expect(result.agentName).toBe("relay-codex-delegate-9x2f");
+    expect(result.error).toContain("bad JSON envelope");
+  });
+
+  it("does not mistake a pre-existing kept-open pane for a leaked spawn", async () => {
+    // A same-prefix pane from an earlier run (user chose keep) is in BOTH
+    // snapshots — a genuinely failed spawn must still allow headless fallback.
+    const { run } = runLiveHarness({
+      statuses: [],
+      spawnError: new Error("no herdr session"),
+      preSpawnAgents: ["relay-codex-delegate-kept"],
+      postSpawnAgents: ["relay-codex-delegate-kept"],
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.pending) throw new Error("expected error");
+    expect(result.agentName).toBeUndefined();
+  });
+
+  it("reports a send failure WITH the agent name (pane already exists)", async () => {
+    const { run } = runLiveHarness({
+      statuses: [],
+      sendError: new Error("pane gone"),
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.pending) throw new Error("expected error");
+    expect(result.agentName).toBe("relay-codex-delegate-ab12");
+    expect(result.error).toContain("pane gone");
+  });
+
+  it("asks herdr to confirm the bootstrap landed, on any lifecycle state", async () => {
+    const { run, calls } = runLiveHarness({ statuses: ["idle"] });
+
+    await run();
+
+    const sends = calls.filter((c) => c.verb === "send");
+    expect(sends[0].args[2]).toEqual({
+      status: ["working", "done", "idle", "blocked", "unknown"],
+      timeoutMs: BOOTSTRAP_ACTIVITY_WAIT_MS,
+    });
+    // Above herdr's five-second stall window, or the stall collapses into a
+    // plain timeout and the signal is lost.
+    expect(BOOTSTRAP_ACTIVITY_WAIT_MS).toBeGreaterThan(5_000);
+  });
+
+  it("accepts unknown as proof the bootstrap landed", async () => {
+    const { run, calls } = runLiveHarness({ statuses: ["idle"] });
+
+    await run();
+
+    // herdr excludes `unknown` from its own defaults, so it must be listed here
+    // explicitly. Omit it and a detection wobble on a delivered bootstrap burns
+    // the budget and surfaces as a plain `timeout`.
+    const sends = calls.filter((c) => c.verb === "send");
+    expect((sends[0].args[2] as { status: string[] }).status).toContain(
+      "unknown",
+    );
+  });
+
+  it("treats a timeout on the confirmation as a warning, not a failed run", async () => {
+    const timedOut = Object.assign(new Error("timed out"), { code: "timeout" });
+    const { run, errors } = runLiveHarness({
+      statuses: [],
+      sendError: timedOut,
+    });
+
+    const result = await run();
+
+    // Confirming is a diagnostic, not a gate — it must never fail a run that
+    // would have proceeded before the confirmation existed.
+    expect(String("error" in result ? result.error : "")).not.toContain(
+      "failed to send bootstrap",
+    );
+    expect(errors.some((e) => e.includes("could not confirm activity"))).toBe(
+      true,
+    );
+  });
+
+  it("still fails the run when the send itself is rejected", async () => {
+    const blocked = Object.assign(new Error("agent is blocked"), {
+      code: "agent_blocked",
+    });
+    const { run } = runLiveHarness({ statuses: [], sendError: blocked });
+
+    const result = await run();
+
+    // Nothing was sent and the pane needs a human — do not pretend otherwise.
+    expect(result.ok).toBe(false);
+    expect(String("error" in result ? result.error : "")).toContain("failed to send bootstrap");
+  });
+
+  it("treats agent_prompt_stalled as a warning, not a failed run", async () => {
+    const stalled = Object.assign(new Error("no lifecycle change"), {
+      code: "agent_prompt_stalled",
+    });
+    const { run, errors } = runLiveHarness({
+      statuses: [],
+      sendError: stalled,
+    });
+
+    const result = await run();
+
+    // A cold start can exceed herdr's window; the nudge loop heals a real miss.
+    expect(String("error" in result ? result.error : "")).not.toContain(
+      "failed to send bootstrap",
+    );
+    expect(errors.some((e) => e.includes("agent_prompt_stalled"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// collectLive — reattach to an ALREADY-RUNNING pane and poll for its result.
+// Same settled+marker contract as runLive, minus spawn/bootstrap/self-heal.
+// ---------------------------------------------------------------------------
+
+function collectHarness(options: {
+  statuses: string[];
+  resultAppearsAtGet?: number;
+  resultContent?: string;
+  waitTimeoutMs?: number;
+  keepPane?: boolean;
+  loadError?: Error;
+  getErrorAtGet?: number;
+  closeError?: Error;
+}) {
+  const { herd, calls } = fakeHerd(options);
+  const errors: string[] = [];
+  let clock = 0;
+  let gets = 0;
+
+  const opts: CollectLiveOpts = {
+    agentName: "relay-codex-delegate-ab12",
+    herdScriptPath: "/x/herd.ts",
+    resultPath: "/tmp/relay/run/result.md",
+    waitTimeoutMs: options.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS,
+    keepPane: options.keepPane ?? false,
+  };
+
+  const deps: RunLiveDeps = {
+    loadHerd: async () => {
+      if (options.loadError) throw options.loadError;
+      return herd;
+    },
+    fileExists: (p) => {
+      if (p !== opts.resultPath) return false;
+      return (
+        options.resultAppearsAtGet !== undefined &&
+        gets >= options.resultAppearsAtGet
+      );
+    },
+    readFile: () => options.resultContent ?? "",
+    stderr: (text) => errors.push(text),
+    now: () => clock,
+    sleep: async (ms) => {
+      clock += ms;
+    },
+  };
+
+  const originalGet = herd.get.bind(herd);
+  herd.get = async (target) => {
+    gets++;
+    return originalGet(target);
+  };
+
+  return { run: () => collectLive(opts, deps), calls, errors, opts };
+}
+
+describe("collectLive", () => {
+  it("captures the marked result from a still-running pane and closes it", async () => {
+    const { run, calls } = collectHarness({
+      statuses: ["working", "done"],
+      resultAppearsAtGet: 2,
+      resultContent: `# Late\n\nFinished after the first window.\n${RESULT_END_MARKER}\n`,
+    });
+
+    const result = await run();
+
+    expect(result).toEqual({
+      ok: true,
+      agentName: "relay-codex-delegate-ab12",
+      text: "# Late\n\nFinished after the first window.",
+    });
+    // Reattach only — it must never spawn a second pane or re-send a prompt.
+    expect(calls.some((c) => c.verb === "spawn")).toBe(false);
+    expect(calls.some((c) => c.verb === "send")).toBe(false);
+    expect(calls.some((c) => c.verb === "close")).toBe(true);
+  });
+
+  it("treats `done` as settled (codex parks there, never reaching idle)", async () => {
+    const { run } = collectHarness({
+      statuses: ["done"],
+      resultAppearsAtGet: 1,
+      resultContent: `ok\n${RESULT_END_MARKER}\n`,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("keeps the pane open with keepPane", async () => {
+    const { run, calls } = collectHarness({
+      statuses: ["idle"],
+      resultAppearsAtGet: 1,
+      resultContent: `ok\n${RESULT_END_MARKER}\n`,
+      keepPane: true,
+    });
+
+    await run();
+
+    expect(calls.some((c) => c.verb === "close")).toBe(false);
+  });
+
+  it("returns pending again when the agent is STILL working at the timeout", async () => {
+    const { run } = collectHarness({
+      statuses: ["working"],
+      waitTimeoutMs: 20_000,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !result.pending) throw new Error("expected pending");
+    expect(result.report).toContain("still running");
+    // The report must teach the caller how to keep waiting.
+    expect(result.report).toContain("collect");
+  });
+
+  it("fails (not pending) when the agent settled without a verified result", async () => {
+    const { run } = collectHarness({
+      statuses: ["idle"],
+      waitTimeoutMs: 20_000,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.pending) throw new Error("expected failure");
+    expect(result.error).toContain("settled");
+  });
+
+  it("never self-heals — an idle pane with no result is not re-prompted", async () => {
+    const { run, calls } = collectHarness({
+      statuses: ["idle"],
+      waitTimeoutMs: 20_000,
+    });
+
+    await run();
+
+    expect(calls.some((c) => c.verb === "send")).toBe(false);
+    expect(calls.some((c) => c.verb === "keys")).toBe(false);
+  });
+
+  it("fails fast when the agent name is unknown", async () => {
+    const { run, calls } = collectHarness({
+      statuses: [],
+      getErrorAtGet: 1,
+      waitTimeoutMs: 600_000,
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.pending) throw new Error("expected failure");
+    expect(result.error).toContain("relay-codex-delegate-ab12");
+    // One probe, then out — never the full poll window.
+    expect(calls.filter((c) => c.verb === "get")).toHaveLength(1);
+  });
+
+  it("reports a herd.ts load failure", async () => {
+    const { run } = collectHarness({
+      statuses: [],
+      loadError: new Error("no herd"),
+    });
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.pending) throw new Error("expected failure");
+    expect(result.error).toContain("no herd");
+  });
+});
+
+describe("shellArg", () => {
+  it("leaves ordinary paths bare", () => {
+    expect(
+      shellArg("/Users/q/.claude/plugins/cache/relay/0.5.9/relay.ts"),
+    ).toBe("/Users/q/.claude/plugins/cache/relay/0.5.9/relay.ts");
+  });
+
+  it("quotes a path containing a space", () => {
+    expect(shellArg("/Users/q/Application Support/relay.ts")).toBe(
+      "'/Users/q/Application Support/relay.ts'",
+    );
+  });
+
+  it("escapes an embedded single quote", () => {
+    expect(shellArg("/tmp/q's run/result.md")).toBe(
+      `'/tmp/q'\\''s run/result.md'`,
+    );
+  });
+});
+
+describe("pendingReport (via a timed-out collect)", () => {
+  it("prints a runnable, decoded relay collect command", async () => {
+    const { run } = collectHarness({
+      statuses: ["working"],
+      waitTimeoutMs: 20_000,
+    });
+
+    const result = await run();
+
+    if (result.ok || !result.pending) throw new Error("expected pending");
+    // The path must be a real filesystem path, never a percent-encoded URL one.
+    expect(result.report).not.toContain("%20");
+    expect(result.report).toMatch(
+      /collect --agent relay-codex-delegate-ab12 --result \/tmp\/relay\/run\/result\.md --wait-timeout 20000/,
+    );
+  });
+
+  it("carries --keep-pane into the follow-up command", async () => {
+    const { run } = collectHarness({
+      statuses: ["working"],
+      waitTimeoutMs: 20_000,
+      keepPane: true,
+    });
+
+    const result = await run();
+
+    if (result.ok || !result.pending) throw new Error("expected pending");
+    expect(result.report).toContain("--wait-timeout 20000 --keep-pane");
+  });
+
+  it("omits --keep-pane when the pane is disposable", async () => {
+    const { run } = collectHarness({
+      statuses: ["working"],
+      waitTimeoutMs: 20_000,
+    });
+
+    const result = await run();
+
+    if (result.ok || !result.pending) throw new Error("expected pending");
+    expect(result.report).not.toContain("--keep-pane");
+  });
+});

@@ -1,0 +1,11 @@
+{
+  "pipeline_scores": {},
+  "best_pipeline_by_content_type": {
+    "thought-leadership-article": "full-7-stage",
+    "blog": "full-7-stage",
+    "newsletter": "express-5-stage",
+    "personal-story": "express-5-stage",
+    "how-to-tutorial": "full-7-stage"
+  },
+  "notes": "Initial mapping is an educated guess. Updated after each run with actual score data. When a pipeline consistently outperforms the default for a content type by >0.5 points, it becomes the new default."
+}

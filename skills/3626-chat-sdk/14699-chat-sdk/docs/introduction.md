@@ -1,0 +1,92 @@
+> Source: https://chat-sdk.dev/docs.md
+
+---
+title: Introduction
+description: A unified SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, Telegram, and more.
+type: overview
+related:
+  - /docs/getting-started
+  - /docs/usage
+  - /docs/api
+  - /docs/ai
+---
+
+# Introduction
+
+
+Chat SDK is a TypeScript library for building chat bots that run on multiple platforms from one codebase. You write the bot logic once and deploy it to any platform that has an [adapter](/adapters).
+
+## Why Chat SDK?
+
+Each chat platform has its own API, webhook format, and quirks, so supporting several of them usually means maintaining separate code for each. Chat SDK puts those differences behind adapters and gives you one interface for:
+
+* Typed event handlers for mentions, messages, reactions, button clicks, slash commands, and modals
+* Thread subscriptions for multi-turn conversations
+* Cards, buttons, and modals written in JSX that render natively on each platform
+* Streaming LLM responses into a message
+* Serverless deployments, with distributed state in Redis and message deduplication
+
+## How it works
+
+Chat SDK has three core concepts:
+
+1. `Chat` coordinates your adapters and routes incoming events to your handlers.
+2. [Adapters](/adapters) handle the platform-specific work: parsing webhooks, formatting messages, and calling the platform's API.
+3. State is a pluggable persistence layer for thread subscriptions and distributed locking.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter(),
+  },
+  state: createRedisState(),
+});
+
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post("Hello! I'm listening to this thread.");
+});
+```
+
+Adapter and state factories read their credentials from environment variables such as `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and `REDIS_URL`, so the example above passes no options. Pass explicit values to override them.
+
+## Adapters
+
+Install only the adapters you need. Browse the full catalog on the [Adapters](/adapters) page, and compare official platform features on [Platform Adapters](/docs/platform-adapters#feature-matrix).
+
+
+## AI coding agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK's APIs, adapter patterns, and project conventions before it writes code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/plugin) for a broader agent toolkit. It includes the Chat SDK skill along with specialist agents and slash commands:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+For agent-readable documentation, see [llms.txt](/llms.txt) (page index) or [llms-full.txt](/llms-full.txt) (full text).
+
+## Contributing
+
+Ship an adapter for a new platform, or list a vendor-maintained one in the catalog.
+
+
+---
+
+For a semantic overview of all documentation, see [/sitemap.md](/sitemap.md)
+
+For an index of all available documentation, see [/llms.txt](/llms.txt)
+
+For agent-facing discovery, including API and MCP surfaces, see [/agents.md](/agents.md)

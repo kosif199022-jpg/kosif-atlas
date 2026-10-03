@@ -1,0 +1,151 @@
+# F5b — Finalize Iterate Artifacts
+
+Run **one** script that records the iterate's `work_completed` event,
+regenerates compliance MDs, refreshes the build dashboard, and writes
+the session handoff. Per
+iterate-2026-05-23-compliance-md-single-producer the event is recorded
+BEFORE the compliance regen so the regenerated MDs include the
+iterate's own event — making the F6 commit snapshot self-consistent
+(and eliminating the recurring E1-E5 staleness class).
+
+`--event-extras-json` carries the SKILL.md F7-mandated fields (intent,
+spec_impact, affected_frs/new_frs/change_type/none_reason, description,
+changed_files). The event is recorded into **this worktree's own**
+`shipwright_events.jsonl` (the per-tree, PR-committed model — see
+events_log history, iterate-2026-05-29-events-jsonl-worktree-commit), with
+`commit=""` since the F6 commit hasn't happened yet. **F6 stages
+`shipwright_events.jsonl`** so the event ships in the iterate PR and merges to
+`main` like every other artifact; the main tree is never written. The event
+keeps `commit=""` (F6.5 SHA patch is skipped in the worktree flow — the
+`Run-ID:` commit footer and `adr_id == run_id` carry the linkage).
+
+**The finalize FR-gate (ADR-059) is enforced on this path** (since
+`iterate-2026-06-05-fr-linkage-lifecycle`): the event is **rejected before
+write** — finalize exits non-zero with guidance — unless it is classified. Set
+**exactly one** of the two branches and **omit** the other keys; a leftover
+placeholder such as `"change_type": "{docs|…}"` is itself a rejection (a present
+`change_type` must be a recognized value paired with a valid `none_reason`):
+
+- **FR-linked** (feature/change touching the spec) — set `affected_frs` and/or
+  `new_frs`; **omit** `change_type`/`none_reason`.
+- **No-FR** (docs/tooling/compliance/infra) — set `change_type` ∈
+  `{docs,tooling,compliance,infra}` + a one-line `none_reason`; **omit**
+  `affected_frs`/`new_frs`.
+
+**Behavior-affecting changes must be FR-linked.** If `spec_impact` is
+`add`/`modify`/`remove` (the change alters an FR's observable behavior), the
+No-FR branch is **not available** — the gate rejects it even with a valid
+`change_type`/`none_reason`, because a real behavior change must name the FR it
+touches. The No-FR branch is reserved for behavior-preserving work
+(`spec_impact: none`). This rule is intent-independent (it also covers BUG and
+intent-less events).
+
+**FR-linked + behavior-affecting also needs test evidence**
+(iterate-2026-08-16-fr-gate-test-evidence). If `spec_impact` is
+`add`/`modify`/`remove` **and** `affected_frs`/`new_frs` is set, the event
+also needs `tests.total > 0` — normally folded in automatically from this
+run's own F5 ledger (`lib.iterate_tests_block.fold_into_event`, so you rarely
+set `tests` by hand here) — **or** a one-line `no_tests_reason` when that fold
+finds nothing (no ledger, or a stale/foreign `run_id` in
+`shipwright_test_results.json`). A `spec_impact: none` event that still
+*references* an existing FR via `affected_frs` (re-verifying it without
+claiming to have changed its behavior — see BP-2's reconciliation mechanism)
+is never gated by this rule. **`new_frs` is always gated regardless of
+`spec_impact`** — minting a requirement is inherently an "add", so
+`spec_impact: none` alongside a non-empty `new_frs` needs evidence too (or
+`no_tests_reason`) rather than bypassing the rule.
+
+```bash
+# Example: FR-linked iterate. For a no-FR iterate, drop affected_frs/new_frs
+# and instead set "change_type" + "none_reason" (see the two branches above).
+# tests is usually folded in automatically (see above) — set no_tests_reason
+# only if the fold found nothing and this event is behavior-affecting.
+extras='{
+  "intent": "{feature|change|bug}",
+  "description": "{short_description}",
+  "summary": "{one plain-language sentence a non-expert can read}",
+  "spec_impact": "{add|modify|remove|none}",
+  "spec_impact_justification": "{required when spec_impact=none}",
+  "affected_frs": ["FR-..."],
+  "new_frs": ["FR-..."]
+}'
+uv run "{shared_root}/scripts/tools/finalize_iterate.py" \
+  --project-root "{project_root}" \
+  --run-id "{run_id}" \
+  --reason "iterate: {short_description}" \
+  --event-extras-json "$extras"
+```
+
+**Plain-language `summary` (readability).** The one-sentence, jargon-free
+`summary` says what changed in terms a non-expert can read. The compliance Event
+column (Test Evidence "Test Progression" + RTM "Verification Timeline") prefers
+it over the technical `description`; omit it and the column falls back to
+`description`. Merged verbatim via `--event-extras-json`; forward-only (it only
+affects events recorded from now on).
+
+**Campaign identity stamp (campaign 2026-06-07-tracked-campaign-status, S1):**
+when the iterate is a campaign sub-iterate — spawned by the autonomous loop OR
+hand-run via `--campaign <slug> --sub-iterate-id <id>` — add two extra keys to
+the same `--event-extras-json` object: `"campaign": "<campaign-slug>"` and
+`"sub_iterate_id": "<id>"`. They are additive metadata (merged verbatim,
+idempotent per run_id like the rest of the event) and do NOT replace the
+FR-gate classification above. The stamp makes `shipwright_events.jsonl`
+self-sufficient for per-sub-iterate status projection — no slug-join
+heuristics against branch names.
+
+> **Step 6 — per-tree campaign board (campaign 2026-06-07, S3).** When the
+> `campaign` stamp is present, `finalize_iterate` re-projects
+> `.shipwright/planning/iterate/campaigns/<slug>/status.json` from this
+> worktree's event log (the canonical `campaign_status` producer — byte-identical
+> to the `campaign_progress regenerate` CLI) and writes it into the worktree, so
+> **F6 stages it** and the producer-owned board ships in the PR. This replaces
+> the old write-once main-tree file; the autonomous-loop 3g main-tree
+> `campaign_progress update-status` is demoted to a local-board convenience.
+> Best-effort + no-op for a non-campaign iterate. Reads back at
+> `result["steps"]["campaign_status"]`.
+
+**Iterate-Rail per-phase durations (M-Pre-1 iterate half, §6a).**
+`finalize_iterate` also reads this run's boundary-mark sidecar
+(`.shipwright/agent_docs/iterates/<run_id>.phase_timings.jsonl`, written by the
+§6a `mark` calls) and folds the computed per-group durations into the
+`work_completed` event as `phase_timings`
+(`[{phase, started, duration_ms}]`, groups `scope build review test finalize`).
+Additive + best-effort: a run with **no** sidecar (or an empty one) leaves the
+event unchanged, so partial history and pre-M-Pre-1 runs are fine — the WebUI
+Iterate-Rail reads the field only when present. You do **not** pass timings on the
+CLI; the fold is automatic (`lib.iterate_phase_groups.fold_into_event`).
+
+**Context-cost meter (context-cost-meter).** Same shape: `finalize_iterate`
+also reads THIS session's per-`Stop` cost summary
+(`.shipwright/compliance/context-cost/<SHIPWRIGHT_SESSION_ID>.json`, kept
+current by the additive `track_context_cost.py` `Stop` hook) and folds it
+into `work_completed.context_cost` (`lib.context_cost_core.fold_into_event`),
+additive + best-effort like `phase_timings` — no session id or no summary
+file (no `Stop` has fired yet) leaves the event unchanged. This is a READ of
+that file, not a fresh recompute — F5b has no `transcript_path` to recompute
+from — so it is current through the end of the previous assistant turn
+(`Stop` fires at every turn end). The block is stamped `measured_through:
+"F5b"` + `measured_at`: it cannot include F6-F12 (commit, PR delivery, CI
+rework), so it is always a *floor* on the run's real cost, never the whole
+session — read it as such, not as the final total. `context_cost_summary.py
+show --session-id "{session_id}" --project-root "{project_root}"` prints the
+same file directly if you want to see it at any point without waiting for
+F5b.
+
+Reads back: `result["steps"]["event"]["id"]` — capture it so F6 can confirm
+the event is present before staging `shipwright_events.jsonl` (and for the
+legacy F6.5 SHA patch, used only by non-worktree callers).
+
+The script is idempotent per `run_id` — re-invocations return the
+existing event_id rather than recording a duplicate. If you skip this
+step, the Stop hook will run it automatically as a fallback when the
+session ends — but **without** the event_extras, so the enforced FR-gate
+**rejects that fallback write** (it would be an unclassified event): nothing
+is recorded and the failure is logged to stderr. For a clean F11 you **must**
+call F5b yourself with the full metadata.
+
+> **Note:** F7 (separate `record_event.py` call) is REPLACED by F5b (event
+> recording into the worktree log) + F6 (staging it into the commit). The
+> historical F7 / F7b are kept for the rare out-of-band case (event replay,
+> non-worktree phases) — NOT needed for a normal worktree iterate, where the
+> event already ships in the PR.

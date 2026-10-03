@@ -1,0 +1,18 @@
+{
+  "name": "portfolio-sync",
+  "version": "0.1.2",
+  "description": "Sync the current project into a central project-portfolio Markdown archive. Source data for cv-craft.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/portfolio-sync",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "portfolio",
+    "project-archive",
+    "cv-source",
+    "career"
+  ]
+}

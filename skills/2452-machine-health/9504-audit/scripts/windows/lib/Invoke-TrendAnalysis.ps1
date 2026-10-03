@@ -1,0 +1,300 @@
+#Requires -Version 7.4
+
+<#
+.SYNOPSIS
+Trend-aware severity adjustment + last_run annotation per the rubric in
+reference/shared/severity-rubric.md.
+
+.DESCRIPTION
+For each current check result:
+
+ 1. Look up the most recent run in which this check.id ran SUCCESSFULLY
+    (history tail, filtered by that run's `checks_ran`).
+ 2. Attach a `trend` field: { last_run, delta, adjusted_from } -- the shape
+    catalog/schemas/check-result.schema.json fixes (additionalProperties:false).
+    adjusted_from carries the pre-adjustment severity when step 3 upgrades.
+ 3. Apply the severity adjustments this engine makes, both WARN -> CRIT: the
+    trend-relevant metric worsens by >= 5 (raw units or percentage points)
+    against that baseline, or drivers repeats CodeIntegrity events across
+    consecutive runs (Get-CodeIntegrityRepeat). The one exception: a
+    winget-upgrades WARN that carries a KEV match (detail.kev_match_count > 0)
+    is never raised, because that match is name-only evidence and a count
+    trend must not turn it into CRIT.
+ 4. Record the adjustment reason in `notes` ("trend upgrade: <metric>: +N vs
+    prior", or "trend upgrade: repeat: ...").
+
+Upgrades only: severity never moves back down, so callers must not rely on this
+engine to walk an adjustment back.
+
+Conservative defaults: when in doubt, do not adjust. The rubric explicitly
+prefers the lower severity on ambiguity and relies on trend upgrades to
+catch real regressions. Never silently re-bucket -- every adjustment appends
+to notes.
+
+Neutrally named: cross-OS algorithm.
+#>
+
+. (Join-Path $PSScriptRoot 'Get-CheckLastRun.ps1')
+
+function Format-TrendCell {
+    <#
+    .SYNOPSIS
+    The glance-table Trend cell for one check result, in the glyphs
+    reference/shared/report-template.md defines: '↑' (the metric worsened),
+    '↓' (improved), '→' (steady) and '·' (no prior value to compare).
+
+    .DESCRIPTION
+    A moving metric carries its signed delta after the arrow. A row the trend
+    rule raised is always '↑', with the delta only when the delta itself is
+    worsening: the drivers repeat raises on CodeIntegrity events, whatever the
+    unsigned-in-store count did. Direction follows Get-TrendWorseningSign, not
+    the raw sign of the delta.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory = $true)] $Result)
+
+    $trend = $Result.PSObject.Properties['trend'] ? $Result.trend : $null
+    if (-not $trend -or -not $trend.last_run) { return '·' }
+
+    $value = $null
+    if ($trend.delta -match ':\s*([+-]?[\d.]+(?:E[+-]?\d+)?) vs prior') { $value = $Matches[1] }
+    $worse = $null -ne $value -and ([double]$value * (Get-TrendWorseningSign -CheckId $Result.id)) -gt 0
+
+    if ($trend.adjusted_from) { return $worse ? "↑ $value" : '↑' }
+    if ($null -eq $value) { return '·' }
+    if ([double]$value -eq 0) { return '→' }
+    return ($worse ? '↑' : '↓') + " $value"
+}
+
+function Get-TrendWorseningSign {
+    <#
+    .SYNOPSIS
+    -1 for a check whose trend metric worsens as it falls (battery capacity,
+    reliability stability), +1 for every other check.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([string] $CheckId)
+
+    return @('battery', 'reliability') -contains $CheckId ? -1 : 1
+}
+
+function Invoke-TrendAnalysis {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]] $CheckResults,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]] $HistoryTail
+    )
+
+    if ($HistoryTail.Count -eq 0) {
+        return $CheckResults
+    }
+
+    $numericTypes = @([int], [long], [double], [decimal])
+
+    foreach ($r in $CheckResults) {
+        $relevantKey = Get-TrendRelevantKey -CheckId $r.id
+
+        # Only runs where this check succeeded (checks_ran) give a baseline: a failed run's
+        # partial top_metrics is a lower bound that would upgrade a WARN to CRIT on nothing.
+        #
+        # Only the most recent qualifying value is ever compared against, so the
+        # walk overwrites rather than accumulating: the tail is in file order
+        # (oldest -> newest), so the last assignment is the newest baseline.
+        # Reading [0] would compare today against the stalest entry instead.
+        $lastMetric = $null
+        if ($relevantKey) {
+            $fullKey = "$($r.id).$relevantKey"
+            foreach ($h in $HistoryTail) {
+                if (-not $h.PSObject.Properties['checks_ran']) { continue }
+                if (@($h.checks_ran) -notcontains $r.id) { continue }
+                if (-not $h.PSObject.Properties['top_metrics']) { continue }
+                if ($h.top_metrics.PSObject.Properties[$fullKey]) {
+                    $lastMetric = $h.top_metrics.$fullKey
+                }
+            }
+        }
+
+        # last_run is the run in which this check actually ran (per-check, from
+        # checks_ran) -- NOT "the most recent run overall", which diverges once
+        # cadence lets a monthly check skip a run.
+        $lastRun = Get-CheckLastRun -CheckId $r.id -HistoryTail $HistoryTail
+
+        $deltaText = $null
+        $currentValue = $null
+        if ($relevantKey -and $r.detail -and $r.detail.PSObject.Properties[$relevantKey]) {
+            $currentValue = $r.detail.$relevantKey
+        }
+
+        if ($null -ne $lastMetric -and $null -ne $currentValue -and
+            ($numericTypes -contains $currentValue.GetType()) -and
+            ($numericTypes -contains $lastMetric.GetType())) {
+            $delta = $currentValue - $lastMetric
+            $sign = $delta -ge 0 ? '+' : ''
+            $deltaText = "$($relevantKey): $sign$delta vs prior"
+        }
+
+        # Severity adjustment: upgrade WARN -> CRIT when metric worsens
+        # (positive delta for used_pct, negative delta for fullCapacityPct).
+        # First-crossing INFO/WARN intentionally not downgraded -- first crossing
+        # is exactly what those severities are meant to surface. adjusted_from
+        # records the pre-adjustment severity when an upgrade fires.
+        $adjustedFrom = $null
+        $kevProp = $r.detail ? $r.detail.PSObject.Properties['kev_match_count'] : $null
+        $nameOnlyKev = $r.id -eq 'winget-upgrades' -and $kevProp -and $kevProp.Value -gt 0
+        if ($r.severity -eq 'WARN' -and $null -ne $deltaText -and -not $nameOnlyKev) {
+            $upgrade = Test-WorseningTrend -CheckId $r.id -CurrentValue $currentValue -PriorValue $lastMetric
+            if ($upgrade) {
+                $adjustedFrom = $r.severity
+                $r.severity = 'CRIT'
+                $note = "trend upgrade: $deltaText"
+                $r.notes = $r.notes ? "$($r.notes); $note" : $note
+            }
+        }
+
+        if ($r.severity -eq 'WARN' -and $r.id -eq 'drivers') {
+            $repeatText = Get-CodeIntegrityRepeat -Result $r -HistoryTail $HistoryTail
+            if ($repeatText) {
+                $adjustedFrom = $r.severity
+                $r.severity = 'CRIT'
+                $note = "trend upgrade: repeat: $repeatText"
+                $r.notes = $r.notes ? "$($r.notes); $note" : $note
+            }
+        }
+
+        $trend = [ordered]@{
+            last_run      = $lastRun
+            delta         = $deltaText
+            adjusted_from = $adjustedFrom
+        }
+
+        $r | Add-Member -NotePropertyName trend -NotePropertyValue $trend -Force
+    }
+
+    return $CheckResults
+}
+
+function Get-TrendRelevantKey {
+    <#
+    .SYNOPSIS
+    Returns the single scalar detail key that represents the "trend signal"
+    for a given check. Conservative: one metric per check, chosen so history
+    queries are cheap.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory = $true)] [string] $CheckId)
+
+    switch ($CheckId) {
+        'disk-space' { return 'used_pct' }
+        'battery' { return 'full_capacity_pct' }
+        'defender' { return 'signature_age_days' }
+        'event-log-errors' { return 'total_events' }
+        'winget-upgrades' { return 'upgrades_count' }
+        'windows-update' { return 'pending_update_count' }
+        'services' { return 'stopped_auto_count' }
+        'drivers' { return 'unsigned_in_store_count' }
+        'reliability' { return 'stability_min_7d' }
+        'claude-temp-root' { return 'total_gb' }
+        'environment-health' { return 'user_path_length' }
+        'drive-root-litter' { return 'residue_count' }
+        default { return $null }
+    }
+}
+
+function Get-CodeIntegrityRepeat {
+    <#
+    .SYNOPSIS
+    The note text when drivers saw CodeIntegrity events this run AND in the most
+    recent prior run where it ran, with a newer event now; $null otherwise.
+
+    .DESCRIPTION
+    The check caps a single reading at WARN (check-catalog.md section 8). A repeat is a
+    newer event than the prior run's newest, so the same event re-read inside
+    the 7-day window never counts twice. A prior run recorded before the check
+    emitted code_integrity_newest_event_unix carries no marker and never upgrades.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)] $Result,
+        [Parameter(Mandatory = $true)] [AllowEmptyCollection()] [object[]] $HistoryTail
+    )
+
+    $detail = $Result.detail
+    if (-not $detail) { return $null }
+    $countProp = $detail.PSObject.Properties['code_integrity_event_count']
+    $newestProp = $detail.PSObject.Properties['code_integrity_newest_event_unix']
+    if (-not $countProp -or -not $newestProp -or $null -eq $newestProp.Value) { return $null }
+    if ([long]$countProp.Value -le 0) { return $null }
+
+    $prior = $null
+    foreach ($h in $HistoryTail) {
+        if (-not $h.PSObject.Properties['checks_ran']) { continue }
+        if (@($h.checks_ran) -notcontains $Result.id) { continue }
+        $prior = $h
+    }
+    if (-not $prior -or -not $prior.PSObject.Properties['top_metrics']) { return $null }
+
+    $metrics = $prior.top_metrics
+    $priorCount = $metrics.PSObject.Properties['drivers.code_integrity_event_count']
+    $priorNewest = $metrics.PSObject.Properties['drivers.code_integrity_newest_event_unix']
+    if (-not $priorCount -or -not $priorNewest -or $null -eq $priorNewest.Value) { return $null }
+    if ([long]$priorCount.Value -le 0) { return $null }
+    if ([long]$newestProp.Value -le [long]$priorNewest.Value) { return $null }
+
+    return "CodeIntegrity events in consecutive runs ($($countProp.Value) now, $($priorCount.Value) prior, newer event since)"
+}
+
+function Test-WorseningTrend {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)] [string] $CheckId,
+        $CurrentValue,
+        $PriorValue
+    )
+
+    if ($null -eq $CurrentValue -or $null -eq $PriorValue) { return $false }
+
+    try {
+        $cur = [double]$CurrentValue
+        $prev = [double]$PriorValue
+    } catch {
+        return $false
+    }
+
+    # Direction of "worsening" depends on the metric. Most metrics worsen
+    # when the number goes UP (disk used_pct, event count, upgrade count,
+    # signature age days, etc.). Battery capacity worsens when DOWN.
+    $upwardWorsens = @(
+        'disk-space', 'defender', 'event-log-errors',
+        'winget-upgrades', 'windows-update', 'services', 'drivers',
+        'claude-temp-root'
+    )
+    # environment-health is mapped to user_path_length for history, but is
+    # not in $upwardWorsens: the check has several independent WARN causes
+    # (credential names, DISABLE_AUTOUPDATER, REG_SZ Path). A generic
+    # upgrade would turn those into CRIT whenever Path grew by >=5 chars.
+    # drive-root-litter is likewise mapped (residue_count) but excluded:
+    # root litter is tidiness, and its rubric caps at WARN -- a generic
+    # upgrade would mint a CRIT from five new stray files.
+    # winget-upgrades stays here, but Invoke-TrendAnalysis skips it when the WARN
+    # carries a KEV match: the match is name-only, so a count trend cannot make it CRIT.
+    $delta = $cur - $prev
+
+    if ($upwardWorsens -contains $CheckId) {
+        # Threshold: >= +5 (raw units or percentage points) counts as worsening.
+        return $delta -ge 5
+    }
+    if ((Get-TrendWorseningSign -CheckId $CheckId) -lt 0) {
+        return $delta -le -5
+    }
+    return $false
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Coolify CLI"
+  short_description: "Manage Coolify deployments and infrastructure"
+  default_prompt: "Use $coolify-cli to inspect my Coolify resources and carry out the requested operation."

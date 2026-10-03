@@ -1,0 +1,162 @@
+---
+name: memory-remember-pattern
+description: "Tiered-Remember-After-Act pattern for ruvector — record learnings via hooks_remember at workflow completion with signal-strength tiers (Auto/Prompted/Skip). Use when authoring commands that should compound institutional memory from workflow outcomes."
+user-invocable: false
+---
+
+# Pattern: Tiered-Remember-After-Act
+
+Record learnings to ruvector memory after workflow completion, with signal
+strength determining whether to record automatically, prompt the user, or skip.
+
+## What It Does
+
+Calls `hooks_remember` against the ruvector MCP server at workflow end, with
+content classified by signal strength (Auto/Prompted/Skip) per plugin and
+event type. Includes a near-duplicate dedup check (score > 0.82) and quality
+gates on content length and structure.
+
+## When to Use
+
+When authoring a command that produces durable insight worth surfacing in
+future sessions — root causes, security findings, novel solutions, decision
+rationale. Skip for low-signal events (status checks, passing tests, plan
+context already captured in files).
+
+## Usage
+
+> **Replica of canonical source.** The protocol constants in this pattern
+> (dedup `top_k=1`, `score > 0.82`) are owned by
+> `plugins/yellow-ruvector/skills/memory-query/SKILL.md` (yellow-ruvector
+> owns the MCP tools); this yellow-core file is a marked replica, kept
+> inline because cross-plugin `skills:` preload is unavailable
+> (claude-code#15944). The RULE 16 drift lint in
+> `scripts/validate-agent-authoring.js` enforces the sentinel line below
+> byte-for-byte across the canonical file and all replicas. RULE 16
+> checks ONLY the sentinel line — the tier/dedup steps below restate the
+> same constants and must be swept manually on any change. When editing
+> inside the yellow-plugins monorepo, to change a constant start at the
+> canonical file — never edit a replica alone; the other replicas are
+> `plugins/yellow-core/skills/memory-recall-pattern/SKILL.md` and
+> `plugins/yellow-core/skills/mcp-integration-patterns/SKILL.md`.
+> (Outside this monorepo, treat the sentinel line as authoritative; the
+> canonical file may not be installed.)
+>
+> Consuming command files adapt the tier rules and dedup strategy inline
+> as context-specific paraphrases, so they are exempt from RULE 16's
+> byte-identity check (the containment scan still covers them) — on any
+> constant or tier-rule change, sweep them manually:
+> `plugins/yellow-core/commands/flow/review.md`,
+> `plugins/yellow-core/commands/flow/compound.md`,
+> `plugins/yellow-core/commands/flow/work.md`,
+> `plugins/yellow-review/commands/review/review-pr.md` (and
+> `plugins/yellow-review/references/review-pr/knowledge-compounding.md`),
+> `plugins/yellow-review/commands/review/review-all.md`, and
+> `plugins/yellow-ruvector/commands/ruvector/learn.md` (KNOWN DRIFT:
+> carries no protocol constants and lacks the recall-based dedup its
+> purpose implies — open maintainer question; do not silently "fix").
+>
+> (`plugins/yellow-core/commands/flow/brainstorm.md`, `plan.md`,
+> `spec.md`, `plugins/yellow-review/commands/review/resolve-pr.md`, and
+> `plugins/yellow-ruvector/commands/ruvector/memory.md` are recall-only —
+> they never call `hooks_remember`; see the `memory-recall-pattern` skill's
+> sweep list instead.)
+
+Protocol sentinel (RULE 16, byte-identical in every copy):
+<!-- prettier-ignore -->
+ruvector-protocol-constants v1: recall top_k=5, discard score < 0.5, keep top 3, truncate 800 chars at word boundary; dedup top_k=1, skip if score > 0.82.
+
+### Signal Classification Table
+
+| Tier | Signal Strength | Behavior |
+|---|---|---|
+| **Auto** | High | Record via hooks_remember without asking |
+| **Prompted** | Medium | Ask user via AskUserQuestion: "Save this learning to memory?" |
+| **Skip** | Low | Silent no-op |
+
+**Classification by plugin and event type:**
+
+| Plugin | Auto (high-signal) | Prompted (medium-signal) | Skip (low-signal) |
+|---|---|---|---|
+| yellow-review | P0/P1 security/correctness findings | P2 design/performance findings | P3 style/nits |
+| yellow-ci | Root cause identified | Workaround found | Status checks |
+| yellow-debt | Security debt patterns | Complexity/duplication hotspots | Minor style debt |
+| yellow-browser-test | Critical bugs (crash, data loss) | UI issues | Passing test summaries |
+| yellow-core (work) | Implementation insights | — | — |
+| yellow-core (compound) | All (user already opted in) | — | — |
+| yellow-core (brainstorm) | — | Decision rationale | — |
+| yellow-core (plan) | — | — | Plan context (already in file) |
+| yellow-research | — | Novel findings | — |
+| yellow-devin | — | Delegation failures | — |
+| yellow-linear | — | — | Issue patterns |
+| gt-workflow | — | — | Stack info |
+
+### Quality Requirements
+
+All remembered content must meet these gates:
+
+- **Length:** 20+ words
+- **Structure (all three required):**
+  - **Context:** What was built/fixed and where (file paths, commands)
+  - **Insight:** Why a key decision was made or what failed
+  - **Action:** Concrete steps for a future agent in the same situation
+- **Specificity:** Name concrete files, commands, or error messages.
+  "Fixed CRLF in hooks.sh by running `sed -i 's/\r$//'`" not "Fixed a bug"
+
+### Type Guidance
+
+| Type | Use for |
+|---|---|
+| `decision` | Successful patterns, techniques, conventions |
+| `context` | Mistakes, failures, and their fixes |
+| `project` | Session summaries, high-level outcomes |
+| `code` | Code-specific implementation notes |
+| `general` | Fallback when none of the above fit cleanly |
+
+### Deduplication Check
+
+Before storing, check for near-duplicates:
+
+```text
+1. Call hooks_recall(query=content, top_k=1)
+2. If score > 0.82: skip ("near-duplicate exists")
+3. If hooks_recall errors (timeout, connection refused, service
+   unavailable): wait approximately 500 milliseconds, retry exactly
+   once. If retry also fails: skip dedup check, proceed to store.
+   Do NOT retry on validation errors or parameter errors.
+```
+
+### Execution
+
+```text
+1. If .ruvector/ does not exist: skip
+2. Call ToolSearch("hooks_remember"). If not found: skip
+3. Classify signal tier using the table above
+4. If Auto: call hooks_remember(content, type) directly
+5. If Prompted: AskUserQuestion "Save this learning to memory?" with
+   preview of the content. Record if confirmed.
+6. If Skip: no-op
+7. If hooks_remember errors (timeout, connection refused, or service
+   unavailable): wait approximately 500 milliseconds, retry exactly
+   once. If retry also fails: note "[ruvector] Warning: remember
+   failed after retry — learning not persisted" and continue.
+   Do NOT retry on validation errors or parameter errors.
+```
+
+Note: If `memory-recall-pattern` already ran earlier in the same session,
+the MCP server is warm and the warmup step is not needed before this
+pattern. Only add a warmup call before this pattern if it runs in a
+workflow that does not use `memory-recall-pattern` (e.g.,
+`/flow:compound`).
+
+## Anti-Patterns
+
+- **Do not** omit the dedup check before hooks_remember
+- **Do not** remember low-signal events (status checks, passing tests, style nits)
+- **Do not** omit the `hooks_remember` execution-error handler — ToolSearch
+  passing does not mean the MCP server is running
+
+## Related
+
+- `memory-recall-pattern` — query past learnings at workflow start.
+- `morph-discovery-pattern` — discover morph tools at runtime.

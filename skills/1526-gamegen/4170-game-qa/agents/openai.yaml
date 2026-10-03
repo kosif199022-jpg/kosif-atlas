@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game QA"
+  short_description: "GameGen: game qa workflow"
+  default_prompt: "Use $game-qa for this game using its saved GameGen preferences."

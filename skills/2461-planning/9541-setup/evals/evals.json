@@ -1,0 +1,56 @@
+{
+  "skill_name": "setup",
+  "evals": [
+    {
+      "id": 1,
+      "name": "check-is-read-only-and-reports-info-not-fail",
+      "prompt": "/planning:setup check\n\nThis repo has no docs/standards directory and no .claude/standards.yaml.",
+      "expected_output": "Runs the read-only check: reports the standards index as absent with an INFO line pointing at apply (a missing index is never a FAIL), reports the effective use_ask_user_question value as INFO, and gives one remediation line per FAIL (none here). It modifies nothing and runs no planning stage.",
+      "files": [],
+      "expectations": [
+        "Reports the absent standards index as INFO, not FAIL, and says apply offers to scaffold it",
+        "Reports the effective use_ask_user_question value as INFO",
+        "Writes no file and runs no planning stage"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "apply-interviews-before-any-bootstrap-write",
+      "prompt": "/planning:setup apply\n\nSet up the standards concern. This repo has no docs/standards directory.",
+      "expected_output": "Reads state in the binding's order (.claude/standards.yaml, the index presence test at the default root, inference sources), proposes the skeleton index and the overlay .gitignore, and writes nothing until the user accepts. After accepted writes it runs the tracked-file pair (git check-ignore -v reports no match, git ls-files --error-unmatch exits 0) on each written team file and reports the actual results. It writes .claude/standards.yaml only if the user relocates the root.",
+      "files": [],
+      "expectations": [
+        "Reads state in the order: .claude/standards.yaml, index presence test, inference sources",
+        "Writes nothing until the user accepts the proposed bootstrap",
+        "Runs the tracked-file pair on each written team file and reports real results, not success on the write alone",
+        "Writes .claude/standards.yaml only when the user relocates the standards root"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "hand-authored-readme-hits-the-confirmation-gate",
+      "prompt": "/planning:setup apply\n\nThis repo has a hand-written docs/standards/README.md with no standards-contract frontmatter.",
+      "expected_output": "Detects that the existing README is hand-authored rather than a conforming index and stops at the binding's confirmation gate: it does not overwrite the file, shows what a conforming index would change, and proceeds only on explicit user acceptance. It never edits the consumer's root .gitignore or any ignore file it did not create.",
+      "files": [],
+      "expectations": [
+        "Flags the README as hand-authored and does not overwrite it before the user confirms",
+        "Edits no ignore file other than the setup-owned standards-root .gitignore",
+        "Does not write the plugin directory or the plugin data directory"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "standards-bootstrap-second-run-is-a-no-op",
+      "prompt": "/planning:setup apply\n\nSet up the standards concern. This repo already has docs/standards/README.md with standards-contract frontmatter at the binding's current version, valid row paths, and a docs/standards/.gitignore containing *.local.md from a previous run of this setup.",
+      "expected_output": "The standards bootstrap reads state in order (concern file, then the index presence test, then inference sources), finds a conforming index at the binding's contract version, validates the row paths, and short-circuits: it reports the index healthy and proposes no changes — a second run produces no diff. It does not re-interview, does not rewrite the index or the setup-owned overlay .gitignore, does not offer a migration (versions match), and touches no other ignore file.",
+      "files": [],
+      "expectations": [
+        "Reads state via the binding's procedure: concern file, index presence test, then inference sources",
+        "Recognizes the conforming current-version index and proposes no changes (second run yields no diff)",
+        "Does not re-run the interview when the index is healthy at the binding's version",
+        "Does not offer migration when the index version matches the binding",
+        "Edits no ignore file other than the setup-owned standards-root .gitignore, and here leaves even that untouched"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game World Building"
+  short_description: "GameGen: game world building workflow"
+  default_prompt: "Use $game-world-building for this game using its saved GameGen preferences."

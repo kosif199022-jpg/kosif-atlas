@@ -1,0 +1,20 @@
+{
+  "name": "cagan-check",
+  "version": "0.2.0",
+  "description": "Apply Marty Cagan (SVPG) + Teresa Torres Continuous Discovery to a dev's workflow: feature kickoff, planning/estimation, discovery calls, PR review. Flags feature-factory smells; green/yellow/red per dimension.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/cagan-check",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "product",
+    "cagan",
+    "svpg",
+    "continuous-discovery",
+    "product-trio",
+    "product"
+  ]
+}

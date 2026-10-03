@@ -1,0 +1,11 @@
+src
+.ailib/factory/roles
+.agents/skills/factory-bootstrap/source-lock.yaml
+.agents/skills/factory-bootstrap/upstream
+docs/user-guide.md
+docs/admin-guide.md
+scripts/distro/README.md
+scripts/distro/install.sh
+scripts/monitor.ts
+scripts/monitor.html
+scripts/park-currency.ts

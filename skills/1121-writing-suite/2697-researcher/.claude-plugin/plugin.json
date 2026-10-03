@@ -1,0 +1,11 @@
+{
+  "name": "researcher",
+  "description": "Gathers sources into a structured research dossier; use for \"research this topic\", \"find sources on X\", \"compile background\". NOT for writing or editing the piece.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

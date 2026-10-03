@@ -1,0 +1,330 @@
+---
+name: plori
+description: Create and drive plori agents (each an AI agent in its own cloud environment) from any MCP client, the plori CLI, or over REST. Covers authentication (OAuth 2.1 or API key), creating agents, invoking them and reading replies, answering human-in-the-loop requests, and scheduling deferred runs.
+---
+
+# Using plori from an agent
+
+If you were asked to set up plori, do it by following the Connect section below: add the
+plori MCP server to the client you are running in, authenticate the account owner, and
+confirm the tools respond before reporting success.
+
+plori (https://plori.ai) gives you AI agents. Each agent runs in its own cloud environment with a
+persistent disk, a shell, developer tools, and memory. You can create agents, send them
+work, and read their replies programmatically.
+
+## Connect
+
+If this client already lists Plori tools and `list_agents` answers, the connection is
+complete. Skip the rest of this section.
+
+MCP (recommended for a hosted client): Streamable HTTP at `https://api.plori.ai/mcp`.
+
+- OAuth 2.1: compliant MCP clients connect with no hand-copied key. An unauthenticated
+  request returns 401 with the discovery chain (RFC 9728 Protected Resource Metadata at
+  https://api.plori.ai/.well-known/oauth-protected-resource, then dynamic client
+  registration and authorization code + PKCE). The account owner signs in once with an
+  email one-time code.
+- API key: the account owner provisions a key at https://plori.ai and you send
+  `Authorization: Bearer plori_sk_...`.
+
+### Claude Code: connect from this conversation
+
+Read these instructions in the current conversation before starting authentication.
+Installing a skill or plugin is optional. Use this flow only in interactive Claude Code
+when its Plori MCP client exposes both `authenticate` and `complete_authentication`.
+Other clients use their ordinary OAuth or API-key setup above.
+
+If this Claude Code build does not expose both `authenticate` and
+`complete_authentication`, use `/mcp` instead. Pick plori, choose Authenticate, then
+sign in with the emailed code. If the browser cannot reach the localhost callback,
+Claude Code prompts for it directly in its own dialog, never in chat. Then verify with
+`list_agents`.
+
+1. Check the current MCP configuration and active tools. Reuse an existing Plori server
+   at `https://api.plori.ai/mcp`; do not add duplicate entries or replace a different
+   server with the same name. If missing, configure it once with
+   `claude mcp add --transport http plori https://api.plori.ai/mcp`.
+   Confirm the server is available in this conversation before authenticating. Saving
+   configuration alone does not prove that it loaded. If its tools are missing, ask
+   the user to type `/reload-plugins` in this Claude Code conversation, then resume
+   these steps in the same session. This also refreshes MCP configuration when no
+   plugins are installed. It is a user command; do not try to invoke it through the
+   Skill tool. Confirm the authentication tools are available before proceeding. If they
+   are still missing, use `/mcp` instead (above).
+2. If Plori tools already work, the connection is complete. Otherwise, call the
+   client's Plori `authenticate` tool using its exposed schema. Keep the returned
+   authorization URL intact. Do not construct a new OAuth request or change its state,
+   redirect URI, or PKCE challenge.
+3. POST JSON `{"authorization_url":"<the exact client URL>"}` once to
+   `https://api.plori.ai/oauth/pair`. The response contains `user_code`,
+   `verification_uri`, `verification_uri_complete`, `device_code`,
+   `expires_in` (seconds), and `interval` (seconds). Keep `device_code` private.
+   If a permission rule, hook, or tool denies this request, stop the pairing path
+   immediately and use the fallback below. Do not retry with another generic network
+   tool.
+4. Tell the user: "Open <verification_uri> and enter <user_code>. Sign in and approve
+   the connection; I will continue when you finish." The user can open the page on
+   their phone. Display the short address and code, not the authorization or callback
+   URL. Do not ask the user to copy a callback URL into chat.
+5. Poll `https://api.plori.ai/oauth/pair/poll` with JSON
+   `{"device_code":"<device_code>"}`. Keep only one request in flight, allow each
+   request at least 30 seconds to finish, and wait at least `interval` seconds
+   between requests. The server can hold a pending request for 25 seconds.
+   Read pending and failure responses from the JSON `error` field, not `status`.
+   On `error: "authorization_pending"`, continue. On `error: "slow_down"`, use the
+   larger of your previous delay plus five seconds and the response's `interval`
+   for all subsequent requests. Honor `Retry-After` when present on HTTP 429.
+   On HTTP 503 with `error: "temporarily_unavailable"`, preserve this pairing and
+   the pending client authentication. Wait at least the larger of your poll interval
+   and `Retry-After` (five seconds), then retry the same device code. A temporary
+   failure does not extend `expires_in`; retry only within the original four-minute
+   window while the client authentication remains pending.
+   If a permission rule, hook, or tool denies a poll request, stop polling immediately
+   and use the fallback below. Do not try the request through another generic network
+   tool.
+6. On `status: "approved"`, pass the returned `callback_url` directly to the same client's
+   `complete_authentication` tool using its exposed schema. Do not navigate to the
+   loopback URL or exchange the code yourself: the client owns the PKCE verifier.
+   Then discover Plori tools and call `list_agents` to confirm the connection before
+   reporting success. This verification does not create an agent or start paid work.
+
+#### Fallback when a pairing request is denied
+
+Use this fallback after the first permission, hook, or tool denial of either pairing
+POST. Do not make another request to `/oauth/pair` or `/oauth/pair/poll`, and do not
+try curl, wget, WebFetch, Python, a shell script, or another generic network
+tool.
+
+1. Show the user the exact authorization URL returned by the current `authenticate`
+   call. Ask them to open it in their browser, sign in, and approve the connection.
+   Do not edit the URL.
+2. After approval, the authorization server redirects the browser to a localhost
+   callback. If that
+   redirect connects, let the client finish authentication. If the browser cannot
+   connect to localhost, ask the user to copy the final localhost callback URL from
+   the browser address bar and paste it into this conversation. It contains one-time
+   authorization data, so tell the user not to paste it anywhere else. Do not ask for
+   that URL before the redirect has failed.
+3. Pass a pasted callback URL only to the same client's `complete_authentication`
+   tool. Do not open, fetch, rewrite, log, or exchange it yourself.
+4. Discover Plori tools and call `list_agents` before reporting success. This check
+   does not create an agent or start paid work.
+
+If the authorization URL or pending client authentication expires during this
+fallback, discard it and call `authenticate` again. Use only the new authorization
+URL. Never reuse an expired URL.
+
+Stop on `access_denied`; do not retry a denied request automatically. On
+`expired_token`, an already-consumed pairing, or a client authentication timeout,
+start a fresh client authentication before creating another pairing. Never reuse the
+old authorization URL. Pairing lasts four minutes to fit within the client's pending
+login. If the approved response is lost, restart the whole flow; the callback is
+returned only once. Keep approval polling active while the user signs in.
+
+Remote Control can use this flow only when it controls that same interactive Claude
+Code process and the two authentication tools are available. A separate hosted
+Claude.ai connector or Agent SDK session needs its own supported authentication flow.
+URLs can still appear in client tool results; do not promise to hide tool transcripts.
+
+#### Switch accounts or sign out
+
+To connect a different Plori account or sign out, use `/mcp`. Pick plori, choose Clear
+authentication, then Authenticate again with the new account's email code.
+`claude mcp remove` does not clear the stored token.
+
+### CLI and REST
+
+CLI (recommended from a terminal): install with
+`curl -fsSL https://plori.ai/install.sh | sh` (one static binary, no sudo and no Node; on
+Windows `irm https://plori.ai/install.ps1 | iex`), or `npm i -g @plori/cli`, or run it
+without installing via `npx -y @plori/cli`. That gives you the `plori` command for the
+same operations from your shell. The shell installer puts the binary in `~/.local/bin`
+and edits no shell rc file, so run `export PATH="$HOME/.local/bin:$PATH"` after it
+before you call `plori` (the Windows script sets the user PATH itself).
+`plori login` opens the browser for the same email-OTP
+OAuth flow; CI and other headless callers use `plori login --key plori_sk_...` or set
+`PLORI_API_KEY`. Output is human-readable on a terminal and a single JSON document when
+piped or with `--json`, so it composes in scripts. Commands are listed under "CLI
+commands" below.
+
+REST: the same operations at `https://api.plori.ai/v1` with the same bearer token.
+Full authentication instructions: https://plori.ai/auth.md
+
+## Tools
+
+Account and agents: `list_agents`, `get_agent`, `create_agent`
+(name; the Plori Router chooses the model per task), `delete_agent`, `get_credits`,
+`get_usage`, `get_disk`, `empty_trash` (permanently empties an agent's trash,
+freeing the disk a deleted file was still counting against; only works while that
+agent's pod is asleep).
+
+Runs: `invoke_agent` sends a message and holds your call open until the run
+finishes, pauses for input, or the hold ends. The hold is about 25 seconds for a
+client the server does not recognize, and longer for Claude Code and Codex. Pass
+`wait_seconds` to set it yourself, up to 1800. A result that is still running
+carries `run_id` and `poll_after_seconds`, the suggested delay before you check
+again. It also carries `elapsed_seconds` and, once the run records them,
+`last_worklog` (the agent's own most recent note), `last_tool_step` ("running
+<tool>", or "completed <tool>" between calls) and `last_activity_at`. Keep calling
+`get_run_result` with `wait=true` until the run completes or needs human input.
+Pass `wait=false` to invoke when you plan to poll instead of holding the call
+open (see "Run agents in the background" below). Use `max_turn_tokens` to cap
+the turn. `cancel_run` requests cancellation, and `list_runs` lists recent
+runs. Default task outputs go to the agent's persistent `/workspace`. Use
+`TMPDIR` only for temporary files.
+
+Persistence: between sessions on the same agent, the disk under `/workspace`
+persists: installed tools, cloned repos, and files. The account's memory of the agent
+persists too, but the conversation itself does not. A new session re-reads whatever the
+previous one did not write to `/workspace`. Ask the agent to write findings there when
+a later session will need them. Reuse the returned `session_id` on a follow-up call
+that needs the same context.
+
+File references: a reply can reference a file by an agent-local path such as
+`/.plori/files/reports/a.md`. An MCP client cannot open that path directly. Ask the
+agent for the content inline, or for a hosted URL, when you need the file.
+
+Human input: `awaiting_input` can mean an approval or a question. Show the pending
+request to the human. An MCP client cannot approve an action or grant `always_allow`:
+`answer_pending_input` can deny a request or answer a question the agent asks. Each
+awaiting approval has an `approve_url`; give it to the human, who approves in the
+Plori web app. After an answer or an approval, follow the exact
+`continuation_run_id` returned by `get_run_result`. If `input_status` is
+`answered` but the successor is not yet available, retry the original run.
+A historical run can retain `awaiting_input` after its input has been answered.
+`list_pending_inputs` returns the current queue. A row with `consent_tool`
+represents an outward write. Only the human can approve it or grant standing consent
+for it, in the Plori web app.
+
+MCP clients that negotiate the Tasks extension can receive a task handle and
+subscribe to its status. Every other client gets the inline `awaiting_input`
+result described above for a paused run, even one that advertises the
+elicitation capability: no client is yet verified to render the native
+input-request card it would otherwise offer. Once a call returns, continued
+polling or an active subscription is required to observe later changes. MCP
+support alone does not mean the client can wake an idle model.
+
+Deferred work: `schedule_run` (agent_id, prompt, and delay_seconds or an RFC3339
+fire_at) schedules a later run. The result has `status: "awaiting_confirmation"` and a
+`confirm_url`. Show the human the prompt, the time and the `confirm_url`; the run
+starts only after the human confirms it in the Plori web app.
+
+Connections: `list_connections` shows the account's third-party OAuth provider status,
+authorization and expiry times, and configured scopes. `status` is the re-authentication
+predicate; an authorized grant with an old expiry refreshes lazily on use. It never returns
+tokens or client secrets.
+
+Workflows: `list_workflows` (optional agent_id UUID, or "none" for unassigned),
+`get_workflow` (workflow_id; returns metadata plus the pinned step projection),
+`get_workflow_version` (workflow_id + version; returns the full definition with parameter
+values), `edit_workflow` (workflow_id + base_version + constrained ops; creates a draft
+version under CAS and does not activate it),
+`create_workflow` (name, optional description/trigger_kind/cron_expr),
+`run_workflow` (runs a workflow now: a real execution billed like any run,
+returning the execution, terminal or still `running`), `list_workflow_executions`
+(workflow_id; recent execution history), and `get_workflow_execution` to poll one and read
+its full per-step input/output payloads.
+A workflow's steps are built by an agent; these tools manage and run the result.
+
+## Run agents in the background
+
+A run can outlast the call that started it. Pick the option below that fits your
+client, instead of holding a call open for a job that takes minutes.
+
+- **Claude Code**: hold each `get_run_result` call to about 100 seconds
+  (`wait_seconds: 100`). This client may background a call running past about two
+  minutes. Do not rely on the background task's result arriving as a notification. A
+  backgrounded hold can be lost. Keep at most one held call per run in flight. Between
+  calls, poll with `wait=false` on a short cadence. Read `tool_progress`
+  (`completed_count`, `last_completed_at`) and `elapsed_seconds` on the returned
+  result to judge progress. To watch every run on the account instead, use `Monitor`
+  on `wss://api.plori.ai/v1/events` with the WebSocket protocols
+  `["plori", "plori.bearer.<API key>"]`. Running `plori watch` in a background shell
+  works too.
+- **Codex**: set `tool_timeout_sec` on the plori server entry in `config.toml` to at
+  least as long as the work you expect. Another option: run `plori watch` in a
+  background shell, then check `plori inbox` for what finished.
+- **Any other client**: pass `wait=false` to `invoke_agent`. Call
+  `get_run_result` again after `poll_after_seconds`. Repeat until the status is
+  terminal or `awaiting_input`.
+
+## CLI commands
+
+The CLI mirrors the tools above; an agent is addressable by name or id, and every command
+accepts `--json`.
+
+- `plori attach <name|session-id>`: open a live session in the terminal (history, a
+  prompt, streaming output, and approvals answered in place). It is interactive and
+  expects a human at the keyboard: as a calling agent, prefer the one-shot commands
+  below, and use `--read-only` if you only need to tail a session. It writes plain
+  text, never JSON, and redirecting stdin or stdout already selects read-only.
+- `plori create <name>`: get or create an agent by name (reusing a name returns the
+  existing agent). `plori agents`, `plori agent <name>`, `plori set-model <name> <model>`,
+  `plori delete <name> --yes`.
+- `plori run <name> "message"`: send a message and, by default, wait for the reply and
+  print it. Add `--follow` to stream the turn live, `--jsonl` for a machine-readable
+  event stream, or `--no-wait` to get a run id back immediately. Pass `-` as the
+  message to read it from stdin.
+- `plori result <name> <run-id>` (add `--wait`, bounded by `--wait-seconds`, to
+  block) and `plori runs <name>` read run status and history.
+- `plori watch [--agent <name|id>]...`: stream run endings and human-input requests as
+  JSON lines until stopped. Run it in a background shell alongside a `--no-wait` run.
+- `plori inbox [--ack <run-id>]`: one-shot summary of what ended since your last
+  acknowledgement, plus everything waiting on you.
+- `plori inputs <name>` lists runs paused on a human request; `plori answer <run-id>
+  <tool-call-id> --approve|--deny|--value <v>` replies. Add `--always-allow` to an
+  `--approve` (only on the human's explicit instruction) to also grant the standing
+  write consent.
+- `plori schedule <name> "prompt" --in <seconds>` (or `--at <rfc3339>`) defers a run;
+  `plori schedules <name>` and `plori unschedule <name> <id>` manage them.
+- `plori workflows list [--agent <name|id|none>]`,
+  `plori workflows create <name> [--trigger cron --cron <expr>]`,
+  `plori workflows run <name|id>` (run it now), `plori workflows execution <name|id> <exec-id>`.
+- `plori credits`, `plori usage`, `plori disk` read account state.
+
+`plori run`, `plori result --wait` (bounded by `--wait-seconds`), and `plori watch`
+report the run's outcome as an exit code:
+
+| code | meaning |
+| ---- | ------- |
+| 0 | succeeded |
+| 1 | API or runtime failure |
+| 2 | usage error |
+| 3 | missing, rejected, or expired credentials |
+| 4 | could not reach the control plane |
+| 10 | the run is awaiting human input |
+| 20 | the run ended in error |
+| 30 | the run was cancelled |
+| 40 | a wait ran out with the run still going |
+
+## Costs and limits
+
+Running an agent spends credits; check `get_credits` before invoking. The account's
+plan sets its included monthly credits and its disk. It also sets the agent count, the
+runs in flight at once, the active workflows, and the length of one run. Over the
+in-flight run cap, `invoke_agent` returns 429. The plan does not set the model: the
+Plori Router picks it, the same way on every plan. Every call is scoped to the account
+that owns the credential; there is no cross-account access.
+
+### What to expect
+
+Cost and duration scale with what a turn does, not with its length alone. Three runs
+measured on 2026-09-13 on one agent:
+
+- A read-only account inventory (45 tool calls): about $0.14, 5 minutes.
+- A planning turn that read 13 web pages and one ads API (67 calls): about $1.39,
+  9 minutes.
+- A build turn (110 calls): about $0.58, 30 minutes.
+
+Plori bills model usage, but automatically refunds charges when a platform fault stops
+the run, subject to a per-account rolling 24-hour limit. `max_turn_tokens` and
+`max_turn_seconds` cap a turn's tokens and wall time.
+
+## More
+
+- Integration entry point: https://plori.ai/agents.md
+- MCP connect guide: https://plori.ai/mcp
+- CLI on npm: https://www.npmjs.com/package/@plori/cli
+- Authentication detail: https://plori.ai/auth.md
+- Site map for agents: https://plori.ai/llms.txt

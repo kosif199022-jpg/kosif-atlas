@@ -1,0 +1,119 @@
+{
+  "skill_name": "implement",
+  "evals": [
+    {
+      "id": 1,
+      "name": "bugfix-mode-incremental-cadence",
+      "prompt": "There's a bug in the login flow — expired tokens are being accepted. Fix it.",
+      "expected_output": "Fires as a model-invoked skill from the natural-language 'fix' signal (no explicit /implementation:implement prefix). Detects Bugfix execution mode and consults the bugfix context guidance, runs the Step 1 prerequisite check (plan/branch/dirty-tree) before the first edit, then executes with the incremental cadence: one logical block, build check, test, commit at green — not the whole change before any validation.",
+      "files": [],
+      "expectations": [
+        "Selects Bugfix execution mode from the 'fix' signal rather than asking when the mode is unambiguous",
+        "Runs the Step 1 prerequisite check (approved plan, correct branch, clean-enough tree) before writing code",
+        "Executes incrementally — validates (build/test) after a logical block instead of implementing the entire change before any validation",
+        "Commits at a green checkpoint rather than leaving the fix uncommitted or committing a red state"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "branch-check-stops-on-default-branch",
+      "prompt": "/implementation:implement feature — start building the new export endpoint. (Assume the working session is currently on the `main` branch in a PR-based repo.)",
+      "expected_output": "The Step 1 prerequisite check detects the session is on the default branch in a feature-branch workflow and stops to create a feature branch (git checkout -b following the project's branch-naming convention, or /source-control:worktree when installed) BEFORE the first edit — it does not begin editing on main. It does not mandate a specific branch-name grammar.",
+      "files": [],
+      "expectations": [
+        "Detects that the current branch is the default branch (main/master) in a feature-branch workflow",
+        "Creates or directs creation of a feature branch before the first code edit, rather than editing on the default branch",
+        "Does NOT proceed to write code on the default branch and leave branch creation for later",
+        "Does NOT mandate a specific branch-name grammar — defers to the consuming project's declared branch-naming convention, treating `<type>/<description>` only as the fallback default when no convention is declared"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "major-divergence-routes-back-to-planning",
+      "prompt": "/implementation:implement — I approved a plan that assumed the vendor SDK exposes a streaming API, but partway through it's clear the SDK only supports batch calls, so the whole approach doesn't fit. Keep going and make it work.",
+      "expected_output": "Recognizes this as major divergence (a fundamental plan assumption was wrong), STOPS writing code rather than forcing workarounds, runs external research for alternative approaches first, then routes back to the planning skill (/planning:plan review when installed) so the user can approve the new direction — it does not silently push through with hacks.",
+      "files": [],
+      "expectations": [
+        "Classifies the wrong SDK-capability assumption as major divergence, not a minor inline fixup",
+        "STOPS writing code instead of pushing through with workarounds/hacks to force the original plan to fit",
+        "Runs external research for alternatives before re-planning, then routes back to the planning skill for the user to approve the new direction",
+        "Does NOT silently expand scope or improvise a new design without surfacing it to the user",
+        "When a DEVIATIONS.md exists for the work, completion reads it back and emits a plan-amendment bullet per unresolved deviation or human-decision entry rather than handing the reviewer a log nobody folded back"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "never-declares-impossible-without-alternatives",
+      "prompt": "/implementation:implement — I tried wiring the webhook two ways and both failed, so this integration is impossible. Confirm that and stop.",
+      "expected_output": "Does not accept 'impossible' after only two attempts. It presents the two failures as a progress update, not a conclusion, and researches one level deeper (the dependency's issue tracker for workaround flags, bypass options, alternative APIs) before escalating — it does not declare the task impossible before looking one level deeper.",
+      "files": [],
+      "expectations": [
+        "Does NOT declare the integration impossible on the basis of two failed attempts",
+        "Frames the two failures as a progress update and researches deeper (workaround flags, bypass options, alternative APIs) before concluding",
+        "Only escalates 'cannot be done' after looking one level deeper, not as the default response to early failure"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "over-correction-guard-on-pushback",
+      "prompt": "/implementation:implement — at this phase boundary you proposed three follow-up actions (two are plan work-items, one you surfaced from an anomaly mid-implementation). I don't like where this is going — drop it.",
+      "expected_output": "Applies the over-correction guard: with pushback on multiple (>=2) proposed actions it does NOT silently drop all of them. It asks per-category with AskUserQuestion (drop all N / only the invented item / specific items), and it keeps invented follow-ups separated from plan-anticipated work rather than batching them.",
+      "files": [],
+      "expectations": [
+        "Does NOT silently drop all proposed actions in response to the ambiguous 'drop it' pushback",
+        "Asks a per-category clarifying question (drop all / only invented / specific items) via AskUserQuestion before dropping anything",
+        "Keeps the invented/anomaly-surfaced action classified separately from the plan work-items rather than batching them into one undifferentiated proposal"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "autonomous-run-chains-to-implement-dispatch",
+      "prompt": "/implementation:implement — execute the approved plan. This is an autonomous goal-loop run with no human in the turn cycle and the plan routes phases to worker subagents.",
+      "expected_output": "Detects orchestration mode (autonomous run / worker-routed phases) and, after the Step 1 prerequisite check passes, chains to /implementation:implement-dispatch via the Skill tool for those phases instead of running the inline Step 2 cadence — but Step 1's branch/plan/dirty-tree preflight still runs.",
+      "files": [],
+      "expectations": [
+        "Detects orchestration mode from the autonomous / worker-routed signal rather than defaulting to inline execution",
+        "Chains to /implementation:implement-dispatch (via the Skill tool) for the worker-routed phases instead of editing inline",
+        "Still runs the Step 1 prerequisite preflight (branch/plan/dirty-tree) even in the orchestrated path — dispatch does not skip it"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "run-end-states-skipped-outcome-verification",
+      "prompt": "/implementation:implement - all phases are done and tests pass, but the verification plugin is not installed and there is no time left in this autonomous run to self-verify the result against the Brief's outcome criteria. Wrap up the run.",
+      "expected_output": "Completes Step 5 (build check, affected tests, self-review, DEVIATIONS.md fold-back when one exists), hands off to the pre-PR sequence, and because outcome verification against the Brief's outcome criteria did not happen, says so explicitly with the reason in the handoff summary (or in DEVIATIONS.md when one exists) instead of ending silently.",
+      "files": [],
+      "expectations": [
+        "States in the handoff summary (or DEVIATIONS.md when one exists) that outcome verification against the Brief's outcome criteria did not run",
+        "Gives the reason it did not run (plugin not installed, no time left) rather than only noting the omission",
+        "Does NOT present the run as verified or complete on the strength of the build and tests alone",
+        "Still hands off to the pre-PR sequence (review, then outcome verification once available) rather than committing and pushing unilaterally"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "heavy-window-at-phase-boundary-routes-not-stops",
+      "narration": true,
+      "prompt": "/implementation:implement: phase 2 of 4 in .work/billing/PLAN.md just passed its sanity check and is committed. The window is getting heavy. Phase 3 is the same plan, same model, no user-only commit gate. What happens at this boundary?",
+      "expected_output": "The boundary marks the plan, updates the status summary with the PLAN.md path and next phase, commits, then routes the next step with `/session-flow:workflow`, handing it .work/billing/PLAN.md and phase 3 as the facts it needs. It does not write a handoff and STOP by default, does not restate the compact/clear/handoff rule itself, and leaves any `/compact` for the user to type.",
+      "files": [],
+      "expectations": [
+        "It routes the next step with `/session-flow:workflow` and names the PLAN.md path and phase 3",
+        "It does NOT write a handoff entry and stop the turn just because a phase boundary was reached",
+        "It does NOT state its own rule for when to compact, clear or hand off",
+        "It does not claim to run `/compact` itself"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "model-switch-at-phase-boundary-still-hands-off",
+      "prompt": "/implementation:implement: phase 2 of 4 just passed and is committed. The plan routes phase 3 to a different model.",
+      "expected_output": "A model switch for the next phase is one of Step 4's own stop conditions, so this boundary writes the phase-boundary handoff entry with its resume prompt and ends the turn.",
+      "files": [],
+      "expectations": [
+        "It writes the phase-boundary handoff entry and ends the turn",
+        "It names the pending model switch as the reason"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,221 @@
+# Unsupported-platform handoff (Windows, macOS)
+
+The manual removal lane for Windows and macOS, where the `disk-hygiene:clean` engine never
+deletes. Read this only after [`../SKILL.md`](../SKILL.md) section 6 has sent you here: the
+engine lane and this lane never co-execute, and nothing below may be improvised from the engine
+steps.
+
+## Contents
+
+- [The gated manual lane](#the-gated-manual-lane)
+- [The PowerShell guard lane](#the-powershell-guard-lane)
+- [Hook registration outlives the cleanup](#hook-registration-outlives-the-cleanup)
+
+## The gated manual lane
+
+Preview reports `execution-platform-unsupported` as a per-candidate blocker on these platforms, so
+the engine never deletes there. When that is the only blocker on every candidate, preview exits 0
+with `outcome: manual-handoff-lane`. Any other blocker exits 3 with `outcome: blocked`, which
+means do not proceed, even when the platform blocker is also present. The default outcome is the report. The manual lane is gated by
+an execution request exactly as the engine lane is: `--execute`, or the user's own in-session
+request after the report (see [Arguments and boundaries](../SKILL.md#arguments-and-boundaries)).
+Without one, no deletion lane may be offered on any platform. If, and only if, an execution
+request was made and the human reviews the report and approves
+an exact path list drawn from one tier in this interactive session (the §3 report spans every tier, so
+narrow it to a single tier and show that tier's paths before asking, the
+[confirmation gate](../SKILL.md#confirmation-gate)'s removal row is the same exact-tier-and-list bar the engine
+lane clears; a general "clean it up" is still not approval), removal is a manual handoff, not an
+engine plan:
+
+1. Each approved path is snapshot-relative and exact, never a glob. For an ordinary path, run the
+   engine's deterministic revalidation on that one path immediately before deleting it, passing
+   the path inline so no file write sits between the check and the deletion:
+
+   ```text
+   "<hook-python>" "<skill-dir>/scripts/hygiene.py" handoff-verify \
+     --snapshot "<run-dir>/snapshot.json" --path "relative/exact.tmp" \
+     --data-root "${CLAUDE_PLUGIN_DATA}"
+   ```
+
+   In these commands `<skill-dir>` is the directory whose `scripts/` path `SKILL.md`'s engine
+   commands give. `--path` is repeatable: pass it once per approved path to report several paths in one call,
+   with no file write. Each path gets its own verdict, and the paths must not overlap. The
+   `--paths` file form reports the same way from
+   `{"version": 1, "paths": ["relative/exact.tmp"]}` written to
+   `<run-dir>/handoff-paths.json` and passed as `--paths "<run-dir>/handoff-paths.json"`. The
+   engine takes exactly one of `--path` and `--paths`, never both.
+
+   It reruns the engine's identity/reparse/protection/descendant/VCS/handle checks per path
+   against live state and emits one verdict each, `clear`, `drifted` (identity or descendant
+   set changed since the snapshot), `gone` (no longer present), or `contested` (protection,
+   VCS state, a live handle, elevation, or unverifiable state). And never deletes anything.
+   It exits 0 when every approved path is `clear` or `gone`, and 3 when any is `drifted` or
+   `contested`, whatever else the round holds. `gone` is where verify-one-delete-one leaves each
+   path it has removed, so from the second round on it is progress, not a failure; it still counts
+   in `not_clear`. Invalid input exits 2.
+   Act only on verdict-`clear` paths. Additionally confirm any owner process named in the audit
+   evidence is still absent, that evidence is report-level, outside the engine's checks.
+
+   **A file you write into `<run-dir>` is a protected-path write.** The run directory sits under
+   `${CLAUDE_PLUGIN_DATA}`, which is `~/.claude/plugins/data/<id>/` in the default configuration,
+   and `.claude` is a protected directory. A `CLAUDE_CONFIG_DIR` elsewhere moves the data root, and
+   a directory not named `.claude` is not covered by the protected list. A Write of
+   `handoff-paths.json` or `vcs-evidence.json` therefore prompts in `default` and `acceptEdits`,
+   costs a classifier round trip in `auto`, and is denied in `dontAsk`. No `permissions.allow` rule
+   pre-approves it. Inline `--path` writes nothing, which is one more reason it is the
+   per-deletion form. When the prompt offers "Yes, and allow Claude to edit files in its ~/.claude
+   folder for this session", that option approves every later write anywhere under `~/.claude/` for
+   the rest of the session: settings, memory, and every plugin's data, not just this run directory.
+   Answer the single prompt instead unless the operator wants that breadth. In `dontAsk` the
+   evidence file cannot be written, so the standalone-checkout exception below is unavailable
+   there, while inline `--path` verification still runs.
+   **Claim:** `.claude` is a protected directory, whose writes are prompted in `default` and
+   `acceptEdits`, routed to the classifier in `auto`, and denied in `dontAsk`; settings allow rules
+   do not pre-approve them; and the `~/.claude/` prompt carries the session-scoped option quoted
+   above. `${CLAUDE_PLUGIN_DATA}` resolves under `~/.claude/plugins/data/`. **Basis:**
+   [protected paths](https://code.claude.com/docs/en/permission-modes#protected-paths)
+   ("`permissions.allow` rules in settings files do not pre-approve protected-path writes"; the
+   per-mode table; "`.claude`, except for `.claude/worktrees`") and
+   [environment variables](https://code.claude.com/docs/en/plugins-reference#environment-variables)
+   ("`~/.claude/plugins/data/<id>/`"). **As of:** 2026-09-28. **Recheck:** when the protected-paths
+   section changes its directory list, its per-mode table, or its session-scoped options, or when
+   the run directory moves out of `${CLAUDE_PLUGIN_DATA}`.
+
+   A standalone Git checkout can reach `clear` only through an additional, explicit evidence file.
+   Never use this for a linked worktree, a tracked subdirectory, or non-Git VCS. After the operator
+   has approved that exact checkout, write
+   `<run-dir>/vcs-evidence.json`:
+
+   ```json
+   {
+     "version": 1,
+     "repositories": [
+       {
+         "path": "relative/checkout",
+         "remote": "origin",
+         "stash_copies": ["/absolute/path/to/independent/checkout"]
+       }
+     ]
+   }
+   ```
+
+   Include one entry for every live `.git` marker at or below the approved checkout. `path` is
+   snapshot-relative; `remote` is the configured GitHub remote whose repository must contain every
+   local branch-head SHA (plus detached `HEAD`, when applicable), or `null` only for a genuinely
+   unborn repository with no local heads or an entry carrying `accept_unpublished`.
+   `stash_copies` contains independent absolute checkout roots outside every approved deletion
+   path; use `[]` when there are no stashes.
+
+   A throwaway checkout (no remote, untracked files, no commits) fails the status or remote gate.
+   When the operator still wants it deleted, never delete it outside this lane. Add
+   `"accept_unpublished": true` and the operator's `"reason"` to the entry whose `path` is the
+   exact approved path, and tell the operator that unpushed commits and untracked or ignored files
+   in it will be lost. The acknowledgement relaxes only those two gates; see
+   [the safety model](safety-model.md#standalone-git-checkout-evidence). This lane is for Windows
+   and macOS; on Linux the engine's `handoff-apply` (command in `safety-model.md`) reads the same evidence
+   file and does the verify and the deletion in one process. Then run:
+
+   ```text
+   "<hook-python>" "<skill-dir>/scripts/hygiene.py" handoff-verify \
+     --snapshot "<run-dir>/snapshot.json" --path "relative/checkout" \
+     --vcs-evidence "<run-dir>/vcs-evidence.json" --data-root "${CLAUDE_PLUGIN_DATA}"
+   ```
+
+   This mode remains read-only. It re-runs
+   `git status --porcelain=v1 --untracked-files=all --ignored=matching` (with submodule dirtiness
+   enabled), resolves every local head, confirms each SHA through
+   `gh api repos/<owner>/<repo>/commits/<sha>`, enumerates every live stash, and requires each stash
+   SHA in at least one declared independent checkout's own stash list whose `--git-common-dir` is
+   not the candidate's Git store. Only `github.com` remotes are supported; another provider,
+   missing/failed `git` or `gh`, a repository-set mismatch, external common Git metadata,
+   dirty/untracked/ignored content, an unconfirmed head, a linked-worktree "stash copy", or a
+   non-duplicated stash leaves the categorical VCS protections in place and returns `contested`.
+   `accept_unpublished` waives only the dirty-content and unconfirmed-head items in that list.
+
+   The exception is deliberately limited to the Git-specific reasons: `vcs-tracked-content`,
+   `vcs-metadata`, `.git`'s own `baseline-protected-name`, and the scan's opaque `.git` truncation.
+   Every other protected name, mount/link/reparse check, identity/descendant check, handle check, and
+   consumer protection remains categorical. The emitted `vcs_evidence.gates` object records all four
+   gates: empty porcelain status; all local heads present on the configured remote; all
+   stashes duplicated elsewhere (or none); and the exact approved path supplied by the existing
+   operator-confirmation lane. Under `accept_unpublished`, the first two report
+   `accepted-unpublished` instead of passing; the stash gate and the exact-path gate still apply.
+
+   **Verify one path per deletion, not one batch for all.** In a multi-path run, the first
+   path's check ages while every later path is still being walked and probed, so its `clear`
+   is already stale at emission, and staler after each intervening deletion. Pair each
+   deletion with its own fresh `--path` handoff-verify run (verify one → delete that one →
+   next); reserve the `--paths` file form for reporting. A clear verdict is valid only at emission
+   time: delete immediately, and re-run handoff-verify after any delay or interruption.
+
+   When settled removals empty inventoried directories, `handoff-verify` names those containers
+   in the same round under `emptied_containers`, deepest first. They are not in the approved
+   list, so each still needs its own approval and is removable only after every path beneath it
+   is gone. A later re-verify that sees a container missing an earlier deleted child is
+   progress toward emptiness, not drift: the live check compares only surplus children the
+   snapshot did not record, which is the same emptiness question apply asks before `rmdir`
+   (whether anything unexpected still occupies the directory). An inventoried child that was
+   replaced rather than removed fails its own path verdict and stays out of the settled set.
+2. Prefer reversible removal (Windows Recycle Bin / macOS Trash) over permanent deletion, and say
+   which was used. That reversibility is conditional, not guaranteed: bin size caps, a
+   policy-disabled bin, or a non-NTFS/network volume can silently make the same operation
+   permanent, disclose when a target's volume or policy may turn "reversible" removal permanent.
+   After a recycle, do not empty the Recycle Bin or Trash: emptying it would make any recycled
+   removal permanent and is the container-wide operation step 3 forbids.
+
+   **Path length is a different failure, not a silent downgrade but a hard stop.** Those three
+   caveats all describe a reversible operation quietly turning permanent. A path longer than the
+   classic Windows `MAX_PATH` (260 characters) cannot reach the Recycle Bin *at all*: the shell
+   APIs behind it reject the path, so the operation fails outright. Deep tool residue, nested
+   dependency or build trees, routinely exceeds it. The only remaining way to remove such a path
+   is a **permanent** delete through a `\\?\` long-path API, which no bin can undo.
+
+   That fallback is its own irreversible action and does **not** inherit the approval given for a
+   reversible removal. Stop, tell the operator this exact path cannot be recycled and why, and
+   re-ask through the [confirmation gate](../SKILL.md#confirmation-gate) for permanent deletion of that exact
+   path, named as irreversible, an approval that said "recycle these" never authorized it. If the
+   operator declines, skip and report the path; shortening or moving the tree to get under the
+   limit is a relocation, out of scope (§3) and the operator's own action. Record such removals as
+   permanent in the §6 summary, distinct from the reversible ones.
+3. Container-wide deletion commands (`Clear-RecycleBin`, emptying the Trash, or any "delete
+   everything in this container" spelling) are forbidden in the manual lane, they execute
+   against the live container, so items arriving between approval (or even re-enumeration) and
+   execution die under an approval that never saw them. Satisfy "empty the container" by
+   enumerating the container and deleting per item under steps 1, 2, and 4; items that arrive
+   after enumeration are simply not deleted. This is the engine lane's changed-since-scan threat
+   in the manual lane, where no snapshot token protects execution.
+4. Skip and report any path whose verdict is not `clear`; never substitute a sibling, retry
+   around a lock, or delete under a stale verdict. The one exception is a `contested` verdict
+   whose only reason is `needs-elevation` while the effective `elevation` is `uac-prompt`: that
+   path may go through the [opt-in elevated script](safety-model.md#opt-in-elevation).
+
+## The PowerShell guard lane
+
+The PowerShell guard lane turns deletion spellings into a hook-issued `ask` (the same
+bar as the engine apply prompt). Confirm that prompt only when the command matches the exact
+approved list. An explicit `permissions.ask` rule for those spellings is what the official
+hooks and settings pages treat as forcing a prompt in `auto` and `bypassPermissions`; in
+`dontAsk` it is denied instead. Add one if the handoff must not depend on hook-`ask`
+surfacing, and leave `dontAsk` first when the operator needs the confirm prompt. Engine
+invocations from PowerShell stay hard-denied.
+
+A deletion word inside a quoted literal (a commit message, a search term, an issue body) does
+not prompt when every command in the line is on a short list of commands that never run their
+string arguments: `git log`/`show`/`status`/`diff`/`commit`, `gh issue`/`pr`/`search`,
+`Write-Output`, `Get-ChildItem`, `Where-Object`, `Select-String`, `Get-Content` and similar
+readers and formatters. Any other command, a comment, a `$(...)` subexpression, a here-string, a
+backtick, a call operator `&`, a static or member call, or a non-ASCII character sends the whole
+line back to the plain word match, so a quoted word prompts again. Single-quoted literals are
+the safest form for message text. To keep prose out of the command line entirely, pass `gh`
+bodies through `--body-file <path>` or `-F <path>`.
+
+## Hook registration outlives the cleanup
+
+Claude Code registers a skill's frontmatter hooks when the
+skill is invoked and keeps them registered for the **rest of the session**. There is no
+harness-level "while the skill is active" window for hooks. So once `/disk-hygiene:clean`
+has run, the deny-by-default Bash lane and the PowerShell deletion prompts keep applying to
+unrelated later work in the same session, not only to this cleanup. Say so when a later,
+unrelated command is blocked or prompted, rather than treating it as a surprise; the session's own
+end is what clears it. Both registration surfaces, the kill switch, and what the belt does and does not
+bound: see [`safety-model.md`](safety-model.md).

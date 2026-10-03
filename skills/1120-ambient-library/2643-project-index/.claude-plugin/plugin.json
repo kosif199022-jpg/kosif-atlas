@@ -1,0 +1,11 @@
+{
+  "name": "project-index",
+  "description": "Scans one or more directories (no recursion) and produces a project inventory — markdown table plus a searchable, filterable HTML page — with an inferred one-line description and status per folder; use for \"what have I been working on\", \"index my projects folder\", \"status of everything in this directory\", \"catalog these folders\".",
+  "version": "1.0.1",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

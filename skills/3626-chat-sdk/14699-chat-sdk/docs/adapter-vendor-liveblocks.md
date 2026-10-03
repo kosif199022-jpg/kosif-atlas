@@ -1,0 +1,167 @@
+> Source: https://chat-sdk.dev/adapters/vendor-official/liveblocks.md
+
+---
+title: Liveblocks
+description: Chat SDK adapter backed by Liveblocks Comments. Build bots that read and post in Liveblocks comment threads using the Chat SDK channel, thread, and message model.
+tagline: Chat SDK adapter backed by Liveblocks Comments. Maps Liveblocks rooms, threads, and comments to the Chat SDK channel, thread, and message model.
+package: @liveblocks/chat-sdk-adapter
+---
+
+# Liveblocks
+
+
+## Install
+
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import {
+  createLiveblocksAdapter,
+  type LiveblocksAdapter,
+} from "@liveblocks/chat-sdk-adapter";
+
+const bot = new Chat<{ liveblocks: LiveblocksAdapter }>({
+  userName: "MyBot",
+  adapters: {
+    liveblocks: createLiveblocksAdapter({
+      apiKey: process.env.LIVEBLOCKS_SECRET_KEY,
+      webhookSecret: process.env.LIVEBLOCKS_WEBHOOK_SECRET,
+      botUserId: "my-bot-user",
+      botUserName: "MyBot",
+    }),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.adapter.addReaction(thread.id, message.id, "👀");
+  await thread.post(`Hello, ${message.author.userName}!`);
+});
+```
+
+The adapter maps Liveblocks rooms to Chat SDK channels, comment threads to Chat SDK threads, and individual comments to messages, so subscriptions, handlers, posts, and reactions work as they do with any other adapter.
+
+## Platform setup
+
+1. Create a [Liveblocks project](https://liveblocks.io/docs/get-started) with rooms using [Comments](https://liveblocks.io/docs/products/comments).
+2. In the dashboard, copy a secret key (`sk_...`) for server-side REST API calls.
+3. Create a webhook signing secret (`whsec_...`) and configure webhooks to subscribe to:
+   * `commentCreated`
+   * `commentReactionAdded`
+   * `commentReactionRemoved`
+4. Choose a stable `botUserId` that matches how your app identifies users. It can be a real user ID in your system or a dedicated bot ID you issue.
+
+Point your Liveblocks webhook URL at the route that forwards requests to `bot.webhooks.liveblocks` (see [Webhooks](#webhooks)).
+
+## Configuration
+
+
+Resolver return types follow the `@liveblocks/core` user and group metadata shapes (`U["info"]`, `DGI`).
+
+## Webhooks
+
+The adapter handles these Liveblocks webhook events:
+
+| Event                    | Role                               |
+| ------------------------ | ---------------------------------- |
+| `commentCreated`         | Drives Chat SDK message processing |
+| `commentReactionAdded`   | Drives reaction handlers           |
+| `commentReactionRemoved` | Drives reaction handlers           |
+
+Forward webhook requests to `bot.webhooks.liveblocks`:
+
+```typescript title="app/api/webhooks/liveblocks/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request) {
+  return bot.webhooks.liveblocks(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+The adapter verifies each request's signature with `webhookSecret` and returns `401` for an invalid request. Passing `waitUntil` lets work continue after the response is sent in serverless environments such as Vercel.
+
+## Resolving mentions
+
+When comments contain @mentions, supply `resolveUsers`, and optionally `resolveGroupsInfo`, so the adapter can resolve the mentioned IDs:
+
+```typescript title="lib/bot.ts" lineNumbers
+const adapter = createLiveblocksAdapter({
+  apiKey: process.env.LIVEBLOCKS_SECRET_KEY,
+  webhookSecret: process.env.LIVEBLOCKS_WEBHOOK_SECRET,
+  botUserId: "my-bot-user",
+
+  resolveUsers: async ({ userIds }) => {
+    const users = await getUsersFromDatabase(userIds);
+    return users.map((user) => ({
+      name: user.fullName,
+      avatar: user.avatarUrl,
+    }));
+  },
+
+  resolveGroupsInfo: async ({ groupIds }) => {
+    const groups = await getGroupsFromDatabase(groupIds);
+    return groups.map((group) => ({ name: group.displayName }));
+  },
+});
+```
+
+## Message format
+
+Liveblocks Comments use a simpler body model than full Markdown. The adapter converts outbound Chat SDK content and flattens structure that the body model can't represent.
+
+Comment bodies support paragraphs with bold, italic, code, strikethrough, links, and @mentions of users and groups.
+
+The adapter flattens headings, bullet and numbered lists, code blocks, tables, and raw HTML to plain text or paragraphs. Tables render as ASCII inside a paragraph. Card payloads become markdown or plain text, or their `fallbackText`, and lose their interactivity.
+
+## Reactions
+
+Pass Unicode emoji directly, or names such as `thumbs_up` that normalize to emoji where supported. Unknown custom IDs can fail API validation:
+
+```typescript
+await thread.adapter.addReaction(thread.id, message.id, "👍");
+await thread.adapter.addReaction(thread.id, message.id, "thumbs_up");
+```
+
+## Thread IDs
+
+Thread IDs take the form `liveblocks:{roomId}:{threadId}`, and channel IDs take the form `liveblocks:{roomId}`.
+
+### `encodeThreadId`
+
+```typescript
+adapter.encodeThreadId(data: { roomId: string; threadId: string }): string;
+```
+
+```typescript
+const encoded = adapter.encodeThreadId({
+  roomId: "my-room",
+  threadId: "th_abc123",
+});
+// "liveblocks:my-room:th_abc123"
+```
+
+### `decodeThreadId`
+
+```typescript
+adapter.decodeThreadId(threadId: string): { roomId: string; threadId: string };
+```
+
+Throws if the format is invalid. Room IDs may contain `:` because the last `:` separates the `threadId`, which means Liveblocks thread IDs themselves must not contain `:`.
+
+## Feature support
+
+
+## Resources
+
+* [Liveblocks Chat SDK Bot](https://liveblocks.io/examples/chat-sdk-bot/nextjs-chat-sdk-bot): a Next.js bot that responds to @mentions and reactions in Liveblocks comment threads ([source](https://github.com/liveblocks/liveblocks/tree/main/examples/nextjs-chat-sdk-bot)).
+* [Liveblocks Chat SDK AI Bot](https://liveblocks.io/examples/chat-sdk-ai-bot/nextjs-chat-sdk-ai-bot): the same stack with an AI-powered reply flow ([source](https://github.com/liveblocks/liveblocks/tree/main/examples/nextjs-chat-sdk-ai-bot)).
+* Full walkthrough: [Get started with a Chat SDK bot using Liveblocks and Next.js](https://liveblocks.io/docs/get-started/nextjs-chat-sdk-bot).
+* [How to build an agent for Liveblocks with Chat SDK and AI SDK](https://vercel.com/kb/guide/liveblocks-chat-sdk-ai-sdk?utm_source=chat-sdk_site\&utm_medium=docs\&utm_campaign=adapter-liveblocks\&utm_content=liveblocks-chat-sdk-ai-sdk): build an AI agent that replies to @-mentions in Liveblocks comment threads with streamed responses and tool calling. Uses Chat SDK, the Liveblocks adapter, AI SDK's ToolLoopAgent, and Redis for thread subscriptions and distributed locking.
+
+See all guides and templates on the [resources](/resources?utm_source=chat-sdk_site\&utm_medium=docs\&utm_campaign=adapter-liveblocks\&utm_content=resources) page.

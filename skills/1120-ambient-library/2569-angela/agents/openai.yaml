@@ -1,0 +1,4 @@
+interface:
+  display_name: "Angela"
+  short_description: "Your AI content strategist and teaching engine"
+  default_prompt: "Use $angela to diagnose what my audience needs next and create strategically varied, ready-to-publish content."

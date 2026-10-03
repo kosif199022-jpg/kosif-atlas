@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Audio VFX"
+  short_description: "GameGen: game audio vfx workflow"
+  default_prompt: "Use $game-audio-vfx for this game using its saved GameGen preferences."

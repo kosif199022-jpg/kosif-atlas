@@ -1,0 +1,2967 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>session report</title>
+    <!-- No remote fonts: this report carries project names, costs, and
+         timestamps, and a webfont request tells its host the file was opened
+         and when. --mono falls back through JetBrains Mono to ui-monospace, so
+         this renders the same on any machine that has a dev font. -->
+    <style>
+/* tokens:core:start */
+/* Shared design core — do not hand-edit; edit scripts/tokens/core.css. */
+:root {
+  --background: #111110;
+  --card: #191918;
+  --card-foreground: #eeeeec;
+  --popover: #222221;
+  --foreground: #eeeeec;
+  --muted: #222221;
+  --muted-foreground: #b5b3ad;
+  --border: #3b3a37;
+  --input: #3b3a37;
+  --primary: #978365;
+  --primary-foreground: #ffffff;
+  --primary-hover: #a39073;
+  --primary-muted: #24231f;
+  --primary-text: #cbb99f;
+  --ring: #978365;
+  --accent: #2a2a28;
+  --success: #71d083;
+  --success-muted: #1b2a1e;
+  --success-border: #2d5736;
+  --warning: #ffca16;
+  --warning-muted: #302008;
+  --warning-border: #5c3d05;
+  --destructive: #ff977d;
+  --destructive-muted: #391714;
+  --destructive-border: #6e2920;
+  --info: #70b8ff;
+  --info-muted: #0d2847;
+  --info-border: #104d87;
+  /* categorical — series identity; neither the accent nor the semantics */
+  --cat-1: #cf686e;
+  --cat-2: #897ed6;
+  --cat-3: #41a265;
+  --cat-4: #3694d4;
+  --cat-5: #94911b;
+  --cat-6: #ba6cae;
+  --cat-7: #c37827;
+  --cat-8: #00a0a4;
+  --cat-other: #686560;
+  --outline: rgba(237, 237, 236, 0.08);
+  --subtle: #686560;
+  --shadow-sm: 0 1px 2px rgba(6, 6, 5, 0.5);
+  --shadow-md: 0 4px 14px rgba(6, 6, 5, 0.55);
+  --shadow-lg: 0 20px 60px rgba(6, 6, 5, 0.62);
+  --mono: "Geist Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  --sans: "Geist", "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.5rem;
+  --text-4xl: 3.5rem;
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.7;
+  --tracking-tight: -0.022em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.06em;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+  --space-12: 4rem;
+  --radius-sm: 0.1875rem;
+  --radius: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --background: #f6f5ef;
+    --card: #fcfbf6;
+    --card-foreground: #36302a;
+    --popover: #fcfbf6;
+    --foreground: #36302a;
+    --muted: #f0efe3;
+    --muted-foreground: #726c5e;
+    --border: #ddd6c6;
+    --input: #ddd6c6;
+    --primary: #967e60;
+    --primary-foreground: #ffffff;
+    --primary-hover: #897254;
+    --primary-muted: #efece0;
+    --primary-text: #6f5e44;
+    --ring: #967e60;
+    --accent: #eae7da;
+    --success: #3f7a34;
+    --success-muted: #e6f5e2;
+    --success-border: #c2e1b3;
+    --warning: #93761d;
+    --warning-muted: #fbf4c4;
+    --warning-border: #ebd87f;
+    --destructive: #bf4f3b;
+    --destructive-muted: #fbe8e2;
+    --destructive-border: #f0c9ba;
+    --info: #3f6fa6;
+    --info-muted: #e6f1fc;
+    --info-border: #bed7ef;
+    --cat-1: #b04d54;
+    --cat-2: #6f63b8;
+    --cat-3: #1e874b;
+    --cat-4: #0a78b7;
+    --cat-5: #797600;
+    --cat-6: #9d5192;
+    --cat-7: #a45e00;
+    --cat-8: #008f93;
+    --cat-other: #a8a294;
+    --outline: rgba(54, 48, 42, 0.08);
+    --subtle: #a8a294;
+    --shadow-sm: 0 1px 2px rgba(54, 48, 42, 0.1);
+    --shadow-md: 0 4px 14px rgba(54, 48, 42, 0.13);
+    --shadow-lg: 0 20px 60px rgba(54, 48, 42, 0.18);
+  }
+}
+:root[data-theme="light"] {
+  --background: #f6f5ef;
+  --card: #fcfbf6;
+  --card-foreground: #36302a;
+  --popover: #fcfbf6;
+  --foreground: #36302a;
+  --muted: #f0efe3;
+  --muted-foreground: #726c5e;
+  --border: #ddd6c6;
+  --input: #ddd6c6;
+  --primary: #967e60;
+  --primary-foreground: #ffffff;
+  --primary-hover: #897254;
+  --primary-muted: #efece0;
+  --primary-text: #6f5e44;
+  --ring: #967e60;
+  --accent: #eae7da;
+  --success: #3f7a34;
+  --success-muted: #e6f5e2;
+  --success-border: #c2e1b3;
+  --warning: #93761d;
+  --warning-muted: #fbf4c4;
+  --warning-border: #ebd87f;
+  --destructive: #bf4f3b;
+  --destructive-muted: #fbe8e2;
+  --destructive-border: #f0c9ba;
+  --info: #3f6fa6;
+  --info-muted: #e6f1fc;
+  --info-border: #bed7ef;
+  --cat-1: #b04d54;
+  --cat-2: #6f63b8;
+  --cat-3: #1e874b;
+  --cat-4: #0a78b7;
+  --cat-5: #797600;
+  --cat-6: #9d5192;
+  --cat-7: #a45e00;
+  --cat-8: #008f93;
+  --cat-other: #a8a294;
+  --outline: rgba(54, 48, 42, 0.08);
+  --subtle: #a8a294;
+  --shadow-sm: 0 1px 2px rgba(54, 48, 42, 0.1);
+  --shadow-md: 0 4px 14px rgba(54, 48, 42, 0.13);
+  --shadow-lg: 0 20px 60px rgba(54, 48, 42, 0.18);
+}
+/* tokens:core:end */
+
+/* kit:css:start */
+/* Shared state layer — do not hand-edit; edit scripts/tokens/kit.css. */
+
+/* :where() keeps these at zero specificity, so a surface overrides them by
+   writing a plain rule rather than escalating into an !important contest. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Mouse users should not see the ring; keyboard users must. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
+  outline: none;
+}
+
+.kit-skip {
+  position: absolute;
+  left: var(--space-2);
+  top: -4rem;
+  z-index: 999;
+  padding: var(--space-2) var(--space-3);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: top var(--dur) var(--ease-out);
+}
+
+.kit-skip:focus {
+  top: var(--space-2);
+}
+
+/* Empty, loading and error states. Namespaced kit- because three of the four
+   surfaces already own an .empty or .error class of their own. */
+.kit-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--muted-foreground);
+}
+
+.kit-empty__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-md);
+  color: var(--foreground);
+}
+
+.kit-empty__body {
+  margin: 0 auto;
+  max-width: 44ch;
+  font-size: var(--text-sm);
+  text-wrap: pretty;
+}
+
+.kit-error {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-3);
+  background: var(--destructive-muted);
+  border: 1px solid var(--destructive-border);
+  border-radius: var(--radius);
+  color: var(--destructive);
+  font-size: var(--text-sm);
+}
+
+/* Shaped like the content it stands in for — never a spinner. Width is the
+   caller's job, so one rule serves a title, a row and a paragraph. */
+.kit-skel {
+  height: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--muted) 0%, var(--accent) 50%, var(--muted) 100%);
+  background-size: 200% 100%;
+  animation: kit-shimmer 1.4s var(--ease-out) infinite;
+}
+
+@keyframes kit-shimmer {
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Keyboard help overlay, populated by kit.js from the live binding registry. */
+.kit-help {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in oklch, var(--background) 78%, transparent);
+}
+
+.kit-help[hidden] {
+  display: none;
+}
+
+.kit-help__panel {
+  width: min(34rem, 100%);
+  max-height: 80dvh;
+  overflow-y: auto;
+  padding: var(--space-5);
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.kit-help__title {
+  margin: 0 0 var(--space-4);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+
+.kit-help__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+}
+
+.kit-help__keys {
+  flex: none;
+  display: flex;
+  gap: var(--space-1);
+}
+
+.kit-kbd {
+  min-width: 1.4rem;
+  padding: 0.1rem 0.4rem;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--foreground);
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.kit-theme {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.kit-theme button {
+  font: inherit;
+  font-size: var(--text-2xs);
+  padding: var(--space-1) var(--space-2);
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.kit-theme button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.kit-theme button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.kit-theme button:hover {
+  color: var(--foreground);
+  border-color: var(--primary);
+}
+
+.kit-theme button[aria-pressed="true"] {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* A keyboard layer nobody can discover is a keyboard layer nobody uses. kit.js
+   places this next to every theme group, so the ? overlay has a visible way in
+   for anyone who was never told the shortcut exists. */
+/* kit.js wraps the theme group and the help button in this. The pairing is
+   content-sized, so ? sits against the group no matter what the host is: in a
+   flex row the wrapper shrink-wraps anyway, and in block flow (a sidebar) the
+   wrapper fills the width but the group no longer stretches across it. Growing
+   the group is opt-in — a host that wants it to fill the row says so itself,
+   the way the style guide's rail does with `.kit-controls > .themebar`. This
+   was the default until 2026-08-25, and the one surface hosting the group in
+   block flow (plan-review's nav) got a ? at the far edge (docket #52). */
+.kit-controls {
+  display: flex;
+  align-items: center;
+}
+
+.kit-controls > .kit-theme {
+  flex: none;
+}
+
+.kit-helpbtn {
+  margin-left: var(--space-2);
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: none;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.kit-helpbtn:hover {
+  color: var(--foreground);
+  border-color: var(--primary);
+}
+
+.kit-copied {
+  color: var(--success);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Browsers do not print background colours by default, so a dark-themed page
+   prints light text onto white and reads as blank. Repointing the tokens is
+   what makes Ctrl-P work at all; hiding chrome is the surface's opt-in. */
+@media print {
+  :root {
+    --background: #ffffff;
+    --card: #ffffff;
+    --popover: #ffffff;
+    --muted: #f4f4f2;
+    --accent: #f4f4f2;
+    --foreground: #000000;
+    --card-foreground: #000000;
+    --muted-foreground: #444444;
+    --subtle: #666666;
+    --border: #999999;
+    --input: #999999;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+  }
+
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .kit-skip,
+  .kit-help,
+  .kit-helpbtn,
+  .kit-theme,
+  [data-kit-chrome] {
+    display: none !important;
+  }
+
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 90%;
+    color: #555555;
+  }
+
+  .kit-skel {
+    animation: none;
+  }
+}
+/* kit:css:end */
+
+      /* session-report extensions — semantic variants, named palette entries,
+         and terminal colours. Outside the markers on purpose: anything
+         inside them is replaced by check-tokens.mjs --fix. */
+      :root {
+        --secondary:          #222221;
+        --card-hover:         #222221;
+        --card-active:        #2a2a28;
+        --popover-foreground: #eeeeec;
+        --border-hover:       #494844;
+        --gold-9:             #978365;
+        --gold-10:            #a39073;
+        --success-foreground: #ffffff;
+        --success-solid:      #46a758;
+        --warning-foreground: #21180b;
+        --warning-solid:      #ffc53d;
+        --info-foreground:    #ffffff;
+        --info-solid:         #0090ff;
+        --destructive-foreground:#ffffff;
+        --destructive-solid:  #e54d2e;
+        --term-bg:            var(--background);
+        --term-fg:            var(--foreground);
+        --titlebar:           var(--secondary);
+        --hover:              var(--accent);
+        --clay:               var(--primary);
+        --dim:                var(--muted-foreground);
+        --green:              var(--success);
+        --red:                var(--destructive);
+        --blue:               var(--info);
+        --yellow:             var(--warning);
+        --ivory:              var(--background);
+      }
+
+      /* These extension tokens are dark-first like the core, so the light values
+         are an override — and the override has to be written the way the core
+         writes it. With only a media query here, clicking Dark on a light system
+         flipped every core token but left --secondary (and so --titlebar) cream,
+         because the media query still matched. Tokens that alias a core token
+         (--term-bg: var(--background)) followed the toggle; literal hexes did
+         not, which is why the card inverted and its header did not. Docket #48;
+         same fix as session-handoff (Q16). */
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme="dark"]) {
+          --secondary:          #f0efe3;
+          --card-hover:         #f0efe3;
+          --card-active:        #eae7da;
+          --popover-foreground: #36302a;
+          --border-hover:       #cfc8b6;
+          --gold-10:            #897254;
+          --success-foreground: #ffffff;
+          --success-solid:      #46a758;
+          --warning-foreground: #21180b;
+          --warning-solid:      #ffc53d;
+          --info-foreground:    #ffffff;
+          --info-solid:         #0090ff;
+          --destructive-foreground:#ffffff;
+          --destructive-solid:  #e54d2e;
+        }
+      }
+
+      :root[data-theme="light"] {
+        --secondary:          #f0efe3;
+        --card-hover:         #f0efe3;
+        --card-active:        #eae7da;
+        --popover-foreground: #36302a;
+        --border-hover:       #cfc8b6;
+        --gold-10:            #897254;
+        --success-foreground: #ffffff;
+        --success-solid:      #46a758;
+        --warning-foreground: #21180b;
+        --warning-solid:      #ffc53d;
+        --info-foreground:    #ffffff;
+        --info-solid:         #0090ff;
+        --destructive-foreground:#ffffff;
+        --destructive-solid:  #e54d2e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        background: var(--ivory);
+      }
+      body {
+        margin: 0;
+        padding: var(--space-8) var(--space-5) calc(var(--space-12) + var(--space-4));
+        font: var(--text-sm)/var(--leading-normal) var(--sans);
+        /* F9 — this is a data surface: every figure is tabular by default, not
+           by exception. Must follow the `font` shorthand, which resets it. */
+        font-variant-numeric: tabular-nums;
+        color: var(--term-fg);
+        position: relative;
+        min-height: 100dvh;
+      }
+
+      /* Visually hidden but announced — skip-link target labelling and table
+         captions. Not part of the kit region: it is a generic a11y utility
+         any surface can define for itself. */
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* Data typography — this list is now about --mono alone: tabular-nums is
+         the body default (F9), so every number, id, path, hash and timestamp
+         gets it whether or not it is listed here. What this list adds is the
+         mono face for the elements that read as data rather than prose.
+         Headings and chrome stay on the body's --sans default. th is the one
+         exception: header text is a label, not data, so it opts back into
+         --sans and out of tabular figures. */
+      #title-path,
+      #meta-line,
+      #hero-total,
+      #hero-split b,
+      #hero-cost b,
+      .stat .val,
+      .stat .detail,
+      .take .fig,
+      .gantt-hd .day,
+      .gantt-hd .stats b,
+      .gantt-axis,
+      .bar .blocks,
+      .bar .pct,
+      .hr,
+      .ctx-msg,
+      .drill .amt,
+      .drill .meta,
+      .ctx-break b,
+      code,
+      table,
+      #foot-gen,
+      #foot-stats {
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+      }
+      th {
+        font-family: var(--sans);
+        font-variant-numeric: normal;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(
+            to right,
+            color-mix(in oklch, var(--foreground) 2%, transparent) 1px,
+            transparent 1px
+          ),
+          linear-gradient(
+            to bottom,
+            color-mix(in oklch, var(--foreground) 2%, transparent) 1px,
+            transparent 1px
+          );
+        background-size: 40px 40px;
+      }
+
+      body::after {
+        content: "";
+        position: fixed;
+        top: -240px;
+        left: 50%;
+        width: 640px;
+        height: 640px;
+        z-index: 0;
+        pointer-events: none;
+        transform: translateX(-50%);
+        background: radial-gradient(
+          circle,
+          color-mix(in oklch, var(--gold-9) 9%, transparent) 0%,
+          transparent 70%
+        );
+      }
+
+      ::-webkit-scrollbar {
+        width: 9px;
+        height: 9px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background-color: var(--primary);
+        border-radius: var(--radius-full);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .term {
+        /* Three sticky things — the strip, the rail, and the tables' sticky th
+           — have to agree on how tall the strip is, and the strip wraps at
+           narrow widths. One custom property, one place to change it. */
+        --strip-h: 3.25rem;
+        /* The rail costs the body ~17rem; widen the card to keep the gantt and
+           the five tables at roughly their previous measure. */
+        max-width: 1320px;
+        margin: 0 auto;
+        background: var(--term-bg);
+        border-radius: var(--radius-lg);
+        outline: 1px solid var(--outline);
+        box-shadow: var(--shadow-lg);
+        position: relative;
+        z-index: 1;
+      }
+      .titlebar {
+        background: var(--titlebar);
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        border-bottom: 1px solid var(--outline);
+        padding: 10px var(--space-4);
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+      }
+      .titlebar .tag {
+        font-size: var(--text-2xs);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-wide);
+        color: var(--clay);
+        padding: 1px 6px;
+        background: color-mix(in oklch, var(--clay) 12%, transparent);
+        border-radius: var(--radius-full);
+      }
+      .titlebar .path {
+        color: var(--dim);
+        font-size: var(--text-2xs);
+      }
+      .kit-theme[data-kit-chrome] {
+        margin-left: auto;
+      }
+      /* Anomaly strip — the "spot the anomaly" half of the report's job, pinned
+         under the titlebar so it never scrolls away. The background is SOLID on
+         purpose: a translucent sticky header bleeds the content moving under
+         it. Deliberately NOT [data-kit-chrome]: Q13 makes that attribute print
+         suppression, and these three figures are the report's headline — a
+         printed report without them is a report with its point removed. */
+      .strip {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-6);
+        padding: var(--space-3) var(--space-5);
+        background: var(--titlebar);
+        border-bottom: 1px solid var(--outline);
+        box-shadow: var(--shadow-sm);
+      }
+      /* A zero-session report hides the strip and the rail — three em dashes
+         pinned across the top and a dozen chips pointing at hidden sections are
+         worse than nothing. `hidden` is only a UA rule, and both of these set
+         display in a class selector, which beats it — so say it explicitly or
+         the attribute is silently inert. */
+      .strip[hidden],
+      .rail[hidden] {
+        display: none;
+      }
+      .shell[data-empty] {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .shell[data-empty] > .term-body {
+        border-left: 0;
+      }
+      .anomaly {
+        display: grid;
+        gap: 1px;
+      }
+      .anomaly .v {
+        font-size: var(--text-lg);
+        font-weight: 700;
+        line-height: 1;
+      }
+      .anomaly .k {
+        font-size: var(--text-2xs);
+        color: var(--subtle);
+      }
+      .anomaly--bad .v {
+        color: var(--red);
+      }
+      .anomaly--warn .v {
+        color: var(--yellow);
+      }
+
+      /* Rail + body. The rail carries the comparison half — project shares and
+         a per-day sparkline — then the section index. */
+      .shell {
+        display: grid;
+        grid-template-columns: 17rem minmax(0, 1fr);
+        align-items: start;
+      }
+      .rail {
+        position: sticky;
+        top: var(--strip-h);
+        z-index: 2;
+        align-content: start;
+        display: grid;
+        gap: var(--space-5);
+        padding: var(--space-4);
+        max-height: calc(100dvh - var(--strip-h));
+        overflow-y: auto;
+      }
+      /* The divider belongs to the body, not the rail: the rail is only as tall
+         as its own content, so a border on it stops a third of the way down a
+         long report and reads as an unfinished line. */
+      .shell > .term-body {
+        border-left: 1px solid var(--outline);
+      }
+      .railbox {
+        display: grid;
+        gap: var(--space-2);
+      }
+      .rail-h {
+        font-size: var(--text-2xs);
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-wide);
+        color: var(--subtle);
+      }
+      .proj {
+        display: grid;
+        /* minmax(0, …), never a bare 1fr: these labels are filesystem paths and
+           auto-as-minimum is min-content, which pushes the rail sideways (Q14).
+           The ellipsis hides that, it does not prevent it. */
+        grid-template-columns: minmax(0, 1fr) 3rem auto;
+        align-items: center;
+        gap: var(--space-2);
+        padding: 3px 0;
+        font-size: var(--text-2xs);
+        color: var(--term-fg);
+        text-decoration: none;
+      }
+      .proj:hover .proj-n {
+        color: var(--clay);
+      }
+      .proj-n {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .proj-bar {
+        height: 4px;
+        border-radius: var(--radius-full);
+        overflow: hidden;
+        background: color-mix(in oklch, var(--foreground) 8%, transparent);
+      }
+      .proj-bar i {
+        display: block;
+        height: 100%;
+        background: var(--clay);
+      }
+      .proj-v {
+        color: var(--dim);
+      }
+      .spark {
+        display: flex;
+        align-items: flex-end;
+        gap: 1px;
+        height: 2rem;
+      }
+      .spark i {
+        flex: 1;
+        border-radius: 1px 1px 0 0;
+        background: color-mix(in oklch, var(--clay) 45%, transparent);
+      }
+
+      /* Section nav — one chip per h2, built at load, scroll-spy active. It
+         reads as a vertical index now that it lives in the rail. The builder
+         addresses the container by id, which is what let the nav move without
+         touching a line of it. */
+      .secnav {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .secnav .chip {
+        font: inherit;
+        font-size: var(--text-2xs);
+        text-align: left;
+        color: var(--subtle);
+        background: transparent;
+        border: 0;
+        border-left: 2px solid transparent;
+        border-radius: var(--radius-sm);
+        padding: 3px var(--space-2);
+        cursor: pointer;
+      }
+      .secnav .chip:hover {
+        color: var(--foreground);
+        background: color-mix(in oklch, var(--foreground) 4%, transparent);
+      }
+      .secnav .chip.active {
+        color: var(--clay);
+        border-left-color: var(--clay);
+        background: color-mix(in oklch, var(--clay) 8%, transparent);
+      }
+      /* Tracks --strip-h so a deep link clears the strip rather than landing
+         under it — and stays in rem, so it survives a non-default root size. */
+      .term-body section { scroll-margin-top: var(--strip-h); }
+      .term-body {
+        padding: var(--space-5) var(--space-6) var(--space-6);
+      }
+
+      .cmd {
+        color: var(--dim);
+        margin-bottom: 6px;
+      }
+      .cmd .prompt {
+        color: var(--clay);
+      }
+      .cmd .flag {
+        color: var(--blue);
+      }
+      #meta-line {
+        color: var(--subtle);
+        font-size: var(--text-2xs);
+      }
+
+      #hero {
+        display: grid;
+        /* Three children of very different widths. Left to a bare two-column
+           grid, the long cost line sizes column 1 and squeezes the split line
+           into a ~50px vertical ribbon — so the cost line is placed across
+           both columns explicitly. */
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: var(--space-2) var(--space-5);
+        align-items: baseline;
+        margin: var(--space-3) 0 var(--space-2);
+      }
+      #hero-cost {
+        grid-column: 1 / -1;
+      }
+      #hero-total {
+        font-size: var(--text-4xl);
+        font-weight: 700;
+        line-height: 1;
+      }
+      #hero-total .unit {
+        color: var(--clay);
+      }
+      #hero-total .label {
+        font-size: var(--text-lg);
+        font-weight: 400;
+        color: var(--dim);
+        margin-left: var(--space-2);
+        font-family: var(--sans);
+        font-variant-numeric: normal;
+      }
+      #hero-split {
+        color: var(--dim);
+      }
+      #hero-split b {
+        color: var(--term-fg);
+        font-weight: 500;
+      }
+      #hero-split .ok {
+        color: var(--green);
+      }
+      #hero-split .warn {
+        color: var(--yellow);
+      }
+      #hero-cost {
+        color: var(--dim);
+      }
+      #hero-cost b {
+        color: var(--term-fg);
+        font-weight: 500;
+      }
+      #hero-cost .ok {
+        color: var(--green);
+      }
+      .cost-note {
+        color: var(--subtle);
+        font-size: var(--text-2xs);
+      }
+      .stat .val.cost {
+        font-size: var(--text-md);
+        color: var(--yellow);
+      }
+
+      section {
+        margin-top: var(--space-6);
+      }
+
+      /* Collapsible sections. Expanded on every load by design — collapsing is
+         a within-session convenience, so there is no persisted state and no
+         degradation path when storage is unavailable.
+
+         The caret is the one the surface ALREADY renders on every h2. Adding a
+         summary::before produced a visible double marker; rotating the existing
+         one instead costs nothing. Rotating an inline-block also swallows the
+         trailing space inside content: "▸ ", hence the explicit margin. */
+      .fold > summary {
+        list-style: none;
+        cursor: pointer;
+      }
+      .fold > summary::-webkit-details-marker {
+        display: none;
+      }
+      .fold > summary:focus-visible {
+        outline: 2px solid var(--clay);
+        outline-offset: 2px;
+        border-radius: var(--radius);
+      }
+      .fold > summary h2::before {
+        display: inline-block;
+        margin-right: 0.3em;
+        transition: transform 0.15s ease;
+      }
+      .fold[open] > summary h2::before {
+        transform: rotate(90deg);
+      }
+      .fold > summary:hover h2 {
+        color: var(--gold-10);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .fold > summary h2::before {
+          transition: none;
+        }
+      }
+      .hr {
+        color: var(--subtle);
+        overflow: hidden;
+        white-space: nowrap;
+        user-select: none;
+        margin-bottom: var(--space-2);
+      }
+      .hr::after {
+        content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
+      }
+      h2 {
+        all: unset;
+        display: block;
+        color: var(--clay);
+        font-weight: 500;
+      }
+      h2::before {
+        content: "▸ ";
+      }
+      h2 .hint {
+        color: var(--subtle);
+        font-size: var(--text-2xs);
+        font-weight: 400;
+        margin-left: 10px;
+      }
+      .section-body {
+        margin-top: 10px;
+      }
+
+      #overall-grid {
+        display: grid;
+        gap: var(--space-1) 28px;
+        /* rem, not px: the floor must grow with the reader's root font size
+           or .stat .val clips inside it (see Q7 / D5). */
+        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+      }
+      .stat {
+        padding: var(--space-1) 0;
+      }
+      .stat .label {
+        font-size: var(--text-2xs);
+        color: var(--dim);
+      }
+      .stat .val {
+        font-size: var(--text-xl);
+        font-weight: 500;
+      }
+      .stat .detail {
+        font-size: var(--text-2xs);
+        color: var(--subtle);
+      }
+
+      .take {
+        display: grid;
+        grid-template-columns: 9ch 1fr;
+        gap: 18px;
+        padding: 6px 0;
+        align-items: baseline;
+      }
+      .take .fig {
+        text-align: right;
+        font-weight: 700;
+        font-size: var(--text-md);
+      }
+      .take .txt {
+        color: var(--dim);
+      }
+      .take .txt b {
+        color: var(--term-fg);
+        font-weight: 500;
+      }
+      .take.bad .fig {
+        color: var(--red);
+      }
+      .take.good .fig {
+        color: var(--green);
+      }
+      .take.info .fig {
+        color: var(--blue);
+      }
+
+      .callout {
+        padding: 6px 0 6px 14px;
+        border-left: 2px solid var(--subtle);
+        color: var(--dim);
+        margin: 6px 0;
+      }
+      .callout b,
+      .callout code {
+        color: var(--term-fg);
+      }
+
+      .days {
+        display: flex;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .dpill {
+        flex: 1;
+        /* rem, not px: at a larger root font size four stacked lines of text
+           need the card to grow with them or they clip (see Q7 / D5). */
+        min-width: 5.25rem;
+        max-width: 8.75rem;
+        background: none;
+        border: 1px solid var(--subtle);
+        border-radius: var(--radius-md);
+        padding: 9px 6px;
+        font: inherit;
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+        color: var(--dim);
+        cursor: pointer;
+        text-align: center;
+      }
+      .dpill:hover {
+        border-color: var(--dim);
+        background: var(--hover);
+      }
+      .dpill .dow {
+        font-size: var(--text-2xs);
+        color: var(--subtle);
+        display: block;
+      }
+      .dpill .date {
+        font-size: var(--text-2xs);
+        color: var(--term-fg);
+        font-weight: 500;
+        display: block;
+        margin: 2px 0 4px;
+      }
+      .dpill .pct {
+        font-size: var(--text-md);
+        font-weight: 700;
+        color: var(--term-fg);
+        display: block;
+      }
+      .dpill .ns {
+        font-size: var(--text-2xs);
+        color: var(--subtle);
+        display: block;
+        margin-top: 2px;
+      }
+      .dpill.heaviest .pct {
+        color: var(--clay);
+      }
+      .dpill.sel {
+        border-color: var(--clay);
+        background: color-mix(in oklch, var(--primary) 10%, transparent);
+      }
+      .gantt-hd {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 6px;
+      }
+      .gantt-hd .day {
+        color: var(--term-fg);
+        font-weight: 500;
+      }
+      .gantt-hd .stats {
+        font-size: var(--text-2xs);
+        color: var(--dim);
+      }
+      .gantt-hd .stats b {
+        color: var(--clay);
+      }
+      .gantt {
+        position: relative;
+        border-top: 1px solid var(--outline);
+        border-bottom: 1px solid var(--outline);
+        min-height: 32px;
+      }
+      .lane {
+        position: relative;
+        height: 16px;
+        border-bottom: 1px dashed
+          color-mix(in oklch, var(--foreground) 4%, transparent);
+      }
+      .seg {
+        position: absolute;
+        top: 2px;
+        height: 12px;
+        border-radius: var(--radius);
+        opacity: 0.85;
+        cursor: crosshair;
+        background-color: var(--hue);
+      }
+      /* Slots 9-16: same hue, second channel. The stripe is drawn in the
+         surface colour so it reads as a gap and is correct in both themes
+         without a token of its own. */
+      .seg-striped {
+        background-image: repeating-linear-gradient(
+          45deg,
+          transparent 0 4px,
+          var(--card) 4px 7px
+        );
+      }
+      .seg:hover {
+        opacity: 1;
+        outline: 1px solid var(--term-fg);
+        z-index: 2;
+      }
+      .gantt-rule {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 0;
+        border-left: 1px dashed var(--subtle);
+        opacity: 0.4;
+        pointer-events: none;
+      }
+      .gantt-axis {
+        display: flex;
+        justify-content: space-between;
+        font-size: var(--text-2xs);
+        color: var(--subtle);
+        padding: var(--space-1) 0;
+      }
+      .gantt-leg {
+        font-size: var(--text-2xs);
+        color: var(--subtle);
+        margin-top: var(--space-2);
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .gantt-leg .sw {
+        display: inline-block;
+        width: 14px;
+        height: 10px;
+        border-radius: var(--radius);
+        vertical-align: middle;
+        margin-right: var(--space-1);
+        background-color: var(--hue);
+      }
+
+      .bar {
+        display: grid;
+        grid-template-columns: 26ch 1fr 8ch;
+        gap: 14px;
+        padding: 2px 0;
+        align-items: center;
+      }
+      .bar .name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .bar .blocks {
+        color: var(--clay);
+        white-space: pre;
+        overflow: hidden;
+      }
+      .bar .blocks .empty {
+        color: var(--subtle);
+      }
+      .bar .pct {
+        text-align: right;
+        color: var(--dim);
+      }
+      .bar:hover .name {
+        color: var(--clay);
+      }
+
+      .drill details {
+        border-top: 1px solid var(--outline);
+      }
+      .drill details:last-of-type {
+        border-bottom: 1px solid var(--outline);
+      }
+      .drill summary {
+        list-style: none;
+        cursor: pointer;
+        display: grid;
+        grid-template-columns: 8ch 1fr;
+        gap: var(--space-4);
+        padding: 9px var(--space-1);
+        align-items: baseline;
+      }
+      .drill summary::-webkit-details-marker {
+        display: none;
+      }
+      .drill summary:hover {
+        background: var(--hover);
+      }
+      .drill .amt {
+        font-weight: 700;
+        text-align: right;
+        color: var(--clay);
+      }
+      .drill .desc {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .drill .meta {
+        grid-column: 2;
+        font-size: var(--text-2xs);
+        color: var(--subtle);
+      }
+      .drill details[open] summary .desc {
+        white-space: normal;
+      }
+      .drill .body {
+        padding: var(--space-1) var(--space-1) 14px calc(8ch + 20px);
+        font-size: var(--text-xs);
+        color: var(--dim);
+      }
+
+      .ctx {
+        margin: var(--space-2) 0 var(--space-3);
+        padding: 10px 14px;
+        background: var(--muted);
+        color: var(--foreground);
+        border-radius: var(--radius-md);
+        font-size: var(--text-xs);
+      }
+      .ctx-msg {
+        padding: var(--space-1) 0;
+        white-space: pre-wrap;
+      }
+      .ctx-msg .who {
+        color: var(--dim);
+        font-size: var(--text-2xs);
+      }
+      .ctx-msg .ts {
+        color: var(--dim);
+        font-size: var(--text-2xs);
+        margin-left: var(--space-2);
+      }
+      .ctx-msg.here {
+        margin: 2px -14px;
+        padding: 6px 11px 6px 14px;
+        border-left: 3px solid var(--clay);
+        background: color-mix(in oklch, var(--primary) 10%, transparent);
+      }
+      .ctx-msg.here .who {
+        color: var(--clay);
+        font-weight: 500;
+      }
+      .ctx-gap {
+        color: var(--dim);
+        font-size: var(--text-2xs);
+        padding: 3px 0 3px 7ch;
+      }
+      .ctx-gap::before {
+        content: "⟨ ";
+      }
+      .ctx-gap::after {
+        content: " ⟩";
+      }
+      .ctx-break {
+        margin: 2px -14px;
+        padding: var(--space-2) 11px var(--space-2) 14px;
+        border-left: 3px solid var(--destructive);
+        background: var(--destructive-muted);
+        color: var(--destructive);
+      }
+      .ctx-break b {
+        color: var(--foreground);
+        margin-right: 6px;
+      }
+
+      .more-btn {
+        display: block;
+        width: 100%;
+        margin-top: 10px;
+        padding: 9px;
+        background: none;
+        border: 1px dashed var(--subtle);
+        cursor: pointer;
+        font: 500 var(--text-2xs)/1 var(--mono);
+        letter-spacing: var(--tracking-wide);
+        color: var(--dim);
+      }
+      .more-btn:hover {
+        border-color: var(--dim);
+        color: var(--term-fg);
+      }
+
+      .scroll {
+        max-height: 440px;
+        overflow-x: auto;
+        overflow-y: auto;
+        border-top: 1px solid var(--outline);
+        border-bottom: 1px solid var(--outline);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: var(--text-xs);
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 6px 10px;
+      }
+      td {
+        border-top: 1px solid
+          color-mix(in oklch, var(--foreground) 4%, transparent);
+      }
+      th {
+        position: sticky;
+        /* Stays 0, and the strip is not the reason. `.scroll` is a 440px
+           overflow box, so this header's sticky containing block is that box,
+           not the viewport — offsetting it by --strip-h would pin the header
+           61px DOWN inside the table, with rows sliding under empty space. */
+        top: 0;
+        background: var(--term-bg);
+        z-index: 1;
+        font-weight: 500;
+        font-size: var(--text-2xs);
+        color: var(--subtle);
+        border-bottom: 1px solid var(--outline);
+        white-space: nowrap;
+      }
+      /* The sortable control is a real <button> inside th so it keeps
+         header semantics (scope, aria-sort) separate from the interactive
+         element, and gets a native, keyboard-operable focus target instead
+         of a hand-rolled role + keydown handler. */
+      th button {
+        all: unset;
+        display: inline;
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+        user-select: none;
+      }
+      th:hover {
+        color: var(--dim);
+      }
+      th.sorted {
+        color: var(--clay);
+      }
+      th.sorted::after {
+        content: " ↓";
+      }
+      th.sorted.asc::after {
+        content: " ↑";
+      }
+      td.num,
+      th.num {
+        text-align: right;
+      }
+      tbody tr:hover td {
+        background: var(--hover);
+      }
+
+      footer {
+        margin-top: 28px;
+        color: var(--subtle);
+        font-size: var(--text-2xs);
+        display: flex;
+        justify-content: space-between;
+        gap: var(--space-4);
+        flex-wrap: wrap;
+      }
+
+      code {
+        color: var(--blue);
+      }
+      code[data-kit-copy] {
+        cursor: pointer;
+        border-bottom: 1px dashed color-mix(in oklch, var(--blue) 50%, transparent);
+      }
+      a {
+        color: var(--clay);
+      }
+      ::selection {
+        background: var(--clay);
+        color: var(--term-bg);
+      }
+
+      /* The shell stacks before the body gets too narrow for the gantt. 62rem
+         is session-handoff's breakpoint — the two document surfaces reflow at
+         the same width on purpose. */
+      @media (max-width: 62rem) {
+        .shell {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .rail {
+          position: static;
+          max-height: none;
+          border-bottom: 1px solid var(--outline);
+        }
+        .shell > .term-body {
+          border-left: 0;
+        }
+        /* Stacked, the index has no column to sit in — it goes back to being a
+           chip row, which is the shape it had before the rail existed. */
+        .secnav {
+          flex-direction: row;
+          flex-wrap: wrap;
+        }
+        .secnav .chip {
+          border: 1px solid var(--outline);
+          border-radius: var(--radius-full);
+          padding: 2px var(--space-2);
+        }
+        .secnav .chip.active {
+          border-color: color-mix(in oklch, var(--clay) 45%, transparent);
+        }
+      }
+
+      @media (max-width: 760px) {
+        body {
+          padding: var(--space-5) var(--space-3) var(--space-8);
+        }
+        .term-body {
+          padding: var(--space-4) var(--space-4) var(--space-5);
+        }
+        #hero-total {
+          font-size: var(--text-3xl);
+        }
+        .bar {
+          grid-template-columns: 14ch 1fr 7ch;
+          gap: var(--space-2);
+        }
+        .drill summary {
+          grid-template-columns: 6ch 1fr;
+        }
+        .drill .body {
+          padding-left: var(--space-3);
+        }
+        .take {
+          grid-template-columns: 7ch 1fr;
+          gap: var(--space-3);
+        }
+      }
+
+      @media (max-width: 480px) {
+        .titlebar {
+          flex-wrap: wrap;
+        }
+        .kit-theme[data-kit-chrome] {
+          margin-left: 0;
+        }
+        .secnav {
+          gap: var(--space-1);
+        }
+        #hero-total {
+          font-size: var(--text-2xl);
+        }
+        .gantt-hd {
+          flex-wrap: wrap;
+          gap: var(--space-1);
+        }
+        #overall-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      /* Prints as one column. A sticky rail and a two-column shell both survive
+         into print otherwise, and the rail then overlaps the body it indexes.
+         The folds themselves are opened by the render's beforeprint handler — a
+         collapsed <details> prints nothing at all. */
+      @media print {
+        .strip {
+          position: static;
+        }
+        .shell {
+          display: block;
+        }
+        .rail {
+          position: static;
+          max-height: none;
+          overflow: visible;
+          border-bottom: 1px solid var(--outline);
+        }
+        .shell > .term-body {
+          border-left: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a href="#main" class="kit-skip">Skip to report</a>
+    <div class="term">
+      <header class="titlebar">
+        <span class="tag">session-report</span>
+        <span class="path" id="title-path">~/.claude — session-report</span>
+        <div class="kit-theme" data-kit-chrome role="group" aria-label="Theme">
+          <button type="button" data-kit-theme="light">Light</button>
+          <button type="button" data-kit-theme="dark">Dark</button>
+          <button type="button" data-kit-theme="system">Auto</button>
+        </div>
+      </header>
+      <!-- The anomaly strip. Filled by the render; NOT data-kit-chrome, because
+           that attribute is print suppression (Q13) and these are the report's
+           headline figures. -->
+      <div class="strip">
+        <div class="anomaly anomaly--bad">
+          <span class="v" id="an-breaks">—</span>
+          <span class="k">cache breaks &gt;100k</span>
+        </div>
+        <div class="anomaly anomaly--bad">
+          <span class="v" id="an-subagent">—</span>
+          <span class="k">avg tokens / subagent call</span>
+        </div>
+        <div class="anomaly anomaly--warn">
+          <span class="v" id="an-hours">—</span>
+          <span class="k">active vs wall clock</span>
+        </div>
+      </div>
+      <div class="shell">
+        <aside class="rail">
+          <div class="railbox">
+            <div class="rail-h">projects</div>
+            <div id="rail-projects"></div>
+          </div>
+          <div class="railbox">
+            <div class="rail-h" id="rail-spark-h">by day</div>
+            <div class="spark" id="rail-spark"></div>
+          </div>
+          <!-- Only the nav is chrome: the two blocks above carry the comparison
+               half of the report and have to survive a printout. -->
+          <div class="railbox" data-kit-chrome>
+            <div class="rail-h">sections</div>
+            <nav class="secnav" id="secnav" aria-label="Report sections"></nav>
+          </div>
+        </aside>
+        <main class="term-body" id="main" tabindex="-1">
+          <h1 class="sr-only">Session usage report</h1>
+          <div class="cmd">
+            <span class="prompt">&gt;</span>
+            <span id="cmd-text">claude usage</span> <span id="cmd-flags"></span>
+          </div>
+          <div id="meta-line">loading…</div>
+
+          <div id="hero">
+            <div id="hero-total">—</div>
+            <div id="hero-split"></div>
+            <div id="hero-cost"></div>
+          </div>
+
+          <!-- Every section below is a <details class="fold" open>: expanded on
+               load, collapsible from its heading. The <h2> moves INSIDE the
+               <summary> and keeps its label as its first child node — the nav
+               builder reads h2.childNodes[0] to label each chip, so a <span
+               class="hint"> has to stay a later child of the h2, never a sibling
+               of it. The .section-body wrapper is untouched: the drill lists'
+               "show more" button walks previousElementSibling to find its list. -->
+
+          <!-- ====================================================================
+           FINDINGS — agent fills this. 3–5 one-line takeaways. Use .bad for
+           waste/anomalies, .good for healthy signals, .info for neutral.
+           ==================================================================== -->
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>findings</h2></summary>
+              <div class="section-body" id="takeaways">
+                <!-- AGENT: anomalies -->
+                <div class="take">
+                  <div class="fig">—</div>
+                  <div class="txt">No findings generated yet.</div>
+                </div>
+                <!-- /AGENT -->
+              </div>
+            </details>
+          </section>
+
+          <!-- Everything below renders automatically from #report-data. -->
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>summary</h2></summary>
+              <div class="section-body" id="overall-grid"></div>
+            </details>
+          </section>
+
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>tokens by project<span class="hint">share of total</span></h2></summary>
+              <div class="section-body" id="project-bars"></div>
+            </details>
+          </section>
+
+          <section id="timeline-section" data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>session timeline by day<span class="hint">click a day · ←/→ to navigate</span></h2></summary>
+              <div class="section-body">
+                <div class="days" id="day-pills" role="group" aria-label="Days"></div>
+                <div class="gantt-hd">
+                  <span class="day" id="g-day">—</span>
+                  <span class="stats" id="g-stats"></span>
+                </div>
+                <div class="gantt-axis">
+                  <span>00:00</span><span>06:00</span><span>12:00</span
+                  ><span>18:00</span><span>24:00</span>
+                </div>
+                <div class="gantt" id="gantt"></div>
+                <div class="gantt-leg" id="gantt-leg"></div>
+              </div>
+            </details>
+          </section>
+
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>most expensive prompts<span class="hint">click to expand context</span></h2></summary>
+              <div class="section-body drill" id="top-prompts"></div>
+            </details>
+          </section>
+
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>cache breaks<span class="hint">&gt;100k uncached · click for context</span></h2></summary>
+              <div class="section-body drill" id="cache-breaks"></div>
+            </details>
+          </section>
+
+          <!-- Explicit id: the rail links here, and an auto-derived id is
+               derived from the heading text (so renaming the heading would
+               silently break the link). -->
+          <section id="projects-section" data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>projects</h2></summary>
+              <div class="section-body scroll">
+                <table id="tbl-projects" aria-label="Projects usage breakdown"></table>
+              </div>
+            </details>
+          </section>
+
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>subagent types</h2></summary>
+              <div class="section-body scroll">
+                <table id="tbl-subagents" aria-label="Subagent types usage breakdown"></table>
+              </div>
+            </details>
+          </section>
+
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2 id="skill-heading">skills</h2></summary>
+              <div class="section-body scroll"><table id="tbl-skills" aria-label="Skills usage breakdown"></table></div>
+            </details>
+          </section>
+
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>model usage</h2></summary>
+              <div class="section-body scroll"><table id="tbl-models" aria-label="Model usage breakdown"></table></div>
+            </details>
+          </section>
+
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>tool calls</h2></summary>
+              <div class="section-body scroll"><table id="tbl-tools" aria-label="Tool calls breakdown"></table></div>
+            </details>
+          </section>
+
+          <section data-kit-section>
+            <div class="hr"></div>
+            <details class="fold" open>
+              <summary><h2>recommendations</h2></summary>
+              <div class="section-body">
+                <!-- AGENT: optimizations -->
+                <div class="callout">No suggestions generated yet.</div>
+                <!-- /AGENT -->
+              </div>
+            </details>
+          </section>
+
+          <!-- The "prompt size distribution" section was retired: measured on a
+               real 30-day report, three of its eight buckets are empty and the
+               shape is bimodal, so it carried no decision. Its CONTAINER stays,
+               hidden — the render writes to #prompt-histogram with no null guard,
+               and a throw there kills every render step that follows it,
+               including the nav builder, leaving a silently empty index. Same
+               stub idiom the no-sessions path uses further down. -->
+          <div id="prompt-histogram" hidden></div>
+
+          <footer>
+            <span id="foot-gen"></span>
+            <span id="foot-stats"></span>
+          </footer>
+        </main>
+      </div>
+    </div>
+
+    <script id="report-data" type="application/json">
+      {}
+    </script>
+
+    <script>
+/* kit:js:start */
+/* Shared behaviour layer — do not hand-edit; edit scripts/tokens/kit.js. */
+
+/* Deliberately free of backticks and interpolation openers. No target is a JS
+   template literal since the board-shell extraction, so this is insurance
+   rather than a requirement — but it is the difference between this file being
+   safe to inline anywhere and being safe only where someone remembered to
+   check. Regexes and escapes are avoided for the same reason. */
+
+(function () {
+  'use strict';
+
+  var THEME_KEY = 'jabworks-theme';
+  var THEME_MODES = ['light', 'dark', 'system'];
+  var root = document.documentElement;
+
+  /* localStorage throws on an opaque origin, which is what a file:// artifact
+     often gets. Degrade to session-only theming; never break the page. */
+  function readStored(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeStored(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (e) {
+      /* no-op */
+    }
+  }
+
+  function applyTheme(mode) {
+    if (mode === 'light' || mode === 'dark') root.setAttribute('data-theme', mode);
+    else root.removeAttribute('data-theme');
+
+    writeStored(THEME_KEY, mode);
+
+    var buttons = document.querySelectorAll('[data-kit-theme]');
+
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute('aria-pressed', String(buttons[i].getAttribute('data-kit-theme') === mode));
+    }
+  }
+
+  function currentTheme() {
+    return root.getAttribute('data-theme') || 'system';
+  }
+
+  function cycleTheme() {
+    applyTheme(THEME_MODES[(THEME_MODES.indexOf(currentTheme()) + 1) % THEME_MODES.length]);
+  }
+
+  function items() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-kit-item]'));
+  }
+
+  /* document.activeElement is null in a detached or not-yet-painted document,
+     and Element.closest is absent on the document node itself. */
+  function activeWithin(selector) {
+    var el = document.activeElement;
+
+    return el && el.closest ? el.closest(selector) : null;
+  }
+
+  function moveItem(step) {
+    var all = items();
+
+    if (all.length === 0) return;
+
+    var index = all.indexOf(activeWithin('[data-kit-item]'));
+    var next = all[Math.min(Math.max(index + step, 0), all.length - 1)] || all[0];
+
+    next.setAttribute('tabindex', '-1');
+    next.focus();
+    next.scrollIntoView({ block: 'nearest' });
+
+    /* Reflect the focused item in the URL so a board or a review can be linked
+       to a specific row. replaceState, not a hash assignment: assigning to
+       location.hash pushes a history entry per keypress. */
+    if (next.id && window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', '#' + next.id);
+    }
+  }
+
+  function reveal(el) {
+    if (el && el.focus) {
+      el.focus();
+      if (el.select) el.select();
+
+      return true;
+    }
+
+    return false;
+  }
+
+  /* A surface whose filter field ships hidden cannot hang the hook on the field
+     itself — a hidden element does not take focus, so the binding would be a
+     silent no-op. Those surfaces put the hook on the control that REVEALS the
+     field instead; activate it, then focus what it revealed via aria-controls.
+     Without this the ? overlay would advertise "Focus filter" for a key that
+     only moves focus to a button, and a generated overlay that misdescribes its
+     own bindings is worse than no overlay. */
+  function focusFilter() {
+    var hook = document.querySelector('[data-kit-filter]');
+
+    if (!hook) return false;
+
+    if (hook.tagName === 'BUTTON') {
+      if (hook.getAttribute('aria-expanded') === 'false' && hook.click) hook.click();
+
+      if (reveal(document.getElementById(hook.getAttribute('aria-controls') || ''))) return true;
+    }
+
+    return reveal(hook);
+  }
+
+  function flashCopied(el) {
+    el.classList.add('kit-copied');
+    window.setTimeout(function () {
+      el.classList.remove('kit-copied');
+    }, 900);
+  }
+
+  function copyFrom(el) {
+    if (!el) return;
+
+    var text = el.getAttribute('data-kit-copy') || el.textContent || '';
+
+    if (!text || !navigator.clipboard || !navigator.clipboard.writeText) return;
+
+    navigator.clipboard.writeText(text.trim()).then(
+      function () {
+        flashCopied(el);
+      },
+      function () {
+        /* Clipboard is permission-gated; a refusal is not an error worth
+           interrupting the page for. */
+      },
+    );
+  }
+
+  function sections() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-kit-section]'));
+  }
+
+  function jumpToSection(n) {
+    var target = sections()[n - 1];
+
+    if (target) target.scrollIntoView({ block: 'start' });
+  }
+
+  /* One registry drives both the key handler and the help overlay, so the
+     documented shortcuts cannot drift from the implemented ones. */
+  var BINDINGS = [
+    { keys: ['j'], label: 'Next item', when: function () { return items().length > 0; }, run: function () { moveItem(1); } },
+    { keys: ['k'], label: 'Previous item', when: function () { return items().length > 0; }, run: function () { moveItem(-1); } },
+    {
+      keys: ['/'],
+      label: 'Focus filter',
+      when: function () { return Boolean(document.querySelector('[data-kit-filter]')); },
+      run: focusFilter,
+    },
+    {
+      keys: ['y'],
+      label: 'Copy id or path',
+      when: function () { return Boolean(document.querySelector('[data-kit-copy]')); },
+      run: function () {
+        copyFrom(activeWithin('[data-kit-copy]'));
+      },
+    },
+    { keys: ['t'], label: 'Cycle theme', when: function () { return true; }, run: cycleTheme },
+    {
+      keys: ['g', '1-9'],
+      label: 'Jump to section',
+      when: function () { return sections().length > 0; },
+      run: null,
+    },
+    { keys: ['?'], label: 'Show shortcuts', when: function () { return true; }, run: null },
+    { keys: ['Esc'], label: 'Dismiss', when: function () { return true; }, run: null },
+  ];
+
+  var overlay = null;
+
+  function buildOverlay() {
+    var host = document.createElement('div');
+
+    host.className = 'kit-help';
+    host.hidden = true;
+    host.setAttribute('role', 'dialog');
+    host.setAttribute('aria-modal', 'true');
+    host.setAttribute('aria-label', 'Keyboard shortcuts');
+
+    var panel = document.createElement('div');
+
+    panel.className = 'kit-help__panel';
+
+    var title = document.createElement('p');
+
+    title.className = 'kit-help__title';
+    title.textContent = 'Keyboard shortcuts';
+    panel.appendChild(title);
+
+    for (var i = 0; i < BINDINGS.length; i++) {
+      if (!BINDINGS[i].when()) continue;
+
+      var row = document.createElement('div');
+
+      row.className = 'kit-help__row';
+
+      var label = document.createElement('span');
+
+      label.textContent = BINDINGS[i].label;
+      row.appendChild(label);
+
+      var keys = document.createElement('span');
+
+      keys.className = 'kit-help__keys';
+
+      for (var k = 0; k < BINDINGS[i].keys.length; k++) {
+        var kbd = document.createElement('kbd');
+
+        kbd.className = 'kit-kbd';
+        kbd.textContent = BINDINGS[i].keys[k];
+        keys.appendChild(kbd);
+      }
+
+      row.appendChild(keys);
+      panel.appendChild(row);
+    }
+
+    host.appendChild(panel);
+    host.addEventListener('click', function (event) {
+      if (event.target === host) toggleOverlay(false);
+    });
+    document.body.appendChild(host);
+
+    return host;
+  }
+
+  function toggleOverlay(show) {
+    if (!overlay) overlay = buildOverlay();
+
+    overlay.hidden = !show;
+  }
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+
+    var tag = el.tagName;
+
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+  }
+
+  var pendingJump = false;
+
+  function onKeydown(event) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+    if (event.key === 'Escape') {
+      toggleOverlay(false);
+      if (isTypingTarget(event.target) && event.target.blur) event.target.blur();
+
+      return;
+    }
+
+    /* A filter box must be typeable: every other binding is inert while the
+       caret is in a field. Escape above is the deliberate exception. */
+    if (isTypingTarget(event.target)) return;
+
+    if (pendingJump) {
+      pendingJump = false;
+
+      if (event.key >= '1' && event.key <= '9') {
+        jumpToSection(Number(event.key));
+        event.preventDefault();
+
+        return;
+      }
+    }
+
+    if (event.key === 'g' && sections().length > 0) {
+      pendingJump = true;
+      window.setTimeout(function () {
+        pendingJump = false;
+      }, 1200);
+
+      return;
+    }
+
+    if (event.key === '?') {
+      toggleOverlay(overlay ? overlay.hidden : true);
+      event.preventDefault();
+
+      return;
+    }
+
+    for (var i = 0; i < BINDINGS.length; i++) {
+      if (BINDINGS[i].run && BINDINGS[i].keys.indexOf(event.key) !== -1 && BINDINGS[i].when()) {
+        BINDINGS[i].run();
+        event.preventDefault();
+
+        return;
+      }
+    }
+  }
+
+  function init() {
+    applyTheme(readStored(THEME_KEY) || 'system');
+
+    var buttons = document.querySelectorAll('[data-kit-theme]');
+
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', function (event) {
+        applyTheme(event.currentTarget.getAttribute('data-kit-theme'));
+      });
+    }
+
+    /* Give the ? overlay a visible way in. It rides alongside the theme group
+       because every surface already has one, and because a floating badge is
+       chrome each surface would then have to design around. */
+    var groups = document.querySelectorAll('.kit-theme');
+
+    for (var g = 0; g < groups.length; g++) {
+      if (!groups[g].parentNode) continue;
+
+      var help = document.createElement('button');
+
+      help.type = 'button';
+      help.className = 'kit-helpbtn';
+      help.textContent = '?';
+      help.title = 'Keyboard shortcuts (?)';
+      help.setAttribute('aria-label', 'Keyboard shortcuts');
+      help.addEventListener('click', function () {
+        toggleOverlay(true);
+      });
+
+      /* Wrap rather than insert as a sibling: a surface may host the theme group
+         in a flex row (the board) or in block flow (the guide's rail), and in
+         block flow a bare sibling drops onto its own line. The wrapper makes the
+         pairing hold in either. */
+      var controls = document.createElement('div');
+
+      controls.className = 'kit-controls';
+      groups[g].parentNode.insertBefore(controls, groups[g]);
+      controls.appendChild(groups[g]);
+      controls.appendChild(help);
+    }
+
+    document.addEventListener('click', function (event) {
+      var target = event.target.closest ? event.target.closest('[data-kit-copy]') : null;
+
+      if (target) copyFrom(target);
+    });
+
+    document.addEventListener('keydown', onKeydown);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+/* kit:js:end */
+    </script>
+
+    <script>
+      (function () {
+        const $ = (id) => document.getElementById(id);
+        let DATA;
+        try {
+          DATA = JSON.parse(
+            document.getElementById("report-data").textContent || "{}",
+          );
+        } catch (e) {
+          $("main").innerHTML =
+            '<div class="kit-error" role="alert"><strong>Could not parse report data.</strong>' +
+            " The #report-data island is malformed JSON — regenerate the report.</div>";
+          return;
+        }
+        const fmt = (n) =>
+          n >= 1e9
+            ? (n / 1e9).toFixed(2) + "B"
+            : n >= 1e6
+              ? (n / 1e6).toFixed(2) + "M"
+              : n >= 1e3
+                ? (n / 1e3).toFixed(1) + "k"
+                : String(n);
+        const fmtUSD = (n) =>
+          n === 0 ? "$0.00" : n < 0.01 ? "$" + n.toFixed(4) : "$" + n.toFixed(2);
+        const pct = (a, b) => (b > 0 ? ((100 * a) / b).toFixed(1) + "%" : "—");
+        const esc = (s) =>
+          String(s).replace(
+            /[&<>"]/g,
+            (c) =>
+              ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+          );
+        // Project keys are paths — dash-flattened on Claude, slash-separated on
+        // Codex. Only the dash-flattened macOS home shape was handled, so every
+        // Linux project read as "-home-<user>-pro…" and every Codex one as
+        // "projects/…" once the rail put them in a 17rem column.
+        const short = (p) =>
+          String(p || "")
+            .replace(/^-(Users|home)-[^-]+-/, "")
+            .replace(/^\/?(Users|home)\/[^/]+\//, "")
+            .replace(/^(code|projects|dev|src|repos|work)[-/]/, "");
+        const MON = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const niceDate = (iso) => {
+          const d = new Date(iso);
+          return isNaN(d)
+            ? ""
+            : `${MON[d.getMonth()]} ${d.getDate()} · ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        };
+
+        if (!DATA.overall) {
+          $("meta-line").textContent = "";
+          $("hero").hidden = true;
+          document.querySelectorAll(".term-body section, .term-body footer").forEach((n) => n.remove());
+          $("main").insertAdjacentHTML(
+            "beforeend",
+            '<div class="kit-empty"><p class="kit-empty__title">No report data</p>' +
+              '<p class="kit-empty__body">This file was opened without an embedded #report-data JSON island. Generate a report with analyze-claude.mjs or analyze-codex.mjs.</p></div>',
+          );
+          return;
+        }
+
+        // Tool-aware chrome
+        const isCodex = DATA.tool === "codex";
+        $("title-path").textContent = isCodex
+          ? "~/.codex — session-report"
+          : "~/.claude — session-report";
+        $("cmd-text").textContent = isCodex ? "codex usage" : "claude usage";
+        if (isCodex) {
+          $("skill-heading").innerHTML =
+            'skills<span class="hint">extracted from message text</span>';
+        }
+
+        // header + hero
+        const o = DATA.overall,
+          it = o.input_tokens;
+
+        if (o.sessions === 0) {
+          // Hide rather than remove: meta-line and the footer below still
+          // populate from DATA, and the section elements the render calls
+          // further down target (#overall-grid etc.) must stay in the DOM
+          // so those calls have somewhere harmless to write zeroes into.
+          $("hero").hidden = true;
+          document.querySelectorAll(".term-body section").forEach((n) => (n.hidden = true));
+          // The strip and the rail are not sections, so the line above leaves
+          // them standing: an empty report otherwise pins "0 / — / —" across
+          // the top and offers twelve nav chips that scroll to hidden sections.
+          document.querySelectorAll(".strip, .rail").forEach((n) => (n.hidden = true));
+          document.querySelector(".shell")?.setAttribute("data-empty", "");
+          $("hero").insertAdjacentHTML(
+            "afterend",
+            '<div class="kit-empty"><p class="kit-empty__title">No sessions in range</p>' +
+              '<p class="kit-empty__body">Nothing was recorded for this period. Widen the date range or check the source path below.</p></div>',
+          );
+        }
+
+        const GRAND = it.total + o.output_tokens;
+        const share = (n) =>
+          GRAND > 0 ? ((100 * n) / GRAND).toFixed(1) + "%" : "—";
+        const span = o.span;
+        $("cmd-flags").innerHTML = DATA.since
+          ? `<span class="flag">--since</span> ${esc(DATA.since.slice(0, 10))}`
+          : "";
+        $("meta-line").textContent =
+          (span ? `${span.from.slice(0, 10)} → ${span.to.slice(0, 10)}` : "") +
+          ` · ${DATA.root || ""}`;
+        const priceNote = (() => {
+          const p = DATA.pricing;
+          if (!p) return "";
+          if (p.source === "live") return " · prices: live";
+          if (p.source === "cache")
+            return ` · prices: cached ${p.fetched_at?.slice(0, 10) || "?"}`;
+          return " · prices: bundled (offline — may be stale)";
+        })();
+        $("foot-gen").textContent =
+          `generated ${DATA.generated_at?.slice(0, 16).replace("T", " ") || ""}` +
+          priceNote;
+        $("foot-stats").textContent =
+          `${o.sessions} sessions · ${o.api_calls} api calls · ${o.human_messages} prompts`;
+
+        const num = fmt(GRAND),
+          m = num.match(/^([\d.]+)([A-Za-z]*)$/);
+        $("hero-total").innerHTML =
+          `${m ? m[1] : num}<span class="unit">${m ? m[2] : ""}</span><span class="label">tokens</span>`;
+        const cacheCls = it.pct_cached >= 85 ? "ok" : "warn";
+        $("hero-split").innerHTML =
+          `<b>${fmt(it.total)}</b> input ` +
+          `<span class="${cacheCls}">(${fmt(it.cache_read)} cached · ${it.pct_cached}%)</span> · ` +
+          `<b>${fmt(o.output_tokens)}</b> output · all figures below are % of this total`;
+
+        const c = o.cost_usd;
+        if (c && c.total > 0) {
+          const fc = (n) => n >= 1 ? "$" + n.toFixed(2) : n >= 0.01 ? "$" + n.toFixed(4) : "<$0.01";
+          const savCls = c.savings_vs_no_cache > 0 ? "ok" : "";
+          $("hero-cost").innerHTML =
+            `<b>${fc(c.total)}</b> equiv. API cost · ` +
+            `cache-read ${fc(c.cache_read)} · cache-write ${fc(c.cache_create)} · ` +
+            `input ${fc(c.input)} · output ${fc(c.output)} · ` +
+            `<span class="${savCls}">${fc(Math.max(0, c.savings_vs_no_cache))} saved via cache</span>` +
+            ` <span class="cost-note">· subscription users pay flat rate — this is a reference estimate</span>`;
+        }
+
+        // Anomaly strip — the three figures that answer "is anything wrong
+        // here?" without scrolling. Tone is derived, not hard-coded in the
+        // markup: a report with no cache breaks should not paint a red zero.
+        (() => {
+          const tone = (el, level) => {
+            const box = $(el)?.closest(".anomaly");
+            if (!box) return;
+            box.classList.toggle("anomaly--bad", level === "bad");
+            box.classList.toggle("anomaly--warn", level === "warn");
+          };
+
+          const breaks = o.cache_breaks_over_100k || 0;
+          $("an-breaks").textContent = breaks;
+          tone("an-breaks", breaks > 0 ? "bad" : "");
+
+          // A subagent call is one dispatch. Past ~100k tokens per call the
+          // context being handed over is the cost, not the work.
+          const avg = o.subagent?.avg_tokens_per_call || 0;
+          $("an-subagent").textContent = avg > 0 ? fmt(avg) : "—";
+          tone("an-subagent", avg >= 500000 ? "bad" : avg >= 100000 ? "warn" : "");
+
+          const active = o.hours?.active || 0,
+            wall = o.hours?.wall_clock || 0;
+          $("an-hours").textContent = wall > 0 ? `${active}h / ${wall}h` : "—";
+          // Long wall clock against little active time is a session left open,
+          // which inflates every per-hour figure derived from it.
+          tone("an-hours", wall > 0 && active / wall < 0.5 ? "warn" : "");
+        })();
+
+        // The rail's sticky offset and every section's scroll-margin key off
+        // --strip-h, and the strip wraps at narrow widths — so measure it
+        // rather than trusting the CSS fallback, which is only right at the
+        // default root size with the strip on one line.
+        (() => {
+          const strip = document.querySelector(".strip"),
+            term = document.querySelector(".term");
+          if (!strip || !term) return;
+          const sync = () => term.style.setProperty("--strip-h", strip.offsetHeight + "px");
+          sync();
+          if (window.ResizeObserver) new ResizeObserver(sync).observe(strip);
+        })();
+
+        // Rail — the comparison half. Project shares answer "which project is
+        // this?", the sparkline answers "which day was this?". Both are an
+        // index into the body, never the only copy of the number.
+        (() => {
+          const rows = Object.entries(DATA.by_project || {})
+            .map(([k, v]) => [short(k), (v.input_tokens?.total || 0) + (v.output_tokens || 0)])
+            .sort((a, b) => b[1] - a[1]);
+          const max = rows.length ? rows[0][1] : 0;
+          $("rail-projects").innerHTML = rows.length
+            ? rows
+                .map(
+                  ([name, tok]) =>
+                    `<a class="proj" href="#projects-section" title="${esc(name)}">` +
+                    `<span class="proj-n">${esc(name)}</span>` +
+                    `<span class="proj-bar"><i style="width:${max > 0 ? Math.round((100 * tok) / max) : 0}%"></i></span>` +
+                    `<span class="proj-v">${fmt(tok)}</span></a>`,
+                )
+                .join("")
+            : '<div class="rail-h">no projects in range</div>';
+
+          const days = DATA.by_day || [];
+          const dayMax = days.reduce((a, d) => Math.max(a, d.tokens || 0), 0);
+          $("rail-spark-h").textContent = days.length
+            ? `${days.length} ${days.length === 1 ? "day" : "days"}`
+            : "by day";
+          $("rail-spark").innerHTML = days
+            .map(
+              (d) =>
+                `<i title="${esc(d.date)} · ${fmt(d.tokens || 0)}" style="height:${
+                  dayMax > 0 ? Math.max(2, Math.round((100 * (d.tokens || 0)) / dayMax)) : 2
+                }%"></i>`,
+            )
+            .join("");
+        })();
+
+        // overall stat grid
+        $("overall-grid").innerHTML = [
+          ["sessions", o.sessions],
+          ["api calls", o.api_calls],
+          ["human msgs", o.human_messages],
+          ["active hours", o.hours.active, `${o.hours.wall_clock} wall-clock`],
+          ["cache breaks", o.cache_breaks_over_100k, ">100k uncached"],
+          [
+            "subagent calls",
+            o.subagent.calls,
+            `avg ${fmt(o.subagent.avg_tokens_per_call)}`,
+          ],
+          ["efficiency", (o.efficiency_score ?? "—") + (o.efficiency_score != null ? "/100" : ""), "cache·msg·subagent"],
+        ]
+          .map(
+            ([l, v, d]) =>
+              `<div class="stat"><div class="label">${l}</div>` +
+              `<div class="val">${typeof v === "number" && v >= 1e4 ? fmt(v) : v}</div>` +
+              (d ? `<div class="detail">${d}</div>` : "") +
+              `</div>`,
+          )
+          .join("");
+
+        // Categorical identity. One global ranking of projects by total tokens,
+        // computed once and shared by every chart, so a project's hue follows
+        // the project and never its position in the current view. Slots 9-16
+        // repeat the eight hues with a second channel (a textured glyph in the
+        // bars, a stripe in the timeline); past 16 everything folds to
+        // --cat-other. See specs/surface-kit/decisions.md D7.
+        /* cat:slots:start — extracted by tests/session-report-charts.test.mjs */
+        function catSlot(rank) {
+          if (rank >= 16) return { token: "--cat-other", glyph: "█", striped: false };
+          return {
+            token: "--cat-" + ((rank % 8) + 1),
+            glyph: rank < 8 ? "█" : "▓",
+            striped: rank >= 8,
+          };
+        }
+        /* cat:slots:end */
+        const catTotal = (v) => v.input_tokens.total + v.output_tokens;
+        const SLOT_OF = new Map(
+          Object.entries(DATA.by_project || {})
+            .sort((a, b) => catTotal(b[1]) - catTotal(a[1]))
+            .map(([k], i) => [k, i]),
+        );
+        // A project seen in the timeline but absent from by_project folds rather
+        // than throwing — 16 is the first rank past the composite tier.
+        const catRank = (p) => (SLOT_OF.has(p) ? SLOT_OF.get(p) : 16);
+        const catSlotOf = (p) => catSlot(catRank(p));
+
+        // session timeline by day
+        (function () {
+          const days = (DATA.by_day || []);
+          if (!days.length) {
+            $("timeline-section").style.display = "none";
+            return;
+          }
+          const dayTotal = days.reduce((a, d) => a + d.tokens, 0) || 1;
+          const tokMax = Math.max(...days.map((d) => d.tokens));
+          const projects = [
+            ...new Set(days.flatMap((d) => d.sessions.map((s) => s.project))),
+          ].sort((a, b) => catRank(a) - catRank(b));
+          const hhmm = (m) =>
+            (m >= 1440 ? `+${Math.floor(m / 1440)}d ` : "") +
+            `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+          const md = (iso) => {
+            const [, mo, da] = iso.split("-");
+            return `${MON[+mo - 1]} ${+da}`;
+          };
+          let sel = days.findIndex((d) => d.tokens === tokMax);
+
+          function pills() {
+            $("day-pills").innerHTML = days
+              .map(
+                (d, i) =>
+                  `<button class="dpill${d.tokens === tokMax ? " heaviest" : ""}${i === sel ? " sel" : ""}" data-i="${i}" aria-current="${i === sel}">` +
+                  `<span class="dow">${esc(d.dow)}</span>` +
+                  `<span class="date">${esc(md(d.date))}</span>` +
+                  `<span class="pct">${((100 * d.tokens) / dayTotal).toFixed(1)}%</span>` +
+                  `<span class="ns">${d.sessions.length} sess</span></button>`,
+              )
+              .join("");
+            $("day-pills")
+              .querySelectorAll(".dpill")
+              .forEach(
+                (el) =>
+                  (el.onclick = () => {
+                    sel = +el.dataset.i;
+                    pills();
+                    gantt();
+                  }),
+              );
+          }
+          function gantt() {
+            const d = days[sel],
+              DAY = 1440;
+            $("g-day").textContent = `${d.dow} ${md(d.date)}`;
+            const fc2 = (n) => n >= 1 ? "$" + n.toFixed(2) : n >= 0.001 ? "$" + n.toFixed(4) : n > 0 ? "<$0.001" : "";
+            $("g-stats").innerHTML =
+              `${d.sessions.length} sessions · ${fmt(d.tokens)} tokens` +
+              (d.cost > 0 ? ` · ${fc2(d.cost)} est. cost` : "") +
+              ` · peak <b>${d.peak}</b> concurrent at <b>${hhmm(d.peak_at_min)}</b>`;
+            const lanes = [];
+            for (const s of d.sessions) {
+              let placed = false;
+              for (const L of lanes)
+                if (L[L.length - 1].end_min <= s.start_min) {
+                  L.push(s);
+                  placed = true;
+                  break;
+                }
+              if (!placed) lanes.push([s]);
+            }
+            let h = "";
+            for (let t = 0; t <= 24; t += 6)
+              h += `<div class="gantt-rule" style="left:${(100 * t) / 24}%"></div>`;
+            h += lanes
+              .map(
+                (L) =>
+                  `<div class="lane">${L.map((s) => {
+                    const end = Math.min(s.end_min, DAY);
+                    const w = Math.max(0.15, (100 * (end - s.start_min)) / DAY);
+                    const tip =
+                      `folder: ${short(s.project)}\n` +
+                      `${hhmm(s.start_min)}–${hhmm(s.end_min)} · ${fmt(s.tokens)} tokens` +
+                      (s.cost > 0 ? ` · ${fc2(s.cost)} est.` : "") + "\n" +
+                      `session ${s.id}`;
+                    const slot = catSlotOf(s.project);
+
+                    // The hue rides in --hue, never a background shorthand: the
+                    // shorthand sets background-image:none inline and outranks
+                    // the stylesheet, silently erasing the stripe.
+                    return (
+                      `<span class="seg${slot.striped ? " seg-striped" : ""}" ` +
+                      `style="left:${(100 * s.start_min) / DAY}%;width:${w}%;` +
+                      `--hue:var(${slot.token})" title="${esc(tip)}"></span>`
+                    );
+                  }).join("")}</div>`,
+              )
+              .join("");
+            $("gantt").innerHTML =
+              h || '<div class="callout">no sessions</div>';
+          }
+          document.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowRight" && sel < days.length - 1) {
+              sel++;
+              pills();
+              gantt();
+              e.preventDefault();
+            }
+            if (e.key === "ArrowLeft" && sel > 0) {
+              sel--;
+              pills();
+              gantt();
+              e.preventDefault();
+            }
+          });
+          $("gantt-leg").innerHTML = projects
+            .slice(0, 12)
+            .map((p) => {
+              const slot = catSlotOf(p);
+
+              return (
+                `<span><span class="sw${slot.striped ? " seg-striped" : ""}" ` +
+                `style="--hue:var(${slot.token})"></span>${esc(short(p))}</span>`
+              );
+            })
+            .join("");
+          pills();
+          gantt();
+        })();
+
+        // block-char project bars
+        (function () {
+          const W = 48;
+          const rows = Object.entries(DATA.by_project || {})
+            .map(([k, v]) => [k, v.input_tokens.total + v.output_tokens])
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 15);
+          const max = rows[0]?.[1] || 1;
+          $("project-bars").innerHTML = rows
+            .map(([k, v]) => {
+              const n = Math.max(1, Math.round((W * v) / max));
+              // Slot comes from the global map, never from this sliced array's
+              // index — the top-15 cut must not renumber anyone.
+              const slot = catSlotOf(k);
+              return (
+                `<div class="bar"><span class="name" title="${esc(k)} — ${fmt(v)}">${esc(short(k))}</span>` +
+                `<span class="blocks" style="color:var(${slot.token})">${slot.glyph.repeat(n)}` +
+                `<span class="empty">${"░".repeat(W - n)}</span></span>` +
+                `<span class="pct">${share(v)}</span></div>`
+              );
+            })
+            .join("");
+        })();
+
+        function renderContext(ctx, mark) {
+          if (!ctx || !ctx.length)
+            return '<div class="ctx-gap">no transcript context available</div>';
+          let h = '<div class="ctx">';
+          ctx.forEach((m, i) => {
+            const who = m.here ? "&gt; user" : "  user";
+            h +=
+              `<div class="ctx-msg${m.here ? " here" : ""}">` +
+              `<span class="who">${who}</span>  ${esc(m.text || "(non-text)")}` +
+              `<span class="ts">${niceDate(m.ts)}</span></div>`;
+            if (m.here && mark) h += mark;
+            if (i < ctx.length - 1 || m.here)
+              h += `<div class="ctx-gap">${m.calls} api call${m.calls === 1 ? "" : "s"}</div>`;
+          });
+          return h + "</div>";
+        }
+
+        function drillList(hostId, items, rowFn, empty) {
+          const SHOW = 5;
+          const host = $(hostId);
+          if (!items.length) {
+            host.innerHTML = `<div class="callout">${empty}</div>`;
+            return;
+          }
+          const head = items.slice(0, SHOW).map(rowFn).join("");
+          const rest = items.slice(SHOW).map(rowFn).join("");
+          host.innerHTML =
+            head +
+            (rest
+              ? `<div hidden>${rest}</div><button class="more-btn">show ${items.length - SHOW} more</button>`
+              : "");
+          const btn = host.querySelector(".more-btn");
+          if (btn)
+            btn.onclick = () => {
+              const r = btn.previousElementSibling;
+              r.hidden = !r.hidden;
+              btn.textContent = r.hidden
+                ? `show ${items.length - SHOW} more`
+                : "show less";
+            };
+        }
+
+        drillList(
+          "top-prompts",
+          (DATA.top_prompts || []).slice(0, 100),
+          (p) => {
+            const inTot =
+              p.input.uncached + p.input.cache_create + p.input.cache_read;
+            return (
+              `<details><summary data-kit-item>` +
+              `<span class="amt">${share(p.total_tokens)}</span>` +
+              `<span class="desc">${esc(p.text)}</span>` +
+              `<span class="meta">${niceDate(p.ts)} · ${esc(short(p.project))} · ${p.api_calls} calls` +
+              (p.subagent_calls ? ` · ${p.subagent_calls} subagents` : "") +
+              ` · ${pct(p.input.cache_read, inTot)} cached</span>` +
+              `</summary><div class="body">` +
+              renderContext(p.context) +
+              `<div>session <code data-kit-copy="${esc(p.session)}">${esc(p.session)}</code></div>` +
+              `<div>in: uncached ${fmt(p.input.uncached)} · cache-create ${fmt(p.input.cache_create)} · ` +
+              `cache-read ${fmt(p.input.cache_read)} · out ${fmt(p.output)}</div>` +
+              `</div></details>`
+            );
+          },
+          "No prompts in range.",
+        );
+
+        drillList(
+          "cache-breaks",
+          (DATA.cache_breaks || []).slice(0, 100),
+          (b) =>
+            `<details><summary data-kit-item>` +
+            `<span class="amt">${fmt(b.uncached)}</span>` +
+            `<span class="desc">${esc(short(b.project))} · ` +
+            `${b.kind === "subagent" ? esc(b.agentType || "subagent") : "main"}</span>` +
+            `<span class="meta">${niceDate(b.ts)} · ${pct(b.uncached, b.total)} of ${fmt(b.total)} uncached</span>` +
+            `</summary><div class="body">` +
+            renderContext(
+              b.context,
+              `<div class="ctx-break"><b>${fmt(b.uncached)}</b> uncached ` +
+                `(${pct(b.uncached, b.total)} of ${fmt(b.total)}) — cache break here</div>`,
+            ) +
+            `<div>session <code data-kit-copy="${esc(b.session)}">${esc(b.session)}</code></div>` +
+            `</div></details>`,
+          "No cache breaks over threshold.",
+        );
+
+        function table(el, cols, rows) {
+          let sortIdx = cols.findIndex((c) => c.sort),
+            asc = false;
+          function render() {
+            const sorted = rows.slice().sort((a, b) => {
+              const va = a[sortIdx],
+                vb = b[sortIdx];
+              return (
+                (asc ? 1 : -1) *
+                (typeof va === "number"
+                  ? va - vb
+                  : String(va).localeCompare(String(vb)))
+              );
+            });
+            el.innerHTML = `<thead><tr>${cols
+              .map(
+                (c, i) =>
+                  `<th class="${c.num ? "num" : ""} ${i === sortIdx ? "sorted" + (asc ? " asc" : "") : ""}" aria-sort="${i === sortIdx ? (asc ? "ascending" : "descending") : "none"}"><button type="button" data-i="${i}">${c.h}</button></th>`,
+              )
+              .join("")}</tr></thead><tbody>${sorted
+              .map(
+                (r) =>
+                  `<tr>${r
+                    .map(
+                      (v, i) =>
+                        `<td class="${cols[i].num ? "num" : ""}">${
+                          cols[i].fmt ? cols[i].fmt(v) : esc(v)
+                        }</td>`,
+                    )
+                    .join("")}</tr>`,
+              )
+              .join("")}</tbody>`;
+            el.querySelectorAll("th button").forEach(
+              (btn) =>
+                (btn.onclick = () => {
+                  const i = +btn.dataset.i;
+                  if (i === sortIdx) asc = !asc;
+                  else {
+                    sortIdx = i;
+                    asc = false;
+                  }
+                  render();
+                }),
+            );
+          }
+          render();
+        }
+
+        const fc3 = (n) => n == null || n === 0 ? "—" : n >= 1 ? "$" + n.toFixed(2) : "$" + n.toFixed(4);
+
+        // Which model did this row actually spend itself on? Ranked by cost
+        // where prices are known, by tokens where they are not — a Codex report
+        // without pricing has costTotal 0 across the board, and ranking on that
+        // would return whichever key happened to be first.
+        const topModel = (byModel) => {
+          const entries = Object.entries(byModel || {});
+          if (!entries.length) return "—";
+          const tokens = (m) =>
+            (m.inputUncached || 0) +
+            (m.inputCacheCreate || 0) +
+            (m.inputCacheRead || 0) +
+            (m.outputTokens || 0);
+          const priced = entries.some(([, m]) => (m.costTotal || 0) > 0);
+          const rank = (m) => (priced ? m.costTotal || 0 : tokens(m));
+          return entries
+            .slice()
+            .sort((a, b) => rank(b[1]) - rank(a[1]))[0][0]
+            .replace(/^claude-/, "");
+        };
+
+        function statRows(obj) {
+          return Object.entries(obj || {}).map(([k, v]) => [
+            short(k),
+            GRAND > 0
+              ? (100 * (v.input_tokens.total + v.output_tokens)) / GRAND
+              : 0,
+            v.sessions,
+            v.api_calls,
+            v.human_messages,
+            v.input_tokens.total,
+            v.input_tokens.pct_cached,
+            v.output_tokens,
+            v.hours.active,
+            v.cache_breaks_over_100k,
+            v.subagent.calls,
+            v.subagent.avg_tokens_per_call,
+            v.cost_usd ? v.cost_usd.total : 0,
+            v.efficiency_score ?? 0,
+            topModel(v.by_model),
+          ]);
+        }
+        const statCols = [
+          { h: "name" },
+          { h: "% total", num: 1, sort: 1, fmt: (v) => v.toFixed(1) + "%" },
+          { h: "sess", num: 1 },
+          { h: "calls", num: 1 },
+          { h: "msgs", num: 1 },
+          { h: "input", num: 1, fmt: fmt },
+          { h: "%cached", num: 1, fmt: (v) => v + "%" },
+          { h: "output", num: 1, fmt: fmt },
+          { h: "active h", num: 1 },
+          { h: "breaks", num: 1 },
+          { h: "subagents", num: 1 },
+          { h: "avg sub tok", num: 1, fmt: fmt },
+          { h: "est. cost", num: 1, fmt: fc3 },
+          { h: "efficiency", num: 1, fmt: (v) => v > 0 ? v + "/100" : "—" },
+          { h: "top model" },
+        ];
+        table($("tbl-projects"), statCols, statRows(DATA.by_project));
+        table($("tbl-subagents"), statCols, statRows(DATA.by_subagent_type));
+        table($("tbl-skills"), statCols, statRows(DATA.by_skill));
+
+        // model usage table
+        (function () {
+          const overall = DATA.overall || {};
+          const byModel = overall.by_model || {};
+          const GRAND_ALL = (overall.input_tokens?.total || 0) + (overall.output_tokens || 0);
+          const rows = Object.entries(byModel)
+            .map(([model, m]) => {
+              const tot = m.inputUncached + m.inputCacheCreate + m.inputCacheRead + m.outputTokens;
+              const inTot = m.inputUncached + m.inputCacheCreate + m.inputCacheRead;
+              return [
+                model,
+                GRAND_ALL > 0 ? (100 * tot) / GRAND_ALL : 0,
+                m.calls,
+                inTot,
+                inTot > 0 ? +(100 * m.inputCacheRead / inTot).toFixed(1) : 0,
+                m.outputTokens,
+                m.costTotal || 0,
+              ];
+            })
+            .sort((a, b) => b[1] - a[1]);
+          table($("tbl-models"), [
+            { h: "model" },
+            { h: "% total", num: 1, sort: 1, fmt: (v) => v.toFixed(1) + "%" },
+            { h: "calls", num: 1 },
+            { h: "input", num: 1, fmt: fmt },
+            { h: "%cached", num: 1, fmt: (v) => v + "%" },
+            { h: "output", num: 1, fmt: fmt },
+            { h: "est. cost", num: 1, fmt: fc3 },
+          ], rows);
+        })();
+
+        // tool calls table
+        (function () {
+          const tools = (DATA.overall || {}).tool_calls || {};
+          const total = Object.values(tools).reduce((a, b) => a + b, 0) || 1;
+          const rows = Object.entries(tools)
+            .map(([name, count]) => [name, (100 * count) / total, count])
+            .sort((a, b) => b[2] - a[2]);
+          table($("tbl-tools"), [
+            { h: "tool" },
+            { h: "% of calls", num: 1, sort: 1, fmt: (v) => v.toFixed(1) + "%" },
+            { h: "calls", num: 1 },
+          ], rows);
+        })();
+
+        // prompt size histogram
+        (function () {
+          const hist = DATA.prompt_size_histogram || [];
+          if (!hist.length) return;
+          const maxCount = Math.max(...hist.map((b) => b.count), 1);
+          const W = 40;
+          $("prompt-histogram").innerHTML = hist
+            .filter((b) => b.label !== "0" || b.count > 0)
+            .map((b) => {
+              const n = Math.max(0, Math.round((W * b.count) / maxCount));
+              const total = hist.reduce((a, x) => a + x.count, 0) || 1;
+              const pct = ((100 * b.count) / total).toFixed(1);
+              return (
+                `<div class="bar">` +
+                `<span class="name" style="min-width:5ch">${esc(b.label)}</span>` +
+                `<span class="blocks">${"█".repeat(n)}<span class="empty">${"░".repeat(W - n)}</span></span>` +
+                `<span class="pct">${b.count} (${pct}%)</span></div>`
+              );
+            })
+            .join("");
+        })();
+      })();
+
+      // Section nav: one chip per h2, ids assigned to the wrapping <section>,
+      // scroll-spy via IntersectionObserver. Chips derive from the DOM so a
+      // renamed section can never drift the nav.
+      (() => {
+        const nav = document.getElementById("secnav");
+        if (!nav) return;
+
+        // Navigating to a collapsed section lands on a 48px closed bar and
+        // shows nothing, so every jump opens its target first. Scoped to
+        // details.fold on purpose: the drill lists are <details> too, and an
+        // unscoped walk would expand all hundred prompt rows. The fold is a
+        // CHILD of the <section>, so walking up alone finds nothing — both
+        // directions, or this silently does nothing at all.
+        const reveal = (node) => {
+          if (!node || !node.querySelectorAll) return;
+          node.querySelectorAll("details.fold").forEach((d) => (d.open = true));
+          for (let n = node; n && n !== document; n = n.parentNode) {
+            if (n.classList?.contains("fold")) n.open = true;
+          }
+        };
+
+        const secs = [...document.querySelectorAll(".term-body section")].filter((s) => s.querySelector("h2"));
+        secs.forEach((sec, i) => {
+          const h = sec.querySelector("h2");
+          const label = (h.childNodes[0]?.textContent || h.textContent).trim(); // drop span hints
+          if (!sec.id) sec.id = "sec-" + (label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || i);
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "chip";
+          chip.dataset.sec = sec.id;
+          chip.textContent = label;
+          chip.addEventListener("click", () => {
+            reveal(sec);
+            sec.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+          nav.appendChild(chip);
+        });
+
+        // Deep links, from the rail and from a pasted URL. The load case is
+        // separate from hashchange: a hash present at load never fires one, and
+        // the ids above do not exist until this block has run.
+        const jump = () => {
+          const el = location.hash && document.getElementById(location.hash.slice(1));
+          if (!el) return;
+          reveal(el);
+          el.scrollIntoView();
+        };
+        window.addEventListener("hashchange", jump);
+        jump();
+
+        // kit:js binds `g` then a digit to scroll to the n-th
+        // [data-kit-section]. That route never touches the nav, so folding the
+        // sections broke it exactly the way it broke the chips — and silently,
+        // because nothing here throws. Capture phase, so the fold is open
+        // before kit:js scrolls; the guards mirror its own onKeydown.
+        let pendingG = false;
+        document.addEventListener(
+          "keydown",
+          (e) => {
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            const el = e.target;
+            if (
+              el &&
+              (el.tagName === "INPUT" ||
+                el.tagName === "TEXTAREA" ||
+                el.tagName === "SELECT" ||
+                el.isContentEditable === true)
+            )
+              return;
+            if (pendingG && e.key >= "1" && e.key <= "9") {
+              reveal(document.querySelectorAll("[data-kit-section]")[Number(e.key) - 1]);
+            }
+            pendingG = e.key === "g";
+          },
+          true,
+        );
+
+        // A collapsed <details> prints nothing at all, so a printed report
+        // would silently lose whole sections. Open every fold for print and
+        // put back exactly the ones that were closed.
+        let wasClosed = [];
+        window.addEventListener("beforeprint", () => {
+          wasClosed = [...document.querySelectorAll("details.fold")].filter((d) => !d.open);
+          wasClosed.forEach((d) => (d.open = true));
+        });
+        window.addEventListener("afterprint", () => {
+          wasClosed.forEach((d) => (d.open = false));
+          wasClosed = [];
+        });
+
+        if (!secs.length) { nav.style.display = "none"; return; }
+        const spy = new IntersectionObserver(
+          (es) => {
+            es.forEach((en) => {
+              if (!en.isIntersecting) return;
+              nav.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c.dataset.sec === en.target.id));
+              const on = nav.querySelector(".chip.active");
+              if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
+            });
+          },
+          { rootMargin: "-45px 0px -70% 0px", threshold: 0 },
+        );
+        secs.forEach((s) => spy.observe(s));
+      })();
+    </script>
+  </body>
+</html>

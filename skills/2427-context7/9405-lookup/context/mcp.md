@@ -1,0 +1,75 @@
+# MCP reference (`mcp__context7__*`)
+
+Context7 HTTP MCP server, reading the same backend as the `ctx7` CLI. This plugin does NOT ship or auto-start an MCP server; the consuming project opts in by declaring it in its own MCP configuration.
+
+> Server URL and header facts verified 2026-07-18 against `ctx7` 0.5.5 source and
+> [Context7's docs](https://context7.com/docs); Claude Code config behavior verified against
+> [the MCP docs](https://code.claude.com/docs/en/mcp). Re-check both before acting on a row.
+
+## Configuration (consumer-side, optional)
+
+Add to the consuming project's `.mcp.json` (or user-scope MCP config). Server entries live under the top-level `mcpServers` key. Anonymous (low-rate) usage needs no headers:
+
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    }
+  }
+}
+```
+
+With an API key (higher limits), add the `CONTEXT7_API_KEY` request header (the header name Context7's server expects). When a referenced env var is unset with no default, Claude Code still loads the config: it reports a missing-variable warning in `claude mcp list` and sends the **literal `${CONTEXT7_API_KEY}` text as-is**. That is silently broken auth, not a parse failure. Only use this form once `CONTEXT7_API_KEY` is actually set in your environment (or add a `${VAR:-default}` fallback):
+
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": { "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}" }
+    }
+  }
+}
+```
+
+`CONTEXT7_API_KEY` is the same env var the CLI reads (see [cli.md](cli.md)). MCP sends it as a request header; CLI reads it from the environment. Both equivalent from a quota/auth perspective. Without the MCP server configured, every lookup in this skill works through the CLI path.
+
+## Tools exposed
+
+| Tool | Purpose | CLI equivalent |
+|---|---|---|
+| `mcp__context7__resolve-library-id` | Resolve library name → `/org/project` ID | `ctx7 library <name> <query>` |
+| `mcp__context7__query-docs` | Fetch docs for a resolved ID | `MSYS_NO_PATHCONV=1 ctx7 docs <id> <query>` |
+
+Both tools require a `query` argument for result ranking. Same input shape as CLI, same backend, and same output substance. Only the transport differs.
+
+## Why prefer MCP over CLI for most lookups
+
+Empirical observation, 2026-04, React and EF Core test queries. Recheck when the `ctx7` minor
+version changes, or when Context7 changes its default response depth.
+
+| Dimension | Result |
+|---|---|
+| Default content per `query-docs` call | ~1.8× more than `ctx7 docs` at default settings |
+| Output format | Clean markdown (no ANSI codes to strip) |
+| Windows ceremony | None (no `MSYS_NO_PATHCONV=1` prefix) |
+| Auto-discovery by the model | Tool appears in the tool list, so the model picks it naturally |
+| Latency | ~2.1s (same as CLI, both network-bound) |
+
+**Default route for conversational library lookups is MCP** when it is configured. CLI's advantages kick in when you want composability (pipe to grep, dump to disk, script), not when you just want the answer.
+
+## When the MCP is unavailable
+
+- Not configured in the consuming project (this plugin doesn't ship it)
+- Network restrictions (corporate proxies, some cloud sessions)
+- `mcp.context7.com` blocked by local firewall
+- Connection failed at session start (check `claude mcp list`)
+
+Fall back to CLI in those cases. Same backend, different transport path. If both are blocked, check `CONTEXT7_API_KEY`, or fall back to other documentation sources and tell the user Context7 was unavailable.
+
+## Do not re-configure via `ctx7 setup --mcp`
+
+`ctx7 setup --mcp` rewrites MCP configuration files and can modify the consuming project's `.mcp.json`. **Do not run it from this skill.** The consumer's MCP configuration is theirs to curate; if Upstash changes their recommended MCP URL or headers in a future release, the `update` action ([update.md](update.md)) surfaces that so the consumer can port the change deliberately.

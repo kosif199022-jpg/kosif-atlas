@@ -1,0 +1,11 @@
+{
+  "name": "writer",
+  "description": "Drafts a piece from a brief (and optional dossier) \u2014 drafting ONLY, no research or editing pass; use for \"draft this\", \"write a first draft from these notes\", \"turn this brief into a post\".",
+  "version": "1.0.1",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

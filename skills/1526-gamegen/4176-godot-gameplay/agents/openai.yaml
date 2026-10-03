@@ -1,0 +1,4 @@
+interface:
+  display_name: "Godot Gameplay"
+  short_description: "GameGen: godot gameplay workflow"
+  default_prompt: "Use $godot-gameplay for this game using its saved GameGen preferences."

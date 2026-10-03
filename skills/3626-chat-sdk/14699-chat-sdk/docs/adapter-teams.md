@@ -1,0 +1,612 @@
+> Source: https://chat-sdk.dev/adapters/official/teams.md
+
+---
+title: Microsoft Teams
+description: Microsoft Teams adapter with Adaptive Cards and modal support.
+tagline: Deploy bots to Microsoft Teams with Adaptive Cards, mentions, and conversation threading.
+package: @chat-adapter/teams
+---
+
+# Microsoft Teams
+
+
+## Install
+
+
+## Quick start
+
+
+  The adapter auto-detects `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and `TEAMS_APP_TENANT_ID` from the environment.
+
+  For managed credentials and webhook verification, see [Vercel Connect](#vercel-connect).
+
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createTeamsAdapter } from "@chat-adapter/teams";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    teams: createTeamsAdapter({
+      appType: "SingleTenant",
+    }),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from Teams!");
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/teams/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.teams(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app registration, client secret generation, bot registration, and Teams channel setup in one command. If you use [Vercel Connect](#vercel-connect), you don't need to copy the generated app ID and password into your environment.
+
+### Install the CLI
+
+```bash
+npm install -g @microsoft/teams.cli
+```
+
+### 1. Create the app
+
+```bash
+teams login
+teams status
+teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
+```
+
+
+  For local development, use a tunnel such as [devtunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/), or ngrok to expose your local server.
+
+
+Credentials (`CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`) are written to `.env`. Rename them to match the adapter:
+
+```bash
+TEAMS_APP_ID=<CLIENT_ID>
+TEAMS_APP_PASSWORD=<CLIENT_SECRET>
+TEAMS_APP_TENANT_ID=<TENANT_ID>
+```
+
+### 2. Install in Teams
+
+Get a direct install link:
+
+```bash
+teams app get <appId> --install-link
+```
+
+Or download the app package for sideloading, then in Teams go to **Apps** > **Manage your apps** > **Upload an app** > **Upload a custom app**.
+
+### 3. Verify
+
+Check the registration, app health, manifest, and endpoint:
+
+```bash
+teams app doctor <appId>
+```
+
+## Authentication
+
+Use Vercel Connect to manage the bot identity and tokens, or configure Microsoft app credentials directly with a client secret, federated workload identity, or a custom token factory.
+
+### Vercel Connect
+
+Use [Vercel Connect](/docs/vercel-connect) to resolve the bot's app ID and request short-lived tokens for Bot Framework and Microsoft Graph:
+
+```typescript
+import { createTeamsAdapter } from "@chat-adapter/teams";
+import { connectTeamsAdapter } from "@vercel/connect/chat";
+
+const teams = createTeamsAdapter({
+  ...connectTeamsAdapter("microsoft-teams/acme-teams"),
+});
+```
+
+The helper resolves `appId` during initialization and supplies a scope-aware `token` callback. It also verifies Connect-forwarded webhooks with Vercel OIDC instead of Microsoft's native JWT. Enable trigger forwarding to `/api/webhooks/teams` and omit `TEAMS_APP_ID` and `TEAMS_APP_PASSWORD` when using the helper.
+
+The callback requests separate tokens for `https://api.botframework.com/.default` and `https://graph.microsoft.com/.default`. Graph reads still require the appropriate installation and consent permissions; Connect uses the bot's home tenant for managed tokens.
+
+An `appId` resolver runs once during successful initialization. Call `await bot.initialize()` before using adapter methods directly; Chat initializes automatically before handling webhooks. `botUserId` becomes available after initialization when using a resolver.
+
+A custom `webhookVerifier` receives the incoming request and its raw body. Return a truthy value to accept, or return a falsy value or throw to reject with HTTP 401. Without a verifier, the adapter retains Microsoft's native JWT verification.
+
+### Client secret
+
+Provide `appPassword`, or set `TEAMS_APP_PASSWORD`, with the client secret generated during [platform setup](#platform-setup):
+
+```typescript
+createTeamsAdapter({
+  appPassword: "your_app_password_here",
+});
+```
+
+### Federated (workload identity)
+
+For environments with managed identities, such as AKS or GitHub Actions, use federated workload identity. `federated.clientId` maps to `managedIdentityClientId` in the Teams SDK:
+
+```typescript
+createTeamsAdapter({
+  federated: {
+    clientId: "your_managed_identity_client_id_here",
+  },
+});
+```
+
+### Custom token factory
+
+For runtimes without access to Azure IMDS, such as serverless platforms, provide your own token-minting logic. `token` maps to `AppOptions.token` in the Teams SDK:
+
+```typescript
+createTeamsAdapter({
+  appId: "your_app_id_here",
+  appTenantId: "your_tenant_id_here",
+  token: async (scope, tenantId) => {
+    // fetch or mint an access token for the given scope/tenant however your
+    // runtime supports it (for example, a workload-identity federation bridge)
+    return await getAccessToken(scope, tenantId);
+  },
+});
+```
+
+
+  A custom token factory takes precedence over configured credentials and client-secret environment variables, including `CLIENT_SECRET`.
+
+
+## Configuration
+
+
+`appId` is required, along with one authentication method (`appPassword`, `federated`, or `token`). If more than one is configured, `token` takes precedence over `federated`, which takes precedence over `appPassword`.
+
+### Environment variables
+
+| Variable              | Required                                               | Description                                                                         |
+| --------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `TEAMS_APP_ID`        | Yes, unless you pass `appId` or use Vercel Connect     | Azure Bot App ID.                                                                   |
+| `TEAMS_APP_PASSWORD`  | With client secret auth, unless you pass `appPassword` | Azure Bot App Password (client secret). Ignored when `federated` or `token` is set. |
+| `TEAMS_APP_TENANT_ID` | For `SingleTenant` apps and message history            | Azure AD Tenant ID.                                                                 |
+| `TEAMS_API_URL`       | No                                                     | Teams API base URL override, for example for GCC-High or sovereign clouds.          |
+
+## Mentions
+
+Incoming Teams mentions are supported. Outgoing `@name` text, including multi-word names, stays plain text and does not notify the user. The adapter does not resolve display names into user identities or generate mention entities. Teams requires [matching mention text and entities](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/channel-and-group-conversations#add-mentions-to-your-messages) for a real mention; `<at>` markup alone is not sufficient.
+
+## Message history
+
+Fetching message history requires `TEAMS_APP_TENANT_ID` and the right permissions depending on the conversation type:
+
+| Context    | Permission                  | Type     | Admin consent? |
+| ---------- | --------------------------- | -------- | -------------- |
+| Channel    | `ChannelMessage.Read.Group` | RSC      | No             |
+| Group chat | `ChatMessage.Read.Chat`     | RSC      | No             |
+| DM         | `Chat.Read.All`             | Azure AD | Yes            |
+
+RSC permissions are set via the Teams CLI (no admin consent needed):
+
+```bash
+teams app rsc add <appId> ChannelMessage.Read.Group --type Application
+teams app rsc add <appId> ChatMessage.Read.Chat --type Application
+```
+
+For DM message history, RSC is not sufficient. Add `Chat.Read.All` via the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/):
+
+```bash
+az ad app permission add \
+  --id <appId> \
+  --api 00000003-0000-0000-c000-000000000000 \
+  --api-permissions 6b7d71aa-70aa-4810-a8d9-5d9fb2830017=Role
+
+az ad app permission admin-consent --id <appId>
+```
+
+## Receiving all messages
+
+By default, Teams bots only receive messages when directly @-mentioned. The RSC permissions above also enable receiving all messages in channels and group chats as a side effect.
+
+## Bot joins
+
+`onMemberJoinedChannel` fires when a `conversationUpdate` activity adds this bot to a channel or group chat. `adapter.botUserId` is the Teams bot ID (`28:<appId>`), so the same bot-join guard works across adapters:
+
+```typescript
+bot.onMemberJoinedChannel(async (event) => {
+  if (event.userId !== event.adapter.botUserId) {
+    return;
+  }
+  await bot.channel(event.channelId).post("Hello! Thanks for adding me.");
+});
+```
+
+For team installations, `channelId` identifies the channel selected during installation, not the team ID. `inviterId` comes from the activity sender. Pass your platform's `waitUntil` to the webhook handler to track asynchronous welcome handlers.
+
+This dispatches bot joins only. Personal installs, ordinary member additions, and removals do not emit this event; use [`onInstalled`](#installation-lifecycle) for install welcomes that should also cover personal scope. See Microsoft's [conversation event documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#members-added) for the underlying payloads.
+
+## Installation lifecycle
+
+`bot.onInstalled` fires for `installationUpdate` actions `add` and `add-upgrade`.
+`bot.onUninstalled` fires for `remove` and `remove-upgrade`. Both cover personal,
+group chat, and team installs and receive the `action`, the activity `id`, the
+platform `conversationId`, the actor `userId`, `tenantId`, `locale`, and the raw
+activity. These handlers are currently emitted only by Teams.
+
+`event.channelId` is the Chat SDK destination for the installation: the personal
+chat, the group chat, or the channel selected during a team install. It encodes
+the conversation's Bot Framework service URL, so you can persist the string and
+post to it later from any process with `bot.channel(channelId).post()`. When the
+activity body carries no service URL, the adapter uses the one from the validated
+request token, so `channelId` is normally present.
+
+Keep the installation key separate from the posting destination. For team
+installs, use `event.raw.channelData.team.id`: the add event can identify the
+selected channel while removal identifies the team/root conversation. Personal
+and group chat installs can use `conversationId`. Include the bot ID, tenant ID,
+and scope in the key so unrelated installations stay separate.
+
+```typescript
+import type { TeamsActivity } from "@chat-adapter/teams/webhook";
+import type { InstallationEvent } from "chat";
+
+function installationKey(event: InstallationEvent) {
+  const activity = event.raw as TeamsActivity;
+  const teamId = activity.channelData?.team?.id;
+  return JSON.stringify([
+    event.adapter.botUserId,
+    event.tenantId,
+    teamId ? "team" : "conversation",
+    teamId ?? event.conversationId,
+  ]);
+}
+
+// `installationStore` is your application's durable key/value store.
+bot.onInstalled(async (event) => {
+  if (event.adapter.name !== "teams" || !event.channelId) return;
+  const key = installationKey(event);
+  // An upsert also replaces the destination after a reinstall or upgrade.
+  await installationStore.set(key, event.channelId);
+
+  await bot.channel(event.channelId).post("Thanks for installing!");
+});
+
+bot.onUninstalled(async (event) => {
+  if (event.adapter.name !== "teams") return;
+  const key = installationKey(event);
+  await installationStore.delete(key);
+});
+```
+
+A team or group chat install produces both a `conversationUpdate` that adds the
+bot and an `installationUpdate`, so `onMemberJoinedChannel` and `onInstalled`
+both fire for the same conversation. Send install welcomes from one of them. If
+you use `onMemberJoinedChannel` for Slack, skip Teams there by checking
+`event.adapter.name`. Personal installs emit `onInstalled` only.
+
+`add-upgrade` means an app upgrade added the bot to the manifest;
+`remove-upgrade` means it removed the bot. Handle them as installation and
+removal, respectively, including persistence and cleanup. Routine upgrades that
+leave the bot in place do not emit `installationUpdate`.
+
+Delivery may be retried, so make side effects idempotent, for example keyed on
+the installation key and activity ID. The SDK does not subscribe, persist, or
+deduplicate installations for you.
+Do not send a farewell after removal. Pass your host's `waitUntil` to the webhook
+handler so persistence and onboarding finish after the response.
+
+If you already own routing and only need the connector call, decode the stored
+`channelId` with `decodeThreadId` and pass its `conversationId` and `serviceUrl`
+to `postTeamsMessage` from `@chat-adapter/teams/api`. Do not pass the
+installation activity ID as `replyToId`; it is not a message. Full team and
+selected-channel metadata remain in `event.raw`.
+
+See Microsoft's [installation update documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#installation-update-event).
+
+## Targeted / ephemeral messages
+
+Teams targeted messages are available in public preview. Use `thread.postEphemeral()` or `channel.postEphemeral()` to send a native Teams message that only the selected conversation member can see:
+
+```typescript
+await thread.postEphemeral(message.author, "Only you can see this.", {
+  fallbackToDM: false,
+});
+```
+
+The result has `usedFallback: false` when Teams accepts the targeted message.
+
+## User lookup
+
+`bot.getUser()` looks up user profiles through the Microsoft Graph API. To enable it:
+
+1. Grant the `User.Read.All` application permission in your Azure AD app registration.
+2. Grant admin consent for the permission.
+
+```typescript
+const user = await bot.getUser(message.author);
+console.log(user?.email);    // "alice@contoso.com"
+console.log(user?.fullName); // "Alice Smith"
+```
+
+The adapter caches each user's Azure AD object ID from incoming activities, so `getUser` only works for users who have previously interacted with the bot.
+
+Live incoming message authors include `email` when the Teams conversation members API resolves the sender. This lookup uses the bot's access to the current conversation and does not require Microsoft Graph permissions. Lookup failures leave `message.author.email` undefined without preventing message delivery. Edited-message events and messages returned by `fetchMessages` are not hydrated with an email.
+
+## Incoming attachments
+
+Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
+
+Anonymous downloads require HTTPS URLs that resolve to public addresses; private and internal hosts are refused, including after redirects. Responses are limited to 25 MB and downloads time out after 30 seconds. Inline attachments served by the connector use bot authentication instead, including the Bot Framework Emulator's plain-HTTP loopback connector. To change the limits or route downloads through a proxy, override `createFetchDataFn()` in a subclass and call `downloadAttachment` from `@chat-adapter/shared` with your own options.
+
+## Low-level APIs
+
+Use the low-level Teams subpaths when your app already owns routing, state, sessions, or workflow execution and only needs Teams-specific primitives.
+
+| Subpath                       | Use for                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `@chat-adapter/teams/webhook` | Parse Bot Framework Activity JSON, classify common payloads, and extract continuation data |
+| `@chat-adapter/teams/api`     | Fetch-based Bot Connector calls for messages, updates, deletes, typing, and conversations  |
+| `@chat-adapter/teams/graph`   | Fetch-based Microsoft Graph reads for chats, channels, channel messages, and replies       |
+| `@chat-adapter/teams/format`  | Teams HTML, mention, Markdown-ish, and emoji string helpers                                |
+| `@chat-adapter/teams/cards`   | Runtime-free conversion from simple card objects and input requests to Adaptive Cards      |
+| `@chat-adapter/teams/modals`  | Runtime-free Task Module Adaptive Card helpers and submit parsing                          |
+
+
+  The webhook subpath parses Activities only. It does not verify Microsoft Bot Framework JWTs. Authenticate the request with the Microsoft Teams SDK request pipeline before handing the Activity to these helpers, or use `createTeamsAdapter`. The Connector helpers restrict `serviceUrl` to Microsoft-owned hosts, but that does not authenticate the Activity.
+
+
+### Webhooks
+
+Teams sends Bot Framework Activity JSON. `readTeamsWebhook` reads the request body and classifies the Activity, but it intentionally does not perform JWT validation.
+
+```typescript title="app/api/teams/route.ts" lineNumbers
+import { postTeamsMessage } from "@chat-adapter/teams/api";
+import { readTeamsWebhook } from "@chat-adapter/teams/webhook";
+
+export async function POST(request: Request) {
+  // Authenticate the Bot Framework JWT before parsing the request. This
+  // example assumes your routing layer already performed that verification.
+  const payload = await readTeamsWebhook(request, {
+    botAppId: process.env.TEAMS_APP_ID,
+  });
+
+  if (payload.kind === "message") {
+    await postTeamsMessage({
+      conversationId: payload.continuation.conversationId,
+      credentials: {
+        appId: process.env.TEAMS_APP_ID!,
+        appPassword: process.env.TEAMS_APP_PASSWORD!,
+        tenantId: payload.continuation.tenantId,
+      },
+      markdownText: `received: ${payload.text}`,
+      serviceUrl: payload.continuation.serviceUrl,
+    });
+  }
+
+  return new Response(null, { status: 200 });
+}
+```
+
+`parseTeamsWebhookBody` returns typed payloads:
+
+| Kind                  | Teams surface                                                |
+| --------------------- | ------------------------------------------------------------ |
+| `message`             | Message activities                                           |
+| `message_reaction`    | Reaction activities                                          |
+| `card_action`         | Adaptive Card actions and `Action.Submit` message activities |
+| `dialog_open`         | Task Module `task/fetch` invokes                             |
+| `dialog_submit`       | Task Module `task/submit` invokes                            |
+| `conversation_update` | Conversation membership and install context updates          |
+| `installation_update` | App installation updates                                     |
+| `unsupported`         | Valid Activities not normalized by this helper yet           |
+
+Message-like payloads include `continuation`, which contains provider-native reply context:
+
+```typescript
+type TeamsContinuation = {
+  activityId?: string;
+  channelId?: string;
+  conversationId: string;
+  replyToId?: string;
+  serviceUrl: string;
+  teamId?: string;
+  tenantId?: string;
+};
+```
+
+This is not a Chat SDK `Thread`. It is the durable Teams data you need to reply later with `@chat-adapter/teams/api`.
+
+### Bot Connector API
+
+The API subpath calls the Bot Framework Connector REST API with `fetch`. It does not import `@microsoft/teams.apps`.
+
+```typescript title="teams.ts" lineNumbers
+import {
+  deleteTeamsMessage,
+  postTeamsMessage,
+  sendTeamsTyping,
+  updateTeamsMessage,
+} from "@chat-adapter/teams/api";
+
+const credentials = {
+  appId: process.env.TEAMS_APP_ID!,
+  appPassword: process.env.TEAMS_APP_PASSWORD!,
+  tenantId: process.env.TEAMS_APP_TENANT_ID!,
+};
+
+const posted = await postTeamsMessage({
+  conversationId: "19:abc@thread.tacv2",
+  credentials,
+  markdownText: "**hello**",
+  serviceUrl: "https://smba.trafficmanager.net/teams/",
+});
+
+await updateTeamsMessage({
+  conversationId: "19:abc@thread.tacv2",
+  credentials,
+  messageId: posted.id,
+  serviceUrl: "https://smba.trafficmanager.net/teams/",
+  text: "updated",
+});
+
+await sendTeamsTyping({
+  conversationId: "19:abc@thread.tacv2",
+  credentials,
+  serviceUrl: "https://smba.trafficmanager.net/teams/",
+});
+
+await deleteTeamsMessage({
+  conversationId: "19:abc@thread.tacv2",
+  credentials,
+  messageId: posted.id,
+  serviceUrl: "https://smba.trafficmanager.net/teams/",
+});
+```
+
+Use `accessToken` in `credentials` when your runtime already owns Microsoft token acquisition. A direct `accessToken` must be scoped for the API you call. The Bot Connector subpath (`/api`) needs a `https://api.botframework.com/.default` token, while the Graph subpath (`/graph`) needs a `https://graph.microsoft.com/.default` token. Passing the same token to both will fail against one of them. When you supply `appId`/`appPassword` instead, each subpath requests the correct scope for you.
+
+### Graph
+
+The Graph subpath reads Teams history with explicit Graph IDs. Unlike `TeamsAdapter`, it does not use the adapter state cache to infer `teamId`, `channelId`, or `chatId`.
+
+```typescript
+import { listTeamsChannelMessages } from "@chat-adapter/teams/graph";
+
+const messages = await listTeamsChannelMessages({
+  channelId: "19:channel@thread.tacv2",
+  credentials: {
+    appId: process.env.TEAMS_APP_ID!,
+    appPassword: process.env.TEAMS_APP_PASSWORD!,
+    tenantId: process.env.TEAMS_APP_TENANT_ID!,
+  },
+  limit: 25,
+  teamId: "19:team@thread.tacv2",
+});
+
+const latestText = messages.items[0]?.text;
+```
+
+Graph reads require the same Microsoft Graph permissions as the full adapter. Channel and group-chat reads can use RSC permissions; DM reads require Azure AD application permissions such as `Chat.Read.All`.
+
+### Formatting
+
+Teams renders message text as HTML. The format subpath provides small helpers for custom runtimes:
+
+```typescript
+import {
+  formatTeamsMention,
+  markdownToTeamsHtml,
+  teamsHtmlToMarkdown,
+} from "@chat-adapter/teams/format";
+
+const html = markdownToTeamsHtml(
+  `${formatTeamsMention("Ada")} approved **deploy v2.4.1**`
+);
+const markdown = teamsHtmlToMarkdown("<p>Hello <strong>world</strong></p>");
+```
+
+Use the full `TeamsFormatConverter` from `@chat-adapter/teams` when you need mdast conversion inside Chat SDK.
+
+### Cards
+
+The cards subpath converts simple card objects into Adaptive Card JSON without importing the full `chat` JSX runtime.
+
+```typescript title="cards.ts" lineNumbers
+import {
+  cardToAdaptiveCard,
+  cardToTeamsFallbackText,
+} from "@chat-adapter/teams/cards";
+import { postTeamsMessage } from "@chat-adapter/teams/api";
+
+const card = {
+  children: [
+    { content: "deploy v2.4.1?", type: "text" },
+    {
+      children: [
+        { id: "approve", label: "Approve", style: "primary", type: "button" },
+        { id: "deny", label: "Deny", style: "danger", type: "button" },
+      ],
+      type: "actions",
+    },
+  ],
+  title: "Deployment",
+  type: "card",
+} as const;
+
+await postTeamsMessage({
+  adaptiveCard: cardToAdaptiveCard(card),
+  conversationId: payload.continuation.conversationId,
+  credentials,
+  serviceUrl: payload.continuation.serviceUrl,
+  text: cardToTeamsFallbackText(card),
+});
+```
+
+Use the full Chat SDK card JSX when you want cross-platform rendering. Use `@chat-adapter/teams/cards` when you are building a Teams-only runtime and want Adaptive Card output directly.
+
+Table children render as the Adaptive Card `Table` element with grid lines on by default. The optional `align`, `widths`, `verticalAlign`, `gridLines` and `gridStyle` fields tune the grid, a table with empty `headers` renders without a header row, and a table with no columns emits no element.
+
+### Modals
+
+Teams Task Modules are invoke-based dialogs backed by Adaptive Cards. The modals subpath builds those cards and parses submit data.
+
+```typescript
+import {
+  modalToAdaptiveCard,
+  parseTeamsDialogSubmitValues,
+  toTeamsTaskModuleResponse,
+} from "@chat-adapter/teams/modals";
+
+const modal = {
+  callbackId: "deploy",
+  children: [
+    { content: "Why deploy now?", type: "text" },
+    { id: "reason", label: "Reason", type: "text_input" },
+  ],
+  title: "Deploy",
+  type: "modal",
+} as const;
+
+const card = modalToAdaptiveCard(modal, { contextId: "deploy-1" });
+const values = parseTeamsDialogSubmitValues(payload.value);
+
+return Response.json(
+  toTeamsTaskModuleResponse({ action: "update", modal }, { contextId: "deploy-1" })
+);
+```
+
+### Import boundaries
+
+The low-level Teams subpaths are designed to avoid the full runtime import graph:
+
+* no `chat` import
+* no `@chat-adapter/shared` import
+* no `@microsoft/teams.apps` import
+* no full adapter import
+
+The package still installs the full Teams adapter dependencies. The subpaths keep your source and bundle imports clean, but they are not a package-size split.
+
+## Conversation routing
+
+Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. When Teams omits `conversationType`, the adapter falls back to `conversation.isGroup` and the activity's team context. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
+
+## Troubleshooting
+
+Run `teams app doctor <appId>` to diagnose common issues with bot registration, AAD app health, manifest consistency, and endpoint reachability.
+
+## Feature support
+
+

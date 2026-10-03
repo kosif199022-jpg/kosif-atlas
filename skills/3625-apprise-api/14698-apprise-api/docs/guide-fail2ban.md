@@ -1,0 +1,333 @@
+> Source: https://raw.githubusercontent.com/caronc/apprise-docs/master/locales/en/guides/fail2ban.mdx
+
+---
+title: Fail2Ban
+description: Send Fail2ban alerts through Apprise and protect Apprise API
+---
+
+
+Fail2ban is a log-monitoring service that detects suspicious behaviour, such as repeated authentication failures, and automatically blocks offending IP addresses.
+
+Apprise integrates with Fail2ban as a notification action, allowing you to receive alerts through any of Apprise's supported services, including email, push notifications, chat platforms, and webhooks.
+
+This guide assumes:
+
+- A fresh Fail2ban installation
+- systemd is available
+- A single host configuration
+- sshd is the first service being monitored
+
+Distribution-specific paths and advanced jail configurations are intentionally deferred.
+
+## Prerequisites
+
+Before you begin, ensure the following are installed:
+
+- Fail2ban
+- Apprise (CLI)
+- Apprise API is optional (if configuration is centralized)
+
+Verify both are available:
+
+```bash
+fail2ban-client --version
+apprise --version
+```
+
+## Installing Fail2ban
+
+On most systems, Fail2ban is available via the system package manager.
+
+Enable and start the service:
+
+```bash
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
+```
+
+Verify it is running:
+
+```bash
+sudo systemctl status fail2ban
+```
+
+## Configuring Apprise
+
+Be sure to be comfortable with [Apprise Configuration Files](/getting-started/configuration/) and know which [service(s)](/services/) you plan on using. We will choose to assign the tag `fail2ban` to all of the end points we wish to be notified if an event occurs:
+
+```ini
+# /etc/fail2ban/apprise.conf
+# Define our fail2ban configuration tag, and assign it to a Discord webhook
+# as an example for the purpose of this guide.  But you can use any
+# service you want.
+fail2ban=discord://4174216298/JHMHI8qBe7bk2ZwO5U711o3dV_js
+
+```
+
+## Configuring Apprise for Fail2ban
+
+:::note[Detected IP]
+For your convenience, this guide detected your public address as <code><MyIPAddr prefix={true} /></code>. If this is the workstation you will remote into your server from, you may wish to add this to the `ignore=` line.
+:::
+
+Add the following to `/etc/fail2ban/jail.local`
+
+```ini
+# /etc/fail2ban/jail.local
+[DEFAULT]
+
+# ignoreip acts as a safelist; requests coming from these IPs are immune to
+# Fail2Ban monitoring. Each entry is separated by a space (' ').
+# You only want to specify safe access points:
+#   - 127.0.0.1/8 : Localhost (this PC); you don't want Fail2Ban banning internal
+#                   requests.. this one is safe to add. the `/8` is safe to leave
+#                   on the end of the IP for this entry.
+#   - YOUR_IP/32  : If you are accessing your server running Fail2Ban remotely, then
+#                   replace the 'YOUR_IP/32' entry below with 'your actual IP address'.
+#                   make sure to add `/32` if an IPv4 address or `/128` if it is an
+#                   IPv6 address.
+ignoreip = 127.0.0.1/8 YOUR_IP/32
+
+# how far back to look
+findtime = 5m
+
+# ban if we trigger on 4 failed authenticate within the findtime
+maxretry = 4
+
+# ban time; how long do we restrict this user from our system for?
+bantime = 1d
+
+#
+# Now we define our Apprise Action
+#
+#   - Read from /etc/fail2ban/apprise.conf
+#   - Only notify end points tagged with 'fail2ban'
+#
+action = apprise[config="/etc/fail2ban/apprise.conf", args="--tag fail2ban"]
+
+#
+# Now we will define our jails
+#
+
+[sshd]
+enabled = true
+port = ssh
+logpath = %(sshd_log)s
+backend = %(sshd_backend)s
+
+# Optionally over-ride our defaults above
+maxretry = 5
+findtime = 10m
+bantime = 1h
+
+# The entry below is not necessary because it is defined in [DEFAULT] above,
+# but this is to show that you could also define another entry here as well
+# and assign it a different set of tags.
+action = apprise[config="/etc/fail2ban/apprise.conf", args="--tag fail2ban"]
+```
+
+:::tip
+You can easily leverage an Apprise API instance by setting:
+
+```ini
+action = apprise[config="http://api.example.ca:8000/cfg/apprise-key", args="--tag fail2ban"]
+```
+
+This form assumes Apprise API authentication is disabled. If authentication
+is enabled, use an HTTPS configuration URL with suitable credentials and keep
+the file containing it readable only by the account running Fail2ban.
+
+:::
+
+Restart Fail2ban:
+
+```bash
+sudo systemctl restart fail2ban
+```
+
+Verify the jail is active:
+
+```bash
+sudo fail2ban-client status sshd
+```
+
+## Testing Your Setup
+
+Trigger a test ban by exceeding authentication attempts, or simulate manually:
+
+```bash
+sudo fail2ban-client set sshd banip 203.0.113.10
+```
+
+You should receive an Apprise notification immediately.
+
+## Protecting Apprise API
+
+Fail2ban can also monitor the nginx access log in front of Apprise API and ban clients that repeatedly fail authentication, ignore rate limits, or probe unsupported routes.
+
+Apprise API uses ordinary nginx access-log lines in both regular and strict mode. Strict mode additionally limits authentication traffic and accepts only known routes. It returns standard statuses that a reverse proxy can relay and log:
+
+- `401` means credentials were missing or invalid.
+- `404` means the route does not exist.
+- `405` means the route exists but does not accept that HTTP method.
+- `429` means nginx temporarily rate-limited the client.
+
+Do not treat every `403` as an authentication failure. Apprise can return `403` when valid credentials belong to an account that is not permitted to perform the requested operation.
+
+### Choose the Access Log
+
+When a host nginx reverse proxy fronts the container, give the Apprise virtual host its own log:
+
+```nginx
+access_log /var/log/nginx/apprise_access.log combined;
+```
+
+This is the simplest arrangement because the outer log already contains the connecting client's address.
+
+If the container is exposed directly, you can instead bind-mount `/var/log/apprise` and add both destinations to `/etc/nginx/server-override.conf`:
+
+```nginx
+access_log /dev/stdout combined if=$apprise_access_loggable;
+access_log /var/log/apprise/access.log combined if=$apprise_access_loggable;
+```
+
+Ensure the directory is writable by the container's `PUID`, then use `/var/log/apprise/access.log` in the jail examples below.
+
+### Create the Filters
+
+Create `/etc/fail2ban/filter.d/nginx-apprise-auth.conf`:
+
+```ini
+[Definition]
+# Missing or invalid credentials. A valid but unauthorized user receives 403.
+failregex = ^<HOST> - \S+ \[[^]]+\] "[^"]*" 401 \d+
+ignoreregex =
+```
+
+Create `/etc/fail2ban/filter.d/nginx-apprise-rate-limit.conf`:
+
+```ini
+[Definition]
+# The client continued after nginx began returning Too Many Requests.
+failregex = ^<HOST> - \S+ \[[^]]+\] "[^"]*" 429 \d+
+ignoreregex =
+```
+
+Create `/etc/fail2ban/filter.d/nginx-apprise-probe.conf`:
+
+```ini
+[Definition]
+# Repeated malformed requests, missing routes, unsupported methods, oversized
+# requests, long URIs, or requests sent to the wrong virtual host.
+failregex = ^<HOST> - \S+ \[[^]]+\] "[^"]*" (?:400|404|405|413|414|421|431) \d+
+ignoreregex =
+```
+
+If you already have a generic nginx `429` filter, add the Apprise access log to that jail instead of creating another copy.
+
+### Create the Jails
+
+Add the following to `/etc/fail2ban/jail.local`. These values are cautious starting points; tune them after observing normal traffic:
+
+```ini
+[nginx-apprise-auth]
+enabled  = true
+filter   = nginx-apprise-auth
+port     = http,https
+logpath  = /var/log/nginx/apprise_access.log
+findtime = 10m
+maxretry = 6
+bantime  = 1h
+
+[nginx-apprise-rate-limit]
+enabled  = true
+filter   = nginx-apprise-rate-limit
+port     = http,https
+logpath  = /var/log/nginx/apprise_access.log
+findtime = 5m
+maxretry = 10
+bantime  = 1h
+
+[nginx-apprise-probe]
+enabled  = true
+filter   = nginx-apprise-probe
+port     = http,https
+logpath  = /var/log/nginx/apprise_access.log
+findtime = 10m
+maxretry = 10
+bantime  = 1d
+```
+
+### Preserve the Real Client Address
+
+Fail2ban must never ban the reverse proxy in place of the client. The host proxy should replace, rather than append to, the forwarded address:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $remote_addr;
+```
+
+The Apprise container also needs the real address for its own strict-mode rate limits. Trust only the exact proxy or Docker gateway in `/etc/nginx/server-override.conf`:
+
+```nginx
+set_real_ip_from 172.17.0.1; # Replace with the exact trusted proxy address.
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+```
+
+Do not place an entire Docker or private network in `set_real_ip_from` unless every device on that network is trusted.
+
+### Validate Before Restarting
+
+Test each filter against real log entries:
+
+```bash
+sudo fail2ban-regex /var/log/nginx/apprise_access.log \
+  /etc/fail2ban/filter.d/nginx-apprise-auth.conf
+sudo fail2ban-regex /var/log/nginx/apprise_access.log \
+  /etc/fail2ban/filter.d/nginx-apprise-rate-limit.conf
+sudo fail2ban-regex /var/log/nginx/apprise_access.log \
+  /etc/fail2ban/filter.d/nginx-apprise-probe.conf
+```
+
+Then validate and reload Fail2ban:
+
+```bash
+sudo fail2ban-client -t
+sudo systemctl restart fail2ban
+sudo fail2ban-client status nginx-apprise-auth
+sudo fail2ban-client status nginx-apprise-rate-limit
+sudo fail2ban-client status nginx-apprise-probe
+```
+
+## Troubleshooting
+
+View Fail2ban logs:
+
+```bash
+journalctl -u fail2ban
+```
+
+Increase verbosity for Apprise actions (by adding `-vv` and test to see what might be going on:
+
+```bash
+apprise -vv --tag fail2ban --config /etc/fail2ban/apprise.conf \
+     --body "fail2ban trigger test"
+```
+
+Confirm Apprise URLs independently before debugging Fail2ban.
+
+## Useful Tips
+
+Fail2ban is amazing, but it can be tedious to use at times. Sometimes it helps to have a few handy notes on the side to troubleshoot with:
+
+```bash
+# See all jails:
+fail2ban-client status
+
+# Look into the status of one of the specific jails
+fail2ban-client status sshd
+
+# quick and dirty way to unban an IP (regardless of which jail banned it)
+fail2ban-client unban 1.2.3.4
+```

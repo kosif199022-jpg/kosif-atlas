@@ -1,0 +1,11 @@
+{
+  "name": "geo-authority-architect",
+  "description": "Builds a GEO/AI-citation authority strategy and Canon/Frameworks/Diagnostics content architecture; use for \"GEO strategy\", \"get cited by AI\", \"GEARS\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

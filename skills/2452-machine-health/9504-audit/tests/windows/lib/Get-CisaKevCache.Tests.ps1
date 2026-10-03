@@ -1,0 +1,205 @@
+#Requires -Version 7.4
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.7.0' }
+<#
+.SYNOPSIS
+Tests for scripts/windows/lib/Get-CisaKevCache.ps1.
+
+.DESCRIPTION
+The previous 32-byte size gate failed to detect the checked-in 238-byte seed
+stub, so the cache never refreshed on first run. These tests pin the new
+content-based detection (empty vulnerabilities array triggers refresh) and the
+atomic-rename fetch path, while keeping fetch side-effects isolated via temp
+directories and Pester mocks.
+#>
+
+BeforeAll {
+    . "$PSScriptRoot\..\..\helpers\Initialize-CheckSuite.ps1" -LibScript 'Get-CisaKevCache.ps1' -MockHelpers
+
+    # The one-vulnerability KEV document the fetch mock and every cache seed share.
+    function ConvertTo-KevCacheJson {
+        param([Parameter(Mandatory)] [string] $CveId)
+        @{ vulnerabilities = @(@{ cveID = $CveId }) } | ConvertTo-Json
+    }
+
+    function Set-KevFetchMock {
+        # Mocks Invoke-WebRequest to write the payload to the .download temp file; it rides in
+        # a script-scope variable because GetNewClosure would hide the injected $OutFile.
+        param([Parameter(Mandatory)] [string] $CveId)
+        $script:KevFetchPayload = ConvertTo-KevCacheJson -CveId $CveId
+        Mock Invoke-WebRequest {
+            Set-Content -LiteralPath $OutFile -Value $script:KevFetchPayload -Encoding utf8
+        } -ParameterFilter { $OutFile -like '*.download' }
+    }
+}
+
+Describe 'Get-CisaKevCache' -Tag 'lib' {
+    BeforeEach {
+        $script:tmpDir = New-MachineHealthTempDir -Prefix 'machine-health-kev'
+        $script:cachePath = Join-Path $script:tmpDir 'cisa-kev.json'
+        $script:logPath = Join-Path $script:tmpDir 'run.log'
+    }
+
+    AfterEach {
+        Remove-MachineHealthTempDir -Path $script:tmpDir
+    }
+
+    Context 'refresh decisions' {
+        It 'fetches when the cache file is missing' {
+            Set-KevFetchMock -CveId 'CVE-2024-0001'
+
+            $result = Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath
+            $result.vulnerabilities.Count | Should -Be 1
+            $result.vulnerabilities[0].cveID | Should -Be 'CVE-2024-0001'
+            Should -Invoke Invoke-WebRequest -Times 1
+        }
+
+        It 'fetches when the cache file is empty or whitespace' {
+            Set-Content -LiteralPath $script:cachePath -Value "   `r`n`t  " -Encoding utf8
+
+            Set-KevFetchMock -CveId 'CVE-2024-EMPTY'
+
+            $result = Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath
+            $result.vulnerabilities.Count | Should -Be 1
+            $result.vulnerabilities[0].cveID | Should -Be 'CVE-2024-EMPTY'
+            Should -Invoke Invoke-WebRequest -Times 1
+        }
+
+        It 'fetches when the cache is the checked-in seed stub (empty vulnerabilities)' {
+            $stub = '{"_comment":"placeholder","vulnerabilities":[]}'
+            Set-Content -LiteralPath $script:cachePath -Value $stub -Encoding utf8
+
+            Set-KevFetchMock -CveId 'CVE-2024-0002'
+
+            $result = Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath
+            $result.vulnerabilities.Count | Should -Be 1
+            Should -Invoke Invoke-WebRequest -Times 1
+        }
+
+        It 'fetches when the cache is older than MaxAgeDays' {
+            Set-Content -LiteralPath $script:cachePath -Value (ConvertTo-KevCacheJson -CveId 'CVE-2024-0003') -Encoding utf8
+            (Get-Item -LiteralPath $script:cachePath).LastWriteTime = (Get-Date).AddDays(-10)
+
+            Set-KevFetchMock -CveId 'CVE-2024-0099'
+
+            $result = Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath -MaxAgeDays 7
+            $result.vulnerabilities[0].cveID | Should -Be 'CVE-2024-0099'
+            Should -Invoke Invoke-WebRequest -Times 1
+        }
+
+        It 'skips fetch when cache is fresh with content' {
+            Set-Content -LiteralPath $script:cachePath -Value (ConvertTo-KevCacheJson -CveId 'CVE-2024-0004') -Encoding utf8
+
+            Mock Invoke-WebRequest { }
+
+            $result = Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath -MaxAgeDays 7
+            $result.vulnerabilities[0].cveID | Should -Be 'CVE-2024-0004'
+            Should -Invoke Invoke-WebRequest -Times 0
+        }
+
+        It 'fetches when -ForceRefresh is passed regardless of cache state' {
+            Set-Content -LiteralPath $script:cachePath -Value (ConvertTo-KevCacheJson -CveId 'CVE-2024-0005') -Encoding utf8
+
+            Set-KevFetchMock -CveId 'CVE-2024-9999'
+
+            $result = Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath -ForceRefresh
+            $result.vulnerabilities[0].cveID | Should -Be 'CVE-2024-9999'
+            Should -Invoke Invoke-WebRequest -Times 1
+        }
+    }
+
+    Context 'fetch failure handling' {
+        It 'returns the prior cache when fetch throws, without clobbering' {
+            Set-Content -LiteralPath $script:cachePath -Value (ConvertTo-KevCacheJson -CveId 'CVE-2024-PRIOR') -Encoding utf8
+            (Get-Item -LiteralPath $script:cachePath).LastWriteTime = (Get-Date).AddDays(-10)
+
+            Mock Invoke-WebRequest { throw 'network down' }
+
+            $result = Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath `
+                -MaxAgeDays 7 -WarningAction SilentlyContinue
+
+            $result.vulnerabilities[0].cveID | Should -Be 'CVE-2024-PRIOR'
+            Get-Content -LiteralPath $script:cachePath -Raw | Should -Match 'CVE-2024-PRIOR'
+        }
+
+        It 'returns an empty vulnerabilities array when cache missing and fetch fails' {
+            Mock Invoke-WebRequest { throw 'DNS lookup failed' }
+
+            $result = Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath `
+                -WarningAction SilentlyContinue
+
+            $result | Should -Not -BeNullOrEmpty
+            @($result.vulnerabilities).Count | Should -Be 0
+        }
+
+        It 'does not leave a temp download file behind on failure' {
+            Mock Invoke-WebRequest {
+                Set-Content -LiteralPath $OutFile -Value 'garbage' -Encoding utf8
+            } -ParameterFilter { $OutFile -like '*.download' }
+
+            Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath `
+                -WarningAction SilentlyContinue | Out-Null
+
+            Test-Path -LiteralPath "$($script:cachePath).download" | Should -BeFalse
+        }
+
+        It 'does not overwrite a good cache when the download is unparsable' {
+            Set-Content -LiteralPath $script:cachePath -Value (ConvertTo-KevCacheJson -CveId 'CVE-2024-KEEP') -Encoding utf8
+
+            Mock Invoke-WebRequest {
+                Set-Content -LiteralPath $OutFile -Value '{broken json' -Encoding utf8
+            } -ParameterFilter { $OutFile -like '*.download' }
+
+            Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath `
+                -ForceRefresh -WarningAction SilentlyContinue | Out-Null
+
+            Get-Content -LiteralPath $script:cachePath -Raw | Should -Match 'CVE-2024-KEEP'
+        }
+    }
+
+    Context 'egress logging' {
+        It 'appends a GET line to the log when a refresh is attempted' {
+            Set-KevFetchMock -CveId 'CVE-2024-0006'
+
+            Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath | Out-Null
+
+            $logContent = Get-Content -LiteralPath $script:logPath -Raw
+            $logContent | Should -Match 'egress GET'
+            $logContent | Should -Match 'cisa\.gov'
+        }
+
+        It 'appends a FAIL line when fetch throws' {
+            Mock Invoke-WebRequest { throw 'TLS handshake failed' }
+
+            Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath `
+                -WarningAction SilentlyContinue | Out-Null
+
+            $logContent = Get-Content -LiteralPath $script:logPath -Raw
+            $logContent | Should -Match 'egress FAIL'
+            $logContent | Should -Match 'TLS handshake failed'
+        }
+
+        It 'writes a GET line Read-EgressLog can parse (single timestamp, canonical shape)' {
+            Set-KevFetchMock -CveId 'CVE-2024-0007'
+
+            Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath | Out-Null
+
+            # A self-prepended timestamp ("<ts> <ts> egress GET ...") is unparsable by
+            # Read-EgressLog and drops the fetch from urls_called.
+            $get = @(Read-EgressLog -LogPath $script:logPath | Where-Object { $_.kind -eq 'GET' })
+            $get.Count | Should -BeGreaterOrEqual 1
+            $get[0].uri | Should -Match 'cisa\.gov'
+            { [datetimeoffset]::Parse($get[0].timestamp) } | Should -Not -Throw
+        }
+
+        It 'writes a FAIL line Read-EgressLog can parse when the fetch throws' {
+            Mock Invoke-WebRequest { throw 'TLS handshake failed' }
+
+            Get-CisaKevCache -CachePath $script:cachePath -LogPath $script:logPath `
+                -WarningAction SilentlyContinue | Out-Null
+
+            $fail = @(Read-EgressLog -LogPath $script:logPath | Where-Object { $_.kind -eq 'FAIL' })
+            $fail.Count | Should -BeGreaterOrEqual 1
+            $fail[0].uri | Should -Match 'cisa\.gov'
+        }
+    }
+}

@@ -1,0 +1,342 @@
+# Build Pipeline: In-Tree Reference
+
+## Contents
+
+- [Pipeline files](#pipeline-files)
+- [Prerequisites, one-time setup (in-repo maintainer form)](#prerequisites-one-time-setup-in-repo-maintainer-form)
+- [Per-meeting build sequence](#per-meeting-build-sequence)
+- [AI-in-loop checkpoints](#ai-in-loop-checkpoints)
+- [`slides-data.js` schema](#slides-datajs-schema)
+- [Slide types (11 total)](#slide-types-11-total)
+- [Per-meeting emit logic (slides-data.js generation)](#per-meeting-emit-logic-slides-datajs-generation)
+- [HTML deck features](#html-deck-features)
+- [PDF output](#pdf-output)
+- [validate.js gates](#validatejs-gates)
+- [Drift / recheck triggers](#drift--recheck-triggers)
+- [Slide/HTML/PDF generation detail](#slidehtmlpdf-generation-detail)
+
+Canonical pipeline for `--format slides|html` reproducing the deck (brand tokens in `output/build/brand.js`). Lives at `output/build/` under the skill.
+
+This file documents the working pipeline schema + commands. For brand spec, slide order, split rules, provider buckets, and provider logos, see `slide-generation.md`.
+
+## Pipeline files
+
+| File | Role | Output |
+|---|---|---|
+| `run.js` | **Orchestrator.** Chains emit → build (pptx+html+pdf) → validate. Single entrypoint | drives the chain |
+| `emit-slides-data.js` | **Emitter.** Reads briefing markdown + state, writes `slides-data.js`. Pre-flight provider-logo resolution. Zod schema validates before writing | `slides-data.js` |
+| `slides-data.js` | **Generated.** Slide content per current meeting. Do NOT hand-edit; re-run emitter. | data module consumed by build-* scripts |
+| `lib/parse-briefing.js` | Markdown AST parser (remark + remark-gfm). H2 buckets → H3 tiers → bullet items | n/a |
+| `lib/emit-slides.js` | Items → slide objects (canonical order, HIGH≤5 split, MED≤14 split, cross-provider clusters, patterns synthesis) | n/a |
+| `lib/schema.js` | Zod discriminated union: 11 slide types, meta, theme, providerLogos | n/a |
+| `lib/provider-logos.js` | Resolves bundled provider SVGs; missing optional assets downgrade to text-only headers without network access | n/a |
+| `lib/paths.js` | Resolves the build root and the per-profile state root every generated artifact is written under | n/a |
+| `lib/brand-overlay.js` | Overlays a schema-validated profile `brand.json` on the neutral engine defaults | n/a |
+| `lib/url-policy.js` |  | n/a |
+| `lib/url-display.js` | Shared URL display formatter used by the HTML build and the validator | n/a |
+| `build-pptx.js` | pptxgenjs ESM. Provider-aware decorate(), 11 slide types | `../meetings/ai-meeting-{N}.pptx` |
+| `build-html.js` | Single-file HTML emitter. Inline base64 org logos + inline SVG provider logos via `currentColor`; keyboard section stepping, chip-strip navigation, hash deep-link, `?print=1` flag | `../meetings/ai-meeting-{N}.html` |
+| `build-sections.js` | Section grouping and HTML fragment generation for the deck | consumed by `assemble-html.js` |
+| `build-css.js` | CSS generation for the deck | consumed by `assemble-html.js` |
+| `build-client-js.js` | Client-side JavaScript for the deck (keyboard nav, scroll-spy, print mode) | consumed by `assemble-html.js` |
+| `assemble-html.js` | Assembles the single-file sectioned-scroll HTML deck from the build modules | consumed by `build-html.js` |
+| `build-pdf.js` | Playwright headless chromium prints `?print=1` HTML to Letter landscape, 0-margin, one slide per page | `../meetings/ai-meeting-{N}.pdf` |
+| `validate.js` | Multi-gate validator. The gate list and which gates block live in the script's own header comment; read it rather than restating it here. Screenshots every section | `shots/section-*.png` + `shots/responsive-*.png` + `shots/audit.json` |
+| `assets/` | Bundled org logos (PNG) + provider logos (SVG) | n/a |
+| `package.json` | `playwright` + `pptxgenjs` + `remark-parse` + `remark-gfm` + `unified` + `unist-util-visit` + `zod` + `linkinator` + `unpdf` + `node-pptx-parser` | n/a |
+
+## Prerequisites, one-time setup (in-repo maintainer form)
+
+As a consumer, skip this: run `/ai-briefing:setup apply install-build-deps` instead, and read
+"Plugin form" below. The commands here are for a maintainer working in the repository, where
+the build tree is writable.
+
+```bash
+cd output/build
+
+npm ci
+npx playwright install chromium --only-shell
+```
+
+The committed lockfile is authoritative for dependency versions; [`npm ci`](https://docs.npmjs.com/cli/commands/npm-ci/)
+fails instead of rewriting a mismatched lockfile. [Playwright couples each library release
+to compatible browser binaries](https://playwright.dev/docs/browsers), so rerun the browser
+install after a Playwright update. `--only-shell` is appropriate because this pipeline
+launches Chromium headlessly without a browser channel. The supported Node versions are the
+ones `/ai-briefing:setup` preflights; the plugin README carries the dated record. On Windows /
+Git Bash, use `pwsh` for npx if `npx.cmd` resolution flakes.
+
+**Plugin form.** The plugin cache is read-only and the scripts are Node ESM (which ignores `NODE_PATH`), so `/ai-briefing:setup apply install-build-deps` **stages a runnable copy** of the build tree under `${CLAUDE_PLUGIN_DATA}/runtime/build/` with `node_modules` installed as a sibling. The skill resolves the rendered `${user_config.active_profile}` value (or a per-invocation override) and passes it explicitly when launching the build: `AI_BRIEFING_PROFILE="$PROFILE" node "${CLAUDE_PLUGIN_DATA}/runtime/build/run.js"`. Emitted `slides-data.js`, decks, and screenshots land under `${CLAUDE_PLUGIN_DATA}/<profile>/output/`. Setup re-stages the optional build tree on a plugin-version bump when `apply install-build-deps` is invoked.
+
+## Per-meeting build sequence
+
+**Single entrypoint** (full chain: emit → build → validate):
+
+```bash
+cd output/build
+node run.js
+```
+
+**Granular** (when overseer wants to inspect/edit between stages):
+
+```bash
+node emit-slides-data.js                    # Step 1 — emit slides-data.js from briefing.md
+# AI overseer reviews slides-data.js: tier assignments, headline phrasing,
+# patterns synthesis, cluster placement. Edit slides-data.js directly OR re-run emit with overrides.
+
+node build-pptx.js                          # Step 2a — pptx
+node build-html.js                          # Step 2b — html
+node build-pdf.js                           # Step 2c — pdf
+
+node validate.js                            # Step 3 — quality gates
+# AI overseer reviews shots/section-*.png + shots/audit.json before ship.
+```
+
+**Skip-emit** (rebuild from edited slides-data.js):
+
+```bash
+node run.js --skip-emit
+```
+
+**Emitter overrides** (passed through `run.js` too):
+
+```bash
+node emit-slides-data.js --meeting-n 21 --briefing ../meetings/meeting-21.md --date 2026-05-22
+```
+
+`validate.js` exits non-zero on blocking issues only and prints warnings without blocking. The script's `issues.blocking` and `issues.warnings` pushes are the authority for which is which; read them rather than assuming from this file. **Treat warnings as overseer-review items.** The AI reads the audit and decides whether to ship or iterate.
+
+## AI-in-loop checkpoints
+
+Scripts make pipeline **efficient**, not autonomous. Overseer (Claude or human) holds judgment at these gates:
+
+| Gate | Script does | Overseer does |
+|---|---|---|
+| **Briefing → slides-data emit** | Parses markdown, partitions tiers, splits HIGH/MED, places clusters, fetches logos, validates schema | Reviews emitted `slides-data.js`: are tier assignments right? Are headline truncations preserving meaning? Should any item be promoted/demoted? Edit and re-run |
+| **Patterns synthesis** | Emits stub `patterns` slide based on bucket presence | Reviews stub, replaces with curated cross-bucket themes the briefing actually surfaces, never a generic stub |
+| **Apolitical filter** | Doesn't filter. Passes everything through | Drops partisan-only items at briefing-emit time AND re-validates at slides-emit (defense in depth) |
+| **Cross-provider clusters** | Routes "Legal", "Compute", "Real-world" H2 sections to dedicated slides | Decides if a sub-bullet inside another bucket should be promoted to a cluster slide (e.g., a Microsoft item that's actually a Musk-v-Altman co-defendant detail) |
+| **Visual review** | Screenshots every section to `shots/section-NN.png` and every responsive combination to `shots/responsive-*.png`, dumps `audit.json` | Reads screenshots, checks: text legibility, contrast, headline truncation natural, URL list density acceptable, no broken layouts, brand consistency |
+| **Ship gate** | Prints "VALIDATION PASSED" on 0 blocking | Final go/no-go after visual + audit review. Iterate (edit briefing.md OR slides-data.js, re-run) until satisfied |
+
+**Rule of thumb:** if a decision could embarrass the team in front of attendees (wrong tier, awkward headline, a partisan item that slipped the apolitical filter, broken pattern claim), it's an overseer call. Scripts only handle decisions that have one mechanically-correct answer.
+
+## `slides-data.js` schema
+
+```js
+export const meta = {
+  meetingNumber: 20,
+  org: "AI Briefing",
+  tagline: "AI industry news, aggregated and ranked.",
+  date: "2026-05-08",
+  window: "2026-04-24 to 2026-05-05 (~11 days)",
+  logoColor: "",
+  logoWhite: "",
+};
+
+export const theme = {
+  bg: "0F1424", bgAccent: "1C2440", bgCard: "2B3358",
+  brandIndigo: "23305C", brandRed: "C0432E",
+  accent: "6E8BFF", accent2: "F2B441", accent3: "8FB6FF",
+  text: "FFFFFF", textMuted: "B4BAD4", divider: "3C456E",
+  pptFontHead: "Arial", pptFontBody: "Arial",
+  htmlFontHead: "'Segoe UI', system-ui, sans-serif",
+  htmlFontBody: "'Open Sans', 'Segoe UI', system-ui, sans-serif",
+};
+
+export const providerLogos = {
+  anthropic: "assets/logo-anthropic.svg",
+  openai: "assets/logo-openai.svg",
+  // ... see slide-generation.md "Provider logo registry" for full list
+  deepseek: null,    // no upstream logo — text-only header
+};
+
+export const slides = [
+  /* slide objects in canonical order — see Slide types below */
+];
+```
+
+`meta` and `theme` start from the neutral brand in `output/build/brand.js`. Do not redefine them per run. A consumer rebrand belongs in the selected profile's schema-validated `brand.json`; `meta.meetingNumber`, `meta.date`, and `meta.window` are the only meeting-specific fields.
+
+## Slide types (11 total)
+
+Each slide object has `type:` discriminating which renderer applies in `build-pptx.js` and `build-html.js`.
+
+| `type` | Required fields | Optional | Renders |
+|---|---|---|---|
+| `title` | `eyebrow`, `title`, `subtitle`, `footer` | none | Hero title slide with org logo, brand-red top + gold bottom strips, glow ellipses, tagline |
+| `agenda` | `title`, `items[]` | none | Numbered agenda cards (9-item meeting roadmap) |
+| `section` | `title`, `lead`, `items[]` | none | Welcome & Goals: quote + pill row |
+| `levels` | `title`, `levels[{n,label}]` | none | AI Generative Levels 0-5 reference |
+| `open` | `title`, `subtitle` | `note` | Open share that kicks off the news block |
+| `news` | `title`, `bullets[{title,body,urls[]}]` | `subtitle`, `provider`, `tier` | HIGH-tier news slide; provider logo when `provider:` set |
+| `condensed` | `title`, `bullets[{title,body,urls[]}]` | `subtitle`, `provider`, `tier` | MED/LOW condensed; auto-2-col when >7 bullets |
+| `patterns` | `title`, `subtitle`, `items[{title,body}]` | none | Synthesis slide: cross-bucket themes |
+| `prompt` | `title`, `prompt`, `note` | none | Discussion prompt (Tools / Tips / Problems) |
+| `blank` | `title`, `placeholder` | none | Task Force Update placeholder |
+| `qa` | `title`, `subtitle` | none | Q & A closing |
+
+### `tier` values for `news`/`condensed`
+
+| `tier` | Eyebrow text | When |
+|---|---|---|
+| `"high"` | `"AI LATEST NEWS"` (no suffix) | top-impact items: model releases, major launches, industry-defining legal events |
+| `"med"` | `"AI LATEST NEWS · medium signal"` | features, API changes, ecosystem moves |
+| `"low"` | `"AI LATEST NEWS · low signal"` | color, criticism, minor updates |
+
+### `provider` values
+
+Slug from `providerLogos` map. Set `provider: null` for cross-provider clusters (Legal, Compute when no single chip dominates, Patterns synthesis, etc.).
+
+## Per-meeting emit logic (slides-data.js generation)
+
+When `--format slides|html` runs:
+
+1. Read briefing source `output/meetings/meeting-{N}.md`
+2. Read state `context/seen-items.json` for `meeting_n` (or use `--meeting-n` override)
+3. Parse markdown and bucket each item by provider (the bucket order in `slide-generation.md` "Per-bucket slide ordering")
+4. Within each bucket, partition by HIGH / MED / LOW
+5. **Apolitical filter.** Drop partisan-only items (already done at briefing-emit time per SKILL.md, but re-validate at slides-emit)
+6. Emit slide objects in canonical order (see `slide-generation.md` "Canonical slide order")
+   - HIGH bucket → `news` slide(s), split when >7 bullets
+   - MED bucket → `condensed` slide, auto 2-col when >7 bullets
+   - LOW bucket → `condensed` slide, single-col
+   - Cross-provider clusters → dedicated `news` slide (Legal/Compute/Real-world)
+   - Patterns synthesis → `patterns` slide when ≥3 cross-bucket themes
+7. Resolve provider logos from bundled `assets/logo-<slug>.svg` files; missing optional logos degrade to text-only headers
+8. Write `slides-data.js` (overwriting prior meeting's data)
+9. Run pipeline: `build-pptx.js → build-html.js → build-pdf.js → validate.js`
+10. On validate.js exit 0: increment `meeting_n` in `seen-items.json`, archive briefing
+
+## HTML deck features
+
+`build-html.js` emits a single self-contained file using system-font stacks and bundled or
+profile-provided assets. Rendering performs no external requests.
+
+### Navigation
+
+- Keyboard: `←` / `→` / `Space` / `n` / `p` step one section; `Home` / `End` / `Escape` jump to the ends
+- Chip strip: clicking a chip smooth-scrolls to that section
+- Scroll: the deck is a continuous scroll page, so ordinary scrolling works throughout
+- Deep-link: `#<section-id>` scrolls to that section on page load
+
+### Print mode
+
+`?print=1` query param disables transitions, shows all slides simultaneously stacked for paged-media rendering. `build-pdf.js` uses this URL form.
+
+### Responsive
+
+Designed for 1600×900 viewport (validate.js uses this). Smaller viewports scale via CSS clamp() and stay readable down to 1024×768.
+
+## PDF output
+
+`build-pdf.js` parameters (Letter landscape):
+
+```js
+await page.pdf({
+  format: "Letter",
+  landscape: true,
+  printBackground: true,
+  margin: { top: 0, right: 0, bottom: 0, left: 0 },
+  preferCSSPageSize: false,
+});
+```
+
+One slide per page. Uses local/system fonts; Playwright waits for document load, the deck
+root, `document.fonts.ready`, and two animation frames before printing.
+
+## validate.js gates
+
+The gate list, and which gates block versus warn, live in the header comment of
+`output/build/validate.js`. Read it there; it changes with the script.
+
+Outputs:
+
+- `shots/section-NN.png` and `shots/responsive-*.png` for visual review
+- `shots/audit.json`: structured audit (counts, mismatches, overflow)
+
+## Drift / recheck triggers
+
+| Trigger | Action |
+|---|---|
+| pptxgenjs major version bump | Verify `addImage` data URI handling, `ShapeType.rect` / `ellipse` API |
+| playwright major version bump | Re-test `chromium.launch` headless; `page.pdf` margin handling |
+| bundled provider logo changes | Update the pinned SVG in `assets/` and re-run render validation |
+| New provider added (slug missing) | Append to `providerLogos`; add a reviewed asset to `assets/` or use text-only rendering |
+| Plugin-wide neutral default changes | Update `output/build/brand.js` `theme` + `brand` exports; update `slide-generation.md` "Default brand spec" |
+| A supported Node major reaches end of life | Update the setup preflight's accepted majors and the README's dated matrix together |
+
+---
+
+## Slide/HTML/PDF generation detail
+
+When the build step of `/ai-briefing:generate` hits `--format slides|html`, the canonical path runs through this in-tree pipeline (Node ESM, pptxgenjs + playwright direct). The fallback skill paths are documented in `slide-generation.md`.
+
+### PPTX slides (`--format slides`)
+
+**Canonical pipeline:** in-tree `output/build/*.js`. Reproduces the deck deterministically from the active brand (brand tokens in `output/build/brand.js`).
+
+**Overseer-driven flow** (Claude is the overseer: runs scripts, reviews outputs, iterates):
+
+```bash
+cd output/build
+
+# 1. Emit slides-data.js from briefing markdown (mechanical)
+node emit-slides-data.js --meeting-n {N} --briefing ../meetings/meeting-{N}.md --date YYYY-MM-DD
+
+# 2. AI REVIEW — read slides-data.js
+#    - tier assignments (HIGH vs MED vs LOW reasonable?)
+#    - headline truncations preserve meaning?
+#    - Patterns synthesis stub (replace with curated cross-bucket themes from briefing)
+#    Edit slides-data.js directly OR re-run emitter with overrides.
+
+# 3. Build all 3 artifacts (mechanical)
+node build-pptx.js && node build-html.js && node build-pdf.js
+
+# 4. Validate (mechanical multi-gate audit)
+node validate.js
+
+# 5. AI review: read shots/section-NN.png screenshots + shots/audit.json
+#    - text legibility / contrast / spacing
+#    - headline truncations natural?
+#    - broken-link warnings actionable?
+#    - overflow on content slides?
+
+# 6. Ship gate — go/no-go
+#    Iterate until satisfied (edit briefing.md OR slides-data.js, repeat from step 1 or 3)
+```
+
+`node run.js` chains steps 1+3+4 in one shot when no pause needed. Use granular form when an overseer judgment call is pending.
+
+Default brand tokens (colors, fonts, logo paths) live in `output/build/brand.js` and are imported by `emit-slides-data.js`. Do not redefine per run.
+
+**Fallback path** (`/document-skills:pptx` skill): only when in-tree pipeline cannot run (Node missing, etc.). See `slide-generation.md` "Fallback skill paths" for skill-stack delegation. Default = in-tree.
+
+### Slide structure (mirrors the source deck)
+
+1. Title slide (Engineering AI Meeting #N, Date)
+2. AI Meeting Agenda
+3. Welcome / Goals
+4. AI Generative Levels (reference slide)
+5. AI Latest News, one slide per provider with bullet points
+6. AI Tools / Discussions
+7. AI Tips & Tricks / Show N Tell
+8. AI Problems?
+9. AI Task Force Update
+10. Feedback / Review Q&A
+
+If the in-tree pipeline cannot run and no PPTX-generation skill is installed either, report the gap and emit markdown only; `slide-generation.md` "PPTX fallback" states the brand-token caveat for when one is.
+
+### HTML slides (`--format html`)
+
+**Canonical pipeline:** `output/build/build-html.js` produces single-file HTML with inline CSS/JS, base64 org logos, inline SVG provider logos (white via `currentColor`), keyboard section stepping, a chip strip, hash deep-link, and the `?print=1` flag for print mode.
+
+**Summary:** Collect items → emit/update `output/build/slides-data.js` → run `node build-html.js` → output lands at `output/meetings/ai-meeting-{N}.html`. Schema and full slide-type list: see "`slides-data.js` schema" earlier in this file.
+
+**Fallback path** (`/frontend-design:frontend-design`, plus a slide-layout skill when one is installed): see `slide-generation.md` "Fallback skill paths".
+
+### PDF (post-generation)
+
+**Canonical pipeline:** `output/build/build-pdf.js`. Playwright headless chromium prints `?print=1` HTML to Letter landscape, 0-margin, one slide per page. Run after `build-html.js`.
+
+**Fallback paths** (when in-tree unavailable): see `slide-generation.md` "PDF fallback paths".

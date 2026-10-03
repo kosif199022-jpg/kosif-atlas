@@ -1,0 +1,10 @@
+# unslop
+
+Cut AI tells from text written or edited for a human reader before committing, posting, or sending it.
+
+- License: **MIT**
+- Source: https://github.com/parcha-ai/parcha-skills/tree/1f0ac837287e4de130fa8eb91ddeccd074c32b7c/unslop
+- Commit: `1f0ac837287e4de130fa8eb91ddeccd074c32b7c`
+- KOSIF static inspection: **REVIEW_BEFORE_INSTALL** (hooks: 0, MCP servers: 0, scripts: 1). Read the scripts before running anything.
+
+Unofficial mirror of the skill text for reference. All rights remain with the original authors under the license above.

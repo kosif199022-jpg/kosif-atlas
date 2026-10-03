@@ -1,0 +1,199 @@
+---
+created: 2025-12-16
+modified: 2026-09-28
+reviewed: 2026-09-16
+name: mcp-management
+description: Install, configure and troubleshoot MCP servers. Use when adding/enabling servers, editing .mcp.json, fixing OAuth, or when a server runs stale code after an upstream fix.
+user-invocable: false
+allowed-tools: Bash(jq *), Bash(find *), Read, Write, Edit, Grep, Glob, AskUserQuestion
+---
+
+# MCP Server Management
+
+Expert knowledge for managing Model Context Protocol (MCP) servers on a project-by-project basis, with support for runtime management, OAuth remote servers, and dynamic server discovery.
+
+For server config examples, the OAuth deep-dive, dynamic-discovery detail,
+troubleshooting scripts, and full configuration-pattern examples, see
+[REFERENCE.md](REFERENCE.md).
+
+## When to Use This Skill
+
+| Use this skill when... | Use configure-mcp instead when... |
+|------------------------|------------------------------------|
+| Understanding MCP architecture and concepts | Setting up `.mcp.json` for a new project |
+| Managing servers at runtime (enable/disable) | Installing new servers interactively |
+| Setting up OAuth remote MCP servers | Running compliance checks on MCP configuration |
+| Troubleshooting connection failures | Adding specific servers from the registry |
+| Implementing `list_changed` dynamic discovery | Generating project standards reports |
+
+## MCP Architecture Overview
+
+MCP connects Claude Code to external tools and data sources via two transport types:
+
+| Transport | Usage | Auth | Configuration |
+|-----------|-------|------|---------------|
+| **Stdio** (local) | Command-based servers via `npx`, `bunx`, `uvx`, `go run` | None needed | `.mcp.json` |
+| **HTTP+SSE** (remote) | URL-based servers hosted externally | OAuth 2.1 | `.mcp.json` with `url` field |
+
+Local servers declare a `command` + `args`; remote servers declare a `url` +
+`headers` (with `${VAR_NAME}` token references, never hardcoded). See
+[REFERENCE.md → Server configuration examples](REFERENCE.md#server-configuration-examples).
+
+## Runtime Server Management
+
+### `/mcp` Commands (Claude Code 2.1.50+)
+
+Manage servers without editing configuration files:
+
+| Command | Description |
+|---------|-------------|
+| `/mcp` | List all configured MCP servers and their connection status |
+| `/mcp enable <server>` | Enable a server for the current session |
+| `/mcp disable <server>` | Disable a server for the current session (session-scoped only) |
+
+**Note**: Enable/disable are session-scoped. Edit `.mcp.json` for permanent changes.
+
+### Check Server Status
+
+```bash
+jq -r '.mcpServers | keys[]' .mcp.json   # List configured servers
+jq '.mcpServers.context7' .mcp.json      # Verify a server's config
+```
+
+As of 2.1.238, `claude mcp list` / `claude mcp get` report a disabled server as
+`⊘ Disabled` immediately, without attempting to connect to it for a health
+check — a disabled server no longer costs a connection attempt to inspect.
+
+## OAuth Remote Servers (2.1.50+)
+
+Remote HTTP+SSE servers use OAuth 2.1: Claude Code discovers metadata from
+`/.well-known/oauth-authorization-server` (cached per URL), the user authorizes
+in-browser once, and **step-up auth** re-prompts when a tool needs elevated
+scope. To refresh stale OAuth config, `/mcp disable` then `/mcp enable` the
+server. Full flow, step-up detail, and caching behavior in
+[REFERENCE.md → OAuth support](REFERENCE.md#oauth-support-for-remote-mcp-servers).
+
+### CLI Authentication (2.1.186+)
+
+`claude mcp login <server>` / `claude mcp logout <server>` authenticate or
+de-authenticate a server from the command line, without opening the
+interactive `/mcp` menu. Pass `--no-browser` to complete the OAuth flow over
+SSH or another environment with no local browser.
+
+## Dynamic Tool Discovery (`list_changed`)
+
+Servers declaring `{"tools": {"listChanged": true}}` push
+`notifications/tools/list_changed` when their tool set changes, and Claude Code
+refreshes that server's tools **without a session restart** — useful for servers
+exposing project-context-specific tools. Same pattern for `resources` and
+`prompts`. Subscription is automatic; no client config needed. See
+[REFERENCE.md → Dynamic tool discovery](REFERENCE.md#dynamic-tool-discovery-list_changed).
+
+## Troubleshooting
+
+Common failure modes and the diagnostic scripts for each (server won't connect,
+missing env vars, OAuth issues, client behaviors that look like server bugs,
+the SDK MCP race condition) are in
+[REFERENCE.md → Troubleshooting scripts](REFERENCE.md#troubleshooting-scripts).
+Quick OAuth triage:
+
+| Symptom | Likely Cause | Action |
+|---------|-------------|--------|
+| Authorization prompt repeats | Token not persisted | Check token storage permissions |
+| Step-up auth loop | Scope mismatch | Revoke and re-authorize |
+| Discovery fails | Server down or URL wrong | Verify server URL and connectivity — `claude mcp list` / `/mcp` show the HTTP status and error text for a failed connection (2.1.219+), and warn when a config value has hidden leading or trailing whitespace; check both before assuming the URL itself is wrong. In headless/`-p` runs, `mcp_server_errors` in the stream-json init event lists any `--mcp-config` entries skipped by validation |
+| Cache stale | Server changed OAuth config | Disable/enable server to refresh |
+| Tool call hangs | Long-running MCP tool call | A call running longer than 2 minutes now moves to the background automatically so the session stays usable (2.1.212+); tune or disable with `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS` |
+| Remote tool call never returns | Server stopped responding mid-call | A remote MCP tool call with no response for 5 minutes now aborts with an error instead of blocking indefinitely (2.1.187+); override with `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` |
+
+MCP diagnostic output never prints resolved secrets (2.1.234+): a scope-conflict
+warning shows the configured `${VAR}` placeholder, and a connection-failure
+message shows only the server origin — safe to paste into an issue or share
+with a teammate.
+
+## Stale cached git source
+
+A server registered from a **git URL** rather than a published package serves a
+**cached commit**, so an upstream fix never arrives:
+
+```jsonc
+"pal": {
+  "command": "uvx",
+  "args": ["--from", "git+https://github.com/owner/repo.git", "pal-mcp-server"]
+}
+```
+
+`uvx` resolves the ref to a commit **once**, builds it, and caches by that
+commit. Later spawns reuse the build and do **not** re-fetch the branch head. So
+after a fix merges to the server's `main`, every client keeps running the old
+code — and the symptom is misattributed: you restart the client, the bug
+persists, and you suspect the fix, the registration, or the environment.
+
+**Confirm** by comparing the cached checkout's commit against upstream:
+
+```sh
+fd -H '<a-file-from-the-repo>' "$(uv cache dir)/git-v0/checkouts"   # .../<hash>/<commit>/...
+git ls-remote https://github.com/<owner>/<repo>.git refs/heads/main
+```
+
+A cached `<commit>` that is not the current head is the confirmation.
+
+**Fix** — refresh, then restart the client so it re-spawns from the new build:
+
+```sh
+uvx --refresh --from git+https://github.com/<owner>/<repo>.git <pkg> </dev/null
+```
+
+`</dev/null` feeds EOF so a **stdio** server exits after building instead of
+hanging for requests; the rebuild happens during resolve, so the cache is warm
+even if the process is then killed.
+
+**Durable fix — publish and pin.** This footgun exists *only* for an unpinned
+git source. Once the server is on PyPI, register it as `uvx <pkg>` (or
+`uvx <pkg>@<version>`): a version bump re-resolves cleanly and there is no
+cached-head-went-stale failure at all. Prefer the `git+` form only as an interim
+before the first publish.
+
+## Configuration Patterns
+
+Three scopes, each with a worked `.mcp.json` / `settings.json` / `plugin.json`
+example in [REFERENCE.md → Configuration patterns](REFERENCE.md#configuration-patterns):
+
+- **Project-scoped** (recommended) — `.mcp.json` at project root; `.gitignore` it for personal configs or track for team configs.
+- **User-scoped** (personal) — `~/.claude/settings.json` for servers available everywhere.
+- **Plugin-scoped** — declared in `plugin.json` (or referenced via `"mcpServers": "./.mcp.json"`).
+
+### Post-add approval gate (project-scoped)
+
+A **newly-added project `.mcp.json` server requires one-time user approval before its tools are callable in the *current* session** — this is expected, not an error. Immediately after writing the config, `claude mcp list` shows the server as `⏸ Pending approval (run 'claude' to approve)` and it stays uncallable until the user approves it via the `/mcp` command or restarts the CLI session — both user-only actions the agent cannot perform for them. So after writing a project `.mcp.json` entry, **tell the user proactively** that a one-time approval (`/mcp` or a session restart) is needed for the new server's tools to become available, rather than discovering the gate via a status check and asking mid-flow.
+
+### Under pi
+
+pi has no MCP client; `pi install npm:pi-mcp-adapter` adds one that reads this `.mcp.json` through a single `mcp` proxy tool. `/mcp disable` then persists, user-scoped servers need `/mcp setup`, and no approval gate is documented: [docs/pi-export.md § MCP servers](https://github.com/laurigates/claude-plugins/blob/main/docs/pi-export.md#mcp-servers-pi-mcp-adapter).
+
+## Agentic Optimizations
+
+| Context | Command |
+|---------|---------|
+| Quick status check | `jq -c '.mcpServers \| keys' .mcp.json 2>/dev/null` |
+| Validate JSON | `jq empty .mcp.json 2>&1` |
+| List env vars needed | `jq -r '.mcpServers[] \| .env // {} \| keys[]' .mcp.json 2>/dev/null \| sort -u` |
+| Check specific server | `jq -e '.mcpServers.context7' .mcp.json >/dev/null 2>&1 && echo "installed"` |
+| Find servers in plugin | `find . -name '.mcp.json' -maxdepth 2` |
+
+## Quick Reference
+
+### Server Types by Transport
+
+| Type | When to Use | Example |
+|------|-------------|---------|
+| `command` (stdio) | Local tools, no auth needed | `bunx`, `npx`, `uvx`, `go run` |
+| `url` (HTTP+SSE) | Remote hosted servers, OAuth needed | `https://...` |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `.mcp.json` | Project-level MCP server config (team-shareable) |
+| `~/.claude/settings.json` | User-level MCP server config (personal) |
+| `plugin.json` | Plugin-level MCP server declarations |

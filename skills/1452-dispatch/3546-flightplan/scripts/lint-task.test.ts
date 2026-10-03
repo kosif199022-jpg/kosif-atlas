@@ -1,0 +1,1663 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  lintFile,
+  collectTaskFiles,
+  inferRefFromPath,
+  checkFinalReview,
+  testCommandsIn,
+  checkFinalReviewTestNet,
+  extractTestPaths,
+  formatTestNetReport,
+  testNetReport,
+  countDeclaredFiles,
+} from "./lint-task";
+import { parseTask, type ParsedTask } from "./lib/parse-task";
+
+// Minimal ParsedTask for graph checks — bucket/nn/dependsOn/finalReview read.
+const mk = (
+  bucket: string,
+  nn: string,
+  deps: Array<[string, string]> = [],
+  finalReview = false,
+): ParsedTask =>
+  ({
+    bucket,
+    nn,
+    dependsOn: deps.map(([b, n]) => ({ bucket: b, nn: n })),
+    finalReview,
+  }) as unknown as ParsedTask;
+
+const VALID_TASK = `# UI-01: Fixture state shell
+
+> **Required reading**:
+> - \`../_context/shared.md\`
+>
+> **Depends on**: none
+> **Status**: todo
+
+## Goal
+One sentence.
+
+## Files to create / modify
+- a.ts (new)
+
+## Acceptance criteria
+- [ ] One
+
+## Verification
+- [ ] Run \`bun test\`
+
+## Eval rubric
+
+> Each dimension 0–5; weighted average > 4.0 to pass; Correctness < 4 is an automatic veto.
+
+| Dimension | Weight | 4–5 (pass) |
+|---|---|---|
+| Correctness | ×3 | correct |
+| Test coverage | ×1 | covers edges |
+`;
+
+async function writeTree(files: Record<string, string>): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "flightplan-lint-"));
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = join(root, rel);
+    await mkdir(join(abs, ".."), { recursive: true });
+    await writeFile(abs, body);
+  }
+  return root;
+}
+
+const taskWith = ({
+  bucket,
+  nn,
+  dependsOn = "none",
+  finalReview = false,
+  verification = "bun test",
+}: {
+  bucket: string;
+  nn: string;
+  dependsOn?: string;
+  finalReview?: boolean;
+  verification?: string | null;
+}) =>
+  VALID_TASK.replace("# UI-01", `# ${bucket.toUpperCase()}-${nn}`)
+    .replace("**Depends on**: none", `**Depends on**: ${dependsOn}`)
+    .replace(
+      "> **Status**: todo",
+      `${finalReview ? "> **Final review**: true\n" : ""}> **Status**: todo`,
+    )
+    .replace(
+      "- [ ] Run `bun test`",
+      verification === null
+        ? "- [ ] Check output"
+        : `- [ ] Run \`${verification}\``,
+    );
+
+async function runCli(input: string) {
+  const proc = Bun.spawn(
+    ["bun", join(import.meta.dir, "lint-task.ts"), input],
+    {
+      cwd: import.meta.dir,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { stdout, stderr, exitCode };
+}
+
+describe("lintFile Models", () => {
+  test("task template Models example lints clean without setting template defaults", async () => {
+    const template = await readFile(
+      join(import.meta.dir, "../references/task-template.md"),
+      "utf8",
+    );
+    const templateBlock = template.match(
+      /^## Template\n\n```markdown\n([\s\S]*?)\n```\n\n## Header rules/m,
+    );
+    expect(templateBlock).not.toBeNull();
+    expect(templateBlock![1].match(/^> \*\*Models\*\*:.*$/m)).toBeNull();
+
+    const sectionStart = template.indexOf("### Models\n");
+    expect(sectionStart).toBeGreaterThanOrEqual(0);
+    const sectionBody = template.slice(sectionStart + "### Models\n".length);
+    const nextHeading = sectionBody.search(/^#{2,3} /m);
+    const section = sectionBody.slice(
+      0,
+      nextHeading < 0 ? undefined : nextHeading,
+    );
+    const example = section.match(/^> \*\*Models\*\*:.*$/m);
+    expect(example).not.toBeNull();
+
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": VALID_TASK.replace(
+        "> **Status**: todo",
+        `> **Status**: todo\n${example![0]}`,
+      ),
+    });
+    try {
+      const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+      expect(violations.filter((v) => v.rule === "models")).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true });
+    }
+  });
+
+  test.each([
+    ["dev", "malformed"],
+    ["scout=haiku", "unknown role"],
+    ["dev=unknown", "unknown model"],
+    ["dev=opus/extreme", "unknown effort"],
+    ["dev=opus, dev=sonnet", "duplicate role"],
+    ["", "malformed"],
+    ["dev=Opus", "malformed"],
+  ])("reports %s as %s", async (value, kind) => {
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": VALID_TASK.replace(
+        "> **Status**: todo",
+        `> **Status**: todo\n> **Models**: ${value}`,
+      ),
+    });
+    try {
+      const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+      const models = violations.filter((v) => v.rule === "models");
+      expect(models).toHaveLength(1);
+      expect(models[0].detail).toContain(kind);
+    } finally {
+      await rm(root, { recursive: true });
+    }
+  });
+
+  test.each([
+    ["dev=opus/high, verify=sonnet", false, 0],
+    ["fix=opus", false, 1],
+    ["fix=opus", true, 0],
+    ["dev, scout=haiku, fix=opus", false, 3],
+  ] as const)(
+    "checks %s with finalReview=%s",
+    async (value, finalReview, count) => {
+      const root = await writeTree({
+        "tasks/_context/shared.md": "# Shared\n",
+        "tasks/ui/01-foo.md": VALID_TASK.replace(
+          "> **Status**: todo",
+          `> **Status**: todo\n> **Models**: ${value}${finalReview ? "\n> **Final review**: true" : ""}`,
+        ),
+      });
+      try {
+        const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+        const models = violations.filter((v) => v.rule === "models");
+        expect(models).toHaveLength(count);
+        if (count > 0) {
+          expect(models.at(-1)?.detail).toBe(
+            "`fix` is legal only on the Final review task",
+          );
+        }
+      } finally {
+        await rm(root, { recursive: true });
+      }
+    },
+  );
+});
+
+describe("lintFile", () => {
+  test("valid task → no violations", async () => {
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": VALID_TASK,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations).toEqual([]);
+    await rm(root, { recursive: true });
+  });
+
+  test("missing Required reading paths → violation", async () => {
+    const root = await writeTree({
+      "tasks/ui/01-foo.md": VALID_TASK, // shared.md not created
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "required-reading")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("Required reading outside _context/ → violation", async () => {
+    const bad = VALID_TASK.replace(
+      "`../_context/shared.md`",
+      "`../../docs/PLAN.md`",
+    );
+    const root = await writeTree({ "tasks/ui/01-foo.md": bad });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "required-reading")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("Required reading must be sibling ../_context — absolute path rejected", async () => {
+    const bad = VALID_TASK.replace(
+      "`../_context/shared.md`",
+      "`/Users/foo/tasks/_context/shared.md`",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(
+      violations.some(
+        (v) =>
+          v.rule === "required-reading" && /sibling _context/.test(v.detail),
+      ),
+    ).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("Required reading must be sibling — deep traversal rejected", async () => {
+    const bad = VALID_TASK.replace(
+      "`../_context/shared.md`",
+      "`../../something/_context/shared.md`",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(
+      violations.some(
+        (v) =>
+          v.rule === "required-reading" && /sibling _context/.test(v.detail),
+      ),
+    ).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("body mentions PLAN.md → violation", async () => {
+    const bad = VALID_TASK.replace("One sentence.", "See PLAN.md for context.");
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "self-containment")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("body mentions plan.md (lowercase) → violation", async () => {
+    const bad = VALID_TASK.replace("One sentence.", "See plan.md for context.");
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "self-containment")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("body references sibling task file (with .md) → violation", async () => {
+    const bad = VALID_TASK.replace(
+      "One sentence.",
+      "Follow the pattern from ui/02-bar.md.",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "self-containment")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("body references sibling shorthand bucket/NN → violation", async () => {
+    const bad = VALID_TASK.replace(
+      "One sentence.",
+      "After ui/02 is done, this can ship.",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "self-containment")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("body referencing its OWN file path → no violation", async () => {
+    const ok = VALID_TASK.replace(
+      "One sentence.",
+      "This task lives at ui/01-foo.md.",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": ok,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.filter((v) => v.rule === "self-containment")).toEqual([]);
+    await rm(root, { recursive: true });
+  });
+
+  test("body with a deeper file path (not a sibling ref) → no violation", async () => {
+    // `assets/icons/03-logo.svg` has a bucket-like middle segment but is a real
+    // asset path, not a sibling task — the lookbehind must keep it off the radar.
+    const ok = VALID_TASK.replace(
+      "One sentence.",
+      "Render the sprite from `assets/icons/03-logo.svg`.",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": ok,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.filter((v) => v.rule === "self-containment")).toEqual([]);
+    await rm(root, { recursive: true });
+  });
+
+  test("H1 bucket/NN mismatches file path → violation", async () => {
+    // File path says ui/01 but H1 claims API-99
+    const bad = VALID_TASK.replace(
+      "# UI-01: Fixture state shell",
+      "# API-99: Bogus claim",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "h1-path-mismatch")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("missing Acceptance criteria section → violation", async () => {
+    const bad = VALID_TASK.replace(
+      /## Acceptance criteria\n- \[ \] One\n\n/,
+      "",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "sections")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("Acceptance criteria with no checkbox → violation", async () => {
+    const bad = VALID_TASK.replace("- [ ] One", "Just prose, no checkbox.");
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(
+      violations.some(
+        (v) => v.rule === "sections" && /checkbox/.test(v.detail),
+      ),
+    ).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("missing Verification section → violation", async () => {
+    const bad = VALID_TASK.replace(/## Verification[\s\S]*$/, "");
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(
+      violations.some(
+        (v) => v.rule === "sections" && /Verification/.test(v.detail),
+      ),
+    ).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("bad status value → violation", async () => {
+    const bad = VALID_TASK.replace("**Status**: todo", "**Status**: pending");
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "status")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("status with trailing junk → violation", async () => {
+    const bad = VALID_TASK.replace(
+      "**Status**: todo",
+      "**Status**: todo maybe",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "status")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("done with an unticked gate box → completion-state violation", async () => {
+    const bad = VALID_TASK.replace("**Status**: todo", "**Status**: done");
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    const hit = violations.find((v) => v.rule === "completion-state");
+    expect(hit).toBeDefined();
+    expect(hit!.detail).toMatch(/Do NOT tick the boxes by hand/);
+    expect(hit!.detail).toMatch(/`in-progress` or `todo`/);
+    await rm(root, { recursive: true });
+  });
+
+  test("done with every gate box ticked → no completion-state violation", async () => {
+    const good = VALID_TASK.replace(
+      "**Status**: todo",
+      "**Status**: done",
+    ).replaceAll("- [ ]", "- [x]");
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": good,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations).toEqual([]);
+    await rm(root, { recursive: true });
+  });
+
+  test("malformed file → parse violation", async () => {
+    const root = await writeTree({
+      "tasks/ui/01-foo.md": "no h1, no quote, just text",
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "parse")).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("valid task carries no rubric violation", async () => {
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": VALID_TASK,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(violations.some((v) => v.rule === "rubric")).toBe(false);
+    await rm(root, { recursive: true });
+  });
+
+  test("missing Eval rubric section → violation", async () => {
+    const bad = VALID_TASK.slice(0, VALID_TASK.indexOf("## Eval rubric"));
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(
+      violations.some((v) => v.rule === "rubric" && /missing/.test(v.detail)),
+    ).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("Eval rubric present but unparseable → violation", async () => {
+    const bad = VALID_TASK.replace(
+      "> Each dimension 0–5; weighted average > 4.0 to pass; Correctness < 4 is an automatic veto.",
+      "> Just eyeball it, close enough is fine.",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(
+      violations.some(
+        (v) => v.rule === "rubric" && /unparseable/.test(v.detail),
+      ),
+    ).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("pass threshold out of scale → violation", async () => {
+    const bad = VALID_TASK.replace(
+      "weighted average > 4.0 to pass",
+      "weighted average > 9 to pass",
+    );
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-foo.md": bad,
+    });
+    const violations = await lintFile(join(root, "tasks/ui/01-foo.md"));
+    expect(
+      violations.some((v) => v.rule === "rubric" && /scale/.test(v.detail)),
+    ).toBe(true);
+    await rm(root, { recursive: true });
+  });
+});
+
+describe("testCommandsIn", () => {
+  test("finds bun test command in Verification", () => {
+    const task = VALID_TASK.replace(
+      "- [ ] Run `bun test`",
+      "- [ ] Run `bun test packages/foo`",
+    );
+    const parsed = parseTask(task);
+    expect(parsed.ok && testCommandsIn(parsed.task)).toEqual([
+      "bun test packages/foo",
+    ]);
+  });
+
+  test("finds npm test variants", () => {
+    const task = VALID_TASK.replace(
+      "- [ ] Run `bun test`",
+      `- [ ] Run \`npm test\` or \`npm run test\` or \`pnpm test\` or \`pnpm run test\` or \`yarn test\` or \`yarn run test\``,
+    );
+    const parsed = parseTask(task);
+    expect(parsed.ok && testCommandsIn(parsed.task)).toEqual([
+      "npm test",
+      "npm run test",
+      "pnpm test",
+      "pnpm run test",
+      "yarn test",
+      "yarn run test",
+    ]);
+  });
+
+  test("finds cargo test, pytest, go test, rspec, make test", () => {
+    const task = VALID_TASK.replace(
+      "- [ ] Run `bun test`",
+      `- [ ] Run \`cargo test\`, \`pytest\`, \`go test ./...\`, \`rspec\`, or \`make test\``,
+    );
+    const parsed = parseTask(task);
+    expect(parsed.ok && testCommandsIn(parsed.task)).toEqual([
+      "cargo test",
+      "pytest",
+      "go test ./...",
+      "rspec",
+      "make test",
+    ]);
+  });
+
+  test("rejects near-misses: bun testify, make tested, rspecs, npm testx", () => {
+    const task = VALID_TASK.replace(
+      "- [ ] Run `bun test`",
+      `- [ ] Do NOT run \`bun testify\`, \`make tested\`, \`rspecs\`, or \`npm testx\``,
+    );
+    const parsed = parseTask(task);
+    expect(parsed.ok && testCommandsIn(parsed.task)).toEqual([]);
+  });
+
+  test("returns [] when no Verification section", () => {
+    const task = VALID_TASK.replace(
+      "## Verification\n- [ ] Run `bun test`\n",
+      "",
+    );
+    const parsed = parseTask(task);
+    expect(parsed.ok && testCommandsIn(parsed.task)).toEqual([]);
+  });
+
+  test("ignores test commands in prose (not checklist items)", () => {
+    const task = VALID_TASK.replace(
+      "- [ ] Run `bun test`",
+      `- [ ] Check the output
+Note: do not run \`bun test\` in production.`,
+    );
+    const parsed = parseTask(task);
+    expect(parsed.ok && testCommandsIn(parsed.task)).toEqual([]);
+  });
+
+  test("recognizes both - [ ] and - [x] forms", () => {
+    const task = VALID_TASK.replace(
+      "- [ ] Run `bun test`",
+      `- [x] Run \`bun test\`
+- [ ] Run \`npm test\``,
+    );
+    const parsed = parseTask(task);
+    expect(parsed.ok && testCommandsIn(parsed.task)).toEqual([
+      "bun test",
+      "npm test",
+    ]);
+  });
+
+  test("finds test command on continuation line", () => {
+    const task = VALID_TASK.replace(
+      "- [ ] Run `bun test`",
+      `- [ ] Run the build,
+      then \`bun test some/dir\` exits 0,
+      and \`git status\` shows nothing.`,
+    );
+    const parsed = parseTask(task);
+    expect(parsed.ok && testCommandsIn(parsed.task)).toEqual([
+      "bun test some/dir",
+    ]);
+  });
+
+  test("blank line closes an item, so prose after it is not attributed", () => {
+    const task = VALID_TASK.replace(
+      "- [ ] Run `bun test`",
+      `- [ ] Check the output
+
+Note: run \`bun test\` separately to verify.`,
+    );
+    const parsed = parseTask(task);
+    expect(parsed.ok && testCommandsIn(parsed.task)).toEqual([]);
+  });
+});
+
+describe("extractTestPaths", () => {
+  test.each([
+    ["bun test src/a.test.ts", ["src/a.test.ts"]],
+    ["cargo test crates/core", ["crates/core"]],
+    ["go test ./...", ["./..."]],
+    ["make test spec/unit", ["spec/unit"]],
+    ["npm test test/unit", ["test/unit"]],
+    ["pnpm test test/unit", ["test/unit"]],
+    ["yarn test test/unit", ["test/unit"]],
+    ["npm run test test/unit", ["test/unit"]],
+    ["pnpm run test test/unit", ["test/unit"]],
+    ["yarn run test test/unit", ["test/unit"]],
+    ["pytest tests/unit", ["tests/unit"]],
+    ["rspec spec/models", ["spec/models"]],
+  ])("fully consumes the runner prefix in %s", (command, expected) => {
+    const paths = extractTestPaths(command);
+    expect(paths).toEqual(expected);
+    expect(paths).not.toContain("test");
+    expect(paths).not.toContain("run");
+  });
+
+  test("drops flags and preserves path-ish arguments verbatim", () => {
+    expect(
+      extractTestPaths("bun test --watch ./Some-Path/{a,b}.test.ts -u"),
+    ).toEqual(["./Some-Path/{a,b}.test.ts"]);
+  });
+
+  test("returns no paths for an argument-less runner", () => {
+    expect(extractTestPaths("bun test")).toEqual([]);
+  });
+});
+
+describe("testNetReport", () => {
+  const withCommand = (
+    bucket: string,
+    nn: string,
+    command: string | null,
+    finalReview = false,
+  ) =>
+    ({
+      ...mk(bucket, nn, [], finalReview),
+      body:
+        command === null
+          ? "## Verification\n- [ ] Check output"
+          : `## Verification\n- [ ] Run \`${command}\``,
+    }) as unknown as ParsedTask;
+
+  test("omits tasks without tests and sorts final review last", () => {
+    expect(
+      testNetReport([
+        withCommand("review", "01", "bun test", true),
+        withCommand("docs", "01", null),
+        withCommand("ui", "01", "npm run test ui/", false),
+      ]),
+    ).toEqual([
+      {
+        ref: "ui/01",
+        finalReview: false,
+        commands: ["npm run test ui/"],
+        paths: ["ui/"],
+      },
+      {
+        ref: "review/01",
+        finalReview: true,
+        commands: ["bun test"],
+        paths: [],
+      },
+    ]);
+  });
+
+  test("returns [] when no task runs tests", () => {
+    expect(testNetReport([withCommand("docs", "01", null)])).toEqual([]);
+  });
+
+  test("formatter labels final review and renders empty paths as all", () => {
+    const output = formatTestNetReport([
+      {
+        ref: "ui/01",
+        finalReview: false,
+        commands: ["bun test ui/"],
+        paths: ["ui/"],
+      },
+      {
+        ref: "review/01",
+        finalReview: true,
+        commands: ["bun test"],
+        paths: [],
+      },
+    ]);
+    expect(output).toContain("Test net report:");
+    expect(output).toContain("ui/01");
+    expect(output).toContain("review/01 [final review]");
+    expect(output).toContain("paths: (all)");
+  });
+});
+
+describe("CLI test-net report", () => {
+  test("clean tree prints report to stdout and exits 0", async () => {
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-work.md": taskWith({ bucket: "ui", nn: "01" }),
+      "tasks/review/01-close.md": taskWith({
+        bucket: "review",
+        nn: "01",
+        dependsOn: "ui/01",
+        finalReview: true,
+      }),
+    });
+    const result = await runCli(join(root, "tasks"));
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Test net report:");
+    expect(result.stderr).toBe("");
+    await rm(root, { recursive: true });
+  });
+
+  test("violating tree reports stderr but still prints stdout report", async () => {
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-work.md": taskWith({ bucket: "ui", nn: "01" }),
+      "tasks/review/01-close.md": taskWith({
+        bucket: "review",
+        nn: "01",
+        finalReview: true,
+      }),
+    });
+    const result = await runCli(join(root, "tasks"));
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("[final-review]");
+    expect(result.stdout).toContain("Test net report:");
+    await rm(root, { recursive: true });
+  });
+
+  test("single task file prints no report", async () => {
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-work.md": taskWith({ bucket: "ui", nn: "01" }),
+    });
+    const result = await runCli(join(root, "tasks/ui/01-work.md"));
+    expect(result.stdout).not.toContain("Test net report:");
+    await rm(root, { recursive: true });
+  });
+
+  test("tree with no tests prints no report", async () => {
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-work.md": taskWith({
+        bucket: "ui",
+        nn: "01",
+        verification: null,
+      }),
+      "tasks/review/01-close.md": taskWith({
+        bucket: "review",
+        nn: "01",
+        dependsOn: "ui/01",
+        finalReview: true,
+        verification: null,
+      }),
+    });
+    const result = await runCli(join(root, "tasks"));
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain("Test net report:");
+    await rm(root, { recursive: true });
+  });
+
+  test("nonexistent path is an invocation error, not a violation tally", async () => {
+    const result = await runCli(join(import.meta.dir, "no-such-tree/tasks"));
+    // Exit 2 separates "that path is not there" from exit 1's "your tree is
+    // bad". Reporting a missing path as "1 violation(s) in 1 file(s)" sent a
+    // caller whose cwd had drifted looking at task files instead of at cwd.
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("Not a lint failure");
+    expect(result.stderr).not.toContain("violation(s) in");
+    // The absolute path and the cwd are what make the drift diagnosable.
+    expect(result.stderr).toContain(
+      join(import.meta.dir, "no-such-tree/tasks"),
+    );
+    expect(result.stderr).toContain("Working directory:");
+  });
+});
+
+describe("checkFinalReview", () => {
+  test("single task is exempt", () => {
+    expect(checkFinalReview([mk("work", "01")], "t")).toEqual([]);
+  });
+
+  test("marked task depending on all others → ok", () => {
+    const tasks = [
+      mk("ui", "01"),
+      mk("backend", "01"),
+      mk(
+        "review",
+        "01",
+        [
+          ["ui", "01"],
+          ["backend", "01"],
+        ],
+        true,
+      ),
+    ];
+    expect(checkFinalReview(tasks, "t")).toEqual([]);
+  });
+
+  test("marked task reaching all leaves transitively → ok", () => {
+    const tasks = [
+      mk("ui", "01"),
+      mk("ui", "02", [["ui", "01"]]),
+      mk("backend", "01"),
+      mk("backend", "02", [["backend", "01"]]),
+      mk(
+        "review",
+        "01",
+        [
+          ["ui", "02"],
+          ["backend", "02"],
+        ],
+        true,
+      ),
+    ];
+    expect(checkFinalReview(tasks, "t")).toEqual([]);
+  });
+
+  test("no marked task → violation (even if a task covers all)", () => {
+    const tasks = [
+      mk("ui", "01"),
+      mk("backend", "01"),
+      mk("review", "01", [
+        ["ui", "01"],
+        ["backend", "01"],
+      ]), // covers all but NOT marked
+    ];
+    const v = checkFinalReview(tasks, "t");
+    expect(v.length).toBe(1);
+    expect(v[0].rule).toBe("final-review");
+    expect(v[0].detail).toMatch(/Final review/);
+  });
+
+  test("marked but missing a branch → violation lists what it misses", () => {
+    const tasks = [
+      mk("ui", "01"),
+      mk("ingestion", "01"),
+      mk("review", "01", [["ui", "01"]], true), // misses ingestion/01
+    ];
+    const v = checkFinalReview(tasks, "t");
+    expect(v.length).toBe(1);
+    expect(v[0].detail).toMatch(/ingestion\/01/);
+  });
+
+  test("marked task outside review/01 → location violation", () => {
+    const tasks = [
+      mk("ui", "01"),
+      mk("ui", "02", [["ui", "01"]], true), // covers everything, wrong home
+    ];
+    const v = checkFinalReview(tasks, "t");
+    expect(v.length).toBe(1);
+    expect(v[0].rule).toBe("final-review-location");
+    expect(v[0].detail).toMatch(/ui\/02/);
+    expect(v[0].detail).toMatch(/review\/01/);
+  });
+
+  test("a review bucket numbered past 01 is still the wrong home", () => {
+    const tasks = [mk("ui", "01"), mk("review", "02", [["ui", "01"]], true)];
+    const v = checkFinalReview(tasks, "t");
+    expect(v.length).toBe(1);
+    expect(v[0].rule).toBe("final-review-location");
+  });
+
+  /**
+   * Coverage is the load-bearing rule; location is presentational. Reporting
+   * both at once would bury the one that actually breaks autopilot.
+   */
+  test("a miscovered final review reports coverage, not location", () => {
+    const tasks = [
+      mk("ui", "01"),
+      mk("ingestion", "01"),
+      mk("ui", "02", [["ui", "01"]], true), // wrong home AND misses ingestion
+    ];
+    const v = checkFinalReview(tasks, "t");
+    expect(v.length).toBe(1);
+    expect(v[0].rule).toBe("final-review");
+    expect(v[0].detail).toMatch(/ingestion\/01/);
+  });
+
+  test("a single-task plan needs no review bucket", () => {
+    expect(checkFinalReview([mk("work", "01", [], true)], "t")).toEqual([]);
+  });
+});
+
+describe("checkFinalReviewTestNet", () => {
+  test("fires when tree has tests but final review does not", () => {
+    const tasks: ParsedTask[] = [
+      {
+        ...mk("lint", "01", [], false),
+        body: "## Verification\n- [ ] `bun test`",
+      } as unknown as ParsedTask,
+      {
+        ...mk("review", "01", [], true),
+        body: "## Verification\n- [ ] Check results",
+      } as unknown as ParsedTask,
+    ];
+    const violations = checkFinalReviewTestNet(tasks, "tasks");
+    expect(violations.length).toBe(1);
+    expect(violations[0].rule).toBe("final-review-test-net");
+    expect(violations[0].detail).toContain("lint/01");
+    expect(violations[0].detail).toContain("bun test");
+    expect(violations[0].detail).toContain("review/01");
+  });
+
+  test("silent when tree has no test commands", () => {
+    const tasks: ParsedTask[] = [
+      {
+        ...mk("docs", "01", [], false),
+        body: "## Verification\n- [ ] Check prose",
+      } as unknown as ParsedTask,
+      {
+        ...mk("review", "01", [], true),
+        body: "## Verification\n- [ ] Check results",
+      } as unknown as ParsedTask,
+    ];
+    expect(checkFinalReviewTestNet(tasks, "tasks")).toEqual([]);
+  });
+
+  test("silent when final review task has a test command", () => {
+    const tasks: ParsedTask[] = [
+      {
+        ...mk("lint", "01", [], false),
+        body: "## Verification\n- [ ] `bun test`",
+      } as unknown as ParsedTask,
+      {
+        ...mk("review", "01", [], true),
+        body: "## Verification\n- [ ] `pytest`",
+      } as unknown as ParsedTask,
+    ];
+    expect(checkFinalReviewTestNet(tasks, "tasks")).toEqual([]);
+  });
+
+  test("silent when tree is single-task", () => {
+    const tasks: ParsedTask[] = [
+      {
+        ...mk("review", "01", [], true),
+        body: "## Verification\n- [ ] Check it",
+      } as unknown as ParsedTask,
+    ];
+    expect(checkFinalReviewTestNet(tasks, "tasks")).toEqual([]);
+  });
+
+  test("silent when no final-review marker", () => {
+    const tasks: ParsedTask[] = [
+      {
+        ...mk("lint", "01", [], false),
+        body: "## Verification\n- [ ] `bun test`",
+      } as unknown as ParsedTask,
+      {
+        ...mk("review", "01", [], false),
+        body: "## Verification\n- [ ] Check results",
+      } as unknown as ParsedTask,
+    ];
+    expect(checkFinalReviewTestNet(tasks, "tasks")).toEqual([]);
+  });
+
+  test("violation includes refs of all tasks with tests", () => {
+    const tasks: ParsedTask[] = [
+      {
+        ...mk("feat", "01", [], false),
+        body: "## Verification\n- [ ] `bun test`",
+      } as unknown as ParsedTask,
+      {
+        ...mk("feat", "02", [], false),
+        body: "## Verification\n- [ ] `npm test`",
+      } as unknown as ParsedTask,
+      {
+        ...mk("review", "01", [], true),
+        body: "## Verification\n- [ ] No tests",
+      } as unknown as ParsedTask,
+    ];
+    const violations = checkFinalReviewTestNet(tasks, "tasks");
+    expect(violations.length).toBe(1);
+    expect(violations[0].detail).toContain("feat/01");
+    expect(violations[0].detail).toContain("feat/02");
+    expect(violations[0].detail).toContain("bun test");
+    expect(violations[0].detail).toContain("npm test");
+  });
+
+  // Two markers: the stray one runs a test, the covering one does not. Judging
+  // the first marker in document order would call this tree clean and let the
+  // real closing gate ship with no test at all.
+  test("judges the covering marker, not the first one, when a tree has two", () => {
+    const tasks: ParsedTask[] = [
+      {
+        ...mk("feat", "01", [], false),
+        body: "## Verification\n- [ ] `bun test`",
+      } as unknown as ParsedTask,
+      {
+        ...mk("stray", "01", [], true), // marked, covers nothing
+        body: "## Verification\n- [ ] `bun test`",
+      } as unknown as ParsedTask,
+      {
+        ...mk(
+          "review",
+          "01",
+          [
+            ["feat", "01"],
+            ["stray", "01"],
+          ],
+          true,
+        ), // marked AND covering
+        body: "## Verification\n- [ ] Check results",
+      } as unknown as ParsedTask,
+    ];
+    const violations = checkFinalReviewTestNet(tasks, "tasks");
+    expect(violations.length).toBe(1);
+    expect(violations[0].rule).toBe("final-review-test-net");
+    expect(violations[0].detail).toContain("(review/01) runs no tests");
+  });
+});
+
+describe("collectTaskFiles", () => {
+  test("skips _context/ and README.md", async () => {
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/README.md": "# Index\n",
+      "tasks/ui/01-foo.md": VALID_TASK,
+      "tasks/ui/02-bar.md": VALID_TASK,
+      "tasks/backend/01-baz.md": VALID_TASK,
+    });
+    const files = await collectTaskFiles(join(root, "tasks"));
+    expect(files).toHaveLength(3);
+    expect(files.every((f) => !f.includes("_context"))).toBe(true);
+    expect(files.every((f) => !f.endsWith("README.md"))).toBe(true);
+    await rm(root, { recursive: true });
+  });
+
+  test("ignores non-md files inside bucket dirs", async () => {
+    const root = await writeTree({
+      "tasks/ui/01-foo.md": VALID_TASK,
+      "tasks/ui/.gitkeep": "",
+      "tasks/ui/notes.txt": "scratch",
+    });
+    const files = await collectTaskFiles(join(root, "tasks"));
+    expect(files).toHaveLength(1);
+    await rm(root, { recursive: true });
+  });
+});
+
+describe("inferRefFromPath", () => {
+  test("extracts bucket and NN from canonical path", () => {
+    expect(inferRefFromPath("/abs/docs/x/tasks/ui/01-foo.md")).toEqual({
+      bucket: "ui",
+      nn: "01",
+    });
+  });
+
+  test("returns null when filename lacks NN- prefix", () => {
+    expect(inferRefFromPath("/abs/tasks/ui/foo.md")).toBeNull();
+  });
+
+  test("returns null when bucket name has dashes", () => {
+    expect(inferRefFromPath("/abs/tasks/my-bucket/01-foo.md")).toBeNull();
+  });
+});
+
+describe("scope-git-status rule", () => {
+  const withVerification = (items: string) =>
+    VALID_TASK.replace("- [ ] Run `bun test`", items);
+
+  const lintOne = async (body: string) => {
+    const root = await writeTree({
+      "tasks/ui/01-fixture-state-shell.md": body,
+    });
+    const violations = await lintFile(
+      join(root, "tasks/ui/01-fixture-state-shell.md"),
+    );
+    await rm(root, { recursive: true, force: true });
+    return violations;
+  };
+
+  test("flags a git status check that expects one path", async () => {
+    const violations = await lintOne(
+      withVerification(
+        "- [ ] Run `git status --short` — expect `README.md` as the only modified path.",
+      ),
+    );
+
+    const scope = violations.find((v) => v.rule === "scope-git-status");
+    expect(scope).toBeDefined();
+    expect(scope!.detail).toContain("pathspec");
+  });
+
+  test("flags the same trap phrased as nothing else", async () => {
+    const violations = await lintOne(
+      withVerification(
+        "- [ ] Run `git status --short` and confirm nothing else is modified.",
+      ),
+    );
+
+    expect(violations.some((v) => v.rule === "scope-git-status")).toBe(true);
+  });
+
+  // The shape task-template.md used to recommend. It survives an exclusivity
+  // regex by wording alone, yet it still reads the whole tree — a parallel
+  // sibling's uncommitted edits fail a correct implementation.
+  test("flags a whole-tree check that only judges the other paths", async () => {
+    const violations = await lintOne(
+      withVerification(
+        "- [ ] Run `git status --short` and quote it. Expect `README.md`, plus at most this task file. Any OTHER path is a real scope violation.",
+      ),
+    );
+
+    const scope = violations.find((v) => v.rule === "scope-git-status");
+    expect(scope).toBeDefined();
+    expect(scope!.detail).toContain("pathspec");
+  });
+
+  test("allows a git status check narrowed by a pathspec", async () => {
+    const violations = await lintOne(
+      withVerification(
+        "- [ ] Run `git status --short -- README.md src/app.ts` and confirm both paths are dirty.",
+      ),
+    );
+
+    expect(violations.some((v) => v.rule === "scope-git-status")).toBe(false);
+  });
+
+  test("still flags an exclusivity claim wrapped around a pathspec check", async () => {
+    const violations = await lintOne(
+      withVerification(
+        "- [ ] Run `git status --short -- README.md`; it must be the only modified path.",
+      ),
+    );
+
+    const scope = violations.find((v) => v.rule === "scope-git-status");
+    expect(scope).toBeDefined();
+    expect(scope!.detail).toContain("exclusivity");
+  });
+
+  test("allows a path operand written without the -- separator", async () => {
+    const violations = await lintOne(
+      withVerification(
+        "- [ ] Run `git status --short bin/workbench` and confirm it is modified.",
+      ),
+    );
+
+    expect(violations.some((v) => v.rule === "scope-git-status")).toBe(false);
+  });
+
+  test("reads no pathspec out of bare prose", async () => {
+    const violations = await lintOne(
+      withVerification(
+        "- [ ] Run git status --short and quote every entry it prints.",
+      ),
+    );
+
+    expect(violations.some((v) => v.rule === "scope-git-status")).toBe(true);
+  });
+
+  test("flags an item that narrows one invocation but not the other", async () => {
+    const violations = await lintOne(
+      withVerification(
+        "- [ ] Run `git status --short -- src/app.ts`, then `git status --short` for the whole tree.",
+      ),
+    );
+
+    expect(violations.some((v) => v.rule === "scope-git-status")).toBe(true);
+  });
+
+  test("does not accept an option flag as a pathspec", async () => {
+    const violations = await lintOne(
+      withVerification(
+        "- [ ] Run `git status --short --branch` and review every entry it prints.",
+      ),
+    );
+
+    expect(violations.some((v) => v.rule === "scope-git-status")).toBe(true);
+  });
+
+  test("ignores an exclusivity claim that has no git status command", async () => {
+    const violations = await lintOne(
+      withVerification("- [ ] Confirm `bun test` is the only suite that runs."),
+    );
+
+    expect(violations.some((v) => v.rule === "scope-git-status")).toBe(false);
+  });
+
+  test("reads the acceptance criteria section too", async () => {
+    const violations = await lintOne(
+      VALID_TASK.replace(
+        "- [ ] One",
+        "- [ ] `git status --short` shows only `README.md`.",
+      ),
+    );
+
+    expect(violations.some((v) => v.rule === "scope-git-status")).toBe(true);
+  });
+});
+
+// Autopilot commits between waves, so by the time the Final review runs every
+// earlier task's edits are committed and `git status` no longer lists them.
+describe("final-review-git-status rule", () => {
+  const lintOne = async (body: string) => {
+    const root = await writeTree({ "tasks/review/01-close.md": body });
+    const violations = await lintFile(join(root, "tasks/review/01-close.md"));
+    await rm(root, { recursive: true, force: true });
+    return violations;
+  };
+  const gate = "git status --short -- DESIGN.md docs/deploy.md";
+
+  test("flags a pathspec git status gate in the Final review", async () => {
+    const violations = await lintOne(
+      taskWith({
+        bucket: "review",
+        nn: "01",
+        finalReview: true,
+        verification: gate,
+      }),
+    );
+
+    const hit = violations.find((v) => v.rule === "final-review-git-status");
+    expect(hit).toBeDefined();
+    expect(hit!.detail).toContain("git diff --name-only <baseRef>");
+  });
+
+  test("allows the same gate in a non-final task", async () => {
+    const violations = await lintOne(
+      taskWith({ bucket: "review", nn: "01", verification: gate }),
+    );
+
+    expect(violations.some((v) => v.rule === "final-review-git-status")).toBe(
+      false,
+    );
+  });
+
+  test("allows a baseRef diff in the Final review", async () => {
+    const violations = await lintOne(
+      taskWith({
+        bucket: "review",
+        nn: "01",
+        finalReview: true,
+        verification:
+          "git diff --name-only <baseRef> -- DESIGN.md docs/deploy.md",
+      }),
+    );
+
+    expect(violations.some((v) => v.rule === "final-review-git-status")).toBe(
+      false,
+    );
+  });
+});
+
+describe("report-path rule", () => {
+  const lintOne = async (item: string, finalReview = true) => {
+    const root = await writeTree({
+      "tasks/ui/01-fixture-state-shell.md": VALID_TASK.replace(
+        "- [ ] One",
+        item,
+      ).replace(
+        "> **Status**: todo",
+        `${finalReview ? "> **Final review**: true\n" : ""}> **Status**: todo`,
+      ),
+    });
+    const violations = await lintFile(
+      join(root, "tasks/ui/01-fixture-state-shell.md"),
+    );
+    await rm(root, { recursive: true, force: true });
+    return violations;
+  };
+
+  test("flags a report criterion that names no file", async () => {
+    const violations = await lintOne(
+      "- [ ] The report lists every integration fix applied, or states that none was needed.",
+    );
+
+    const hit = violations.find((v) => v.rule === "report-path");
+    expect(hit).toBeDefined();
+    expect(hit!.detail).toContain("The report lists");
+  });
+
+  test("allows a report criterion that names its file", async () => {
+    const violations = await lintOne(
+      "- [ ] The report at `docs/x/review-notes.md` lists every integration fix applied.",
+    );
+
+    expect(violations.some((v) => v.rule === "report-path")).toBe(false);
+  });
+
+  // Outside the Final review, "the report" is usually a program's output, such as a CLI's stdout.
+  test("ignores a report criterion in a non-final task", async () => {
+    const violations = await lintOne(
+      "- [ ] The report is written to **stdout** in whole-tree mode.",
+      false,
+    );
+
+    expect(violations.some((v) => v.rule === "report-path")).toBe(false);
+  });
+
+  test("ignores the word inside another noun", async () => {
+    const violations = await lintOne(
+      "- [ ] The reporter page renders every row.",
+    );
+
+    expect(violations.some((v) => v.rule === "report-path")).toBe(false);
+  });
+});
+
+// Declared file count is the one task-size proxy that predicted retries in the
+// field: over one 47-task flight the first-attempt retry rate rose monotonically
+// with it — 43% at <=8 declared files, 56% at 9-11, 70% at 12-14, 89% at >=15.
+// It counts what the PLANNER declared, not what the executor touched, because
+// the point is to regulate the plan while it is still cheap to split.
+describe("task-size advisory", () => {
+  const filesSection = (n: number) =>
+    Array.from({ length: n }, (_, i) => `- f${i}.ts (new) — thing ${i}`).join(
+      "\n",
+    );
+
+  const taskDeclaring = (n: number) =>
+    VALID_TASK.replace("- a.ts (new)", filesSection(n));
+
+  const lintDeclaring = async (
+    n: number,
+    opts?: Parameters<typeof lintFile>[1],
+  ) => {
+    const root = await writeTree({
+      "tasks/ui/01-fixture-state-shell.md": taskDeclaring(n),
+    });
+    const violations = await lintFile(
+      join(root, "tasks/ui/01-fixture-state-shell.md"),
+      opts,
+    );
+    await rm(root, { recursive: true, force: true });
+    return violations;
+  };
+
+  test("counts the bullets under Files to create / modify", () => {
+    expect(countDeclaredFiles(taskDeclaring(14))).toBe(14);
+    expect(countDeclaredFiles(VALID_TASK)).toBe(1);
+  });
+
+  test("counts nothing when the section is absent", () => {
+    expect(
+      countDeclaredFiles(
+        VALID_TASK.replace("## Files to create / modify", "## Other"),
+      ),
+    ).toBe(0);
+  });
+
+  test("flags an oversized task in authoring mode", async () => {
+    const violations = await lintDeclaring(12, { authoring: true });
+    const hit = violations.find((v) => v.rule === "task-size");
+
+    expect(hit).toBeDefined();
+    // The message must name the fix, not just the number — the author is the
+    // only party who can act on it, and only while still writing the plan.
+    expect(hit!.detail).toContain("12");
+    expect(hit!.detail).toContain("split");
+  });
+
+  test("stays silent just under the threshold", async () => {
+    const violations = await lintDeclaring(11, { authoring: true });
+
+    expect(violations.some((v) => v.rule === "task-size")).toBe(false);
+  });
+
+  // The two run-time callers both lint single files and must never see this:
+  // autopilot's external-dev driver lints after the engine writes (and is told
+  // to repair until clean — size is not repairable by it), and the scout lints
+  // the whole tree before flying, where a violation would ground a correct plan
+  // authored before this rule existed.
+  test("is silent by default, so autopilot's driver and scout are unaffected", async () => {
+    const violations = await lintDeclaring(20);
+
+    expect(violations.some((v) => v.rule === "task-size")).toBe(false);
+  });
+});
+
+// The edit hooks lint every task-shaped path, so authoring mode alone must pass a file that is not a flightplan task.
+describe("authoring header gate", () => {
+  const lintBody = async (
+    body: string,
+    opts?: Parameters<typeof lintFile>[1],
+  ) => {
+    const root = await writeTree({ "tasks/ui/01-x.md": body });
+    const violations = await lintFile(join(root, "tasks/ui/01-x.md"), opts);
+    await rm(root, { recursive: true, force: true });
+    return violations;
+  };
+
+  test("passes a file without the header in authoring mode", async () => {
+    expect(
+      await lintBody("# notes\n\nnot a task\n", { authoring: true }),
+    ).toEqual([]);
+  });
+
+  test("passes a near-miss label in authoring mode", async () => {
+    const body = VALID_TASK.replace(
+      "> **Required reading**:",
+      "> **Required reading later**:",
+    );
+    expect(await lintBody(body, { authoring: true })).toEqual([]);
+  });
+
+  test("lints a file with the annotated header in authoring mode", async () => {
+    const body = VALID_TASK.replace(
+      "> **Required reading**:",
+      "> **Required reading** (read before starting):",
+    ).replace("One sentence.", "See PLAN.md.");
+    const violations = await lintBody(body, { authoring: true });
+    expect(violations.some((v) => v.rule !== "task-size")).toBe(true);
+  });
+
+  test("still flags a header-less file outside authoring mode", async () => {
+    expect((await lintBody("# notes\n")).length).toBeGreaterThan(0);
+  });
+});
+
+describe("plan concurrency", () => {
+  const treeWithPlan = (plan: string, shared = "# Shared\n") =>
+    writeTree({
+      "PLAN.md": plan,
+      "tasks/_context/shared.md": shared,
+      "tasks/ui/01-work.md": taskWith({ bucket: "ui", nn: "01" }),
+    });
+
+  const SERIAL = "Execution is serial: each task holds the integration lock.";
+
+  test("serial prose with no Max parallel header prints an advisory", async () => {
+    const root = await treeWithPlan(`# Plan\n\n${SERIAL}\n`);
+    const result = await runCli(join(root, "tasks"));
+    // Advisory, not a gate: plans whose serial wording is already carried by
+    // Depends on edges must still fly.
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[serial-undeclared]");
+    expect(result.stdout).toContain(SERIAL);
+    expect(result.stdout).toContain("> **Max parallel**: 1");
+    await rm(root, { recursive: true });
+  });
+
+  // The motivating plan kept its lock rule in _context/shared.md, not PLAN.md.
+  test("serial prose in a context file prints the advisory too", async () => {
+    const root = await treeWithPlan(
+      "# Plan\n",
+      "# Shared\n\nAcquire with mkdir /tmp/live.lock first.\n",
+    );
+    const result = await runCli(join(root, "tasks"));
+    expect(result.stdout).toContain("[serial-undeclared]");
+    expect(result.stdout).toContain("_context/shared.md");
+    await rm(root, { recursive: true });
+  });
+
+  test.each(["1", "unlimited"])(
+    "a declared cap of %p silences the advisory",
+    async (value) => {
+      const root = await treeWithPlan(
+        `# Plan\n\n> **Max parallel**: ${value}\n\n${SERIAL}\n`,
+      );
+      const result = await runCli(join(root, "tasks"));
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain("[serial-undeclared]");
+      await rm(root, { recursive: true });
+    },
+  );
+
+  test("an unreadable PLAN.md is a violation, not an undeclared cap", async () => {
+    const root = await writeTree({
+      "tasks/_context/shared.md": "# Shared\n",
+      "tasks/ui/01-work.md": taskWith({ bucket: "ui", nn: "01" }),
+    });
+    await mkdir(join(root, "PLAN.md"));
+    const result = await runCli(join(root, "tasks"));
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("[max-parallel]");
+    expect(result.stderr).toContain("cannot read");
+    await rm(root, { recursive: true });
+  });
+
+  test("a malformed Max parallel header is a violation", async () => {
+    const root = await treeWithPlan("# Plan\n\n> **Max parallel**: serial\n");
+    const result = await runCli(join(root, "tasks"));
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("[max-parallel]");
+    await rm(root, { recursive: true });
+  });
+});
+
+describe("human-gate", () => {
+  const withGates = (acceptance: string, verification: string) =>
+    VALID_TASK.replace(
+      "## Acceptance criteria\n- [ ] One",
+      `## Acceptance criteria\n${acceptance}`,
+    ).replace(
+      "## Verification\n- [ ] Run `bun test`",
+      `## Verification\n${verification}`,
+    );
+
+  const lint = async (body: string) => {
+    const root = await writeTree({
+      "_context/shared.md": "shared",
+      "ui/01-fixture.md": body,
+    });
+    try {
+      return await lintFile(join(root, "ui/01-fixture.md"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  };
+
+  test("a gate section with one machine-checkable item beside a human one passes", async () => {
+    const violations = await lint(
+      withGates(
+        "- [ ] (human) Sweep the pointer across the notch\n- [ ] The widget renders",
+        "- [ ] Run `bun test`",
+      ),
+    );
+    expect(violations.filter((v) => v.rule === "human-gate")).toEqual([]);
+  });
+
+  test("an all-human acceptance section is rejected", async () => {
+    const violations = await lint(
+      withGates(
+        "- [ ] (human) Sweep the pointer across the notch\n- [ ] (human) Toggle WireGuard",
+        "- [ ] Run `bun test`",
+      ),
+    );
+    const [hit] = violations.filter((v) => v.rule === "human-gate");
+    expect(hit.detail).toContain("## Acceptance criteria");
+    expect(hit.detail).toContain("advance on an attestation alone");
+  });
+
+  test("an all-human verification section is rejected", async () => {
+    const violations = await lint(
+      withGates(
+        "- [ ] The widget renders",
+        "- [ ] (human) Click the menu-bar icon",
+      ),
+    );
+    expect(
+      violations.filter((v) => v.rule === "human-gate").map((v) => v.detail),
+    ).toHaveLength(1);
+    expect(violations[0].detail).toContain("## Verification");
+  });
+
+  test("the tag counts only at the head of the item", async () => {
+    // A tag accepted mid-text would let the linter and the verifier agent
+    // disagree about which items a person owes.
+    const violations = await lint(
+      withGates(
+        "- [ ] Sweep the pointer across the notch — (human) check",
+        "- [ ] Run `bun test`",
+      ),
+    );
+    expect(violations.filter((v) => v.rule === "human-gate")).toEqual([]);
+  });
+
+  test("a ticked human box still counts as human", async () => {
+    // Otherwise a task passes lint only after mark-done.ts ticks its boxes,
+    // which is exactly when nobody is reading the lint any more.
+    const violations = await lint(
+      withGates("- [x] (human) Sweep the notch", "- [ ] Run `bun test`"),
+    );
+    expect(violations.filter((v) => v.rule === "human-gate")).toHaveLength(1);
+  });
+
+  test("a plan that tags nothing is unaffected", async () => {
+    const violations = await lint(VALID_TASK);
+    expect(violations.filter((v) => v.rule === "human-gate")).toEqual([]);
+  });
+});
+
+describe("scope-pgrep rule", () => {
+  const lintGate = async (item: string) => {
+    const root = await writeTree({
+      "tasks/ui/01-fixture-state-shell.md": VALID_TASK.replace(
+        "- [ ] Run `bun test`",
+        item,
+      ),
+    });
+    const violations = await lintFile(
+      join(root, "tasks/ui/01-fixture-state-shell.md"),
+    );
+    await rm(root, { recursive: true, force: true });
+    return violations.filter((v) => v.rule === "scope-pgrep");
+  };
+
+  test("flags an unanchored pgrep -f pattern", async () => {
+    const hits = await lintGate(
+      "- [ ] Run `pgrep -f cockpit-channel.ts; test $? -eq 1`",
+    );
+    expect(hits).toHaveLength(1);
+    expect(hits[0].detail).toContain("machine-wide");
+  });
+
+  test("flags quoted patterns and combined flag clusters", async () => {
+    expect(
+      await lintGate('- [ ] Run `pgrep -f "cockpit-channel.ts"`'),
+    ).toHaveLength(1);
+    expect(
+      await lintGate("- [ ] Run `pgrep -af 'cockpit-channel.ts'`"),
+    ).toHaveLength(1);
+    expect(
+      await lintGate("- [ ] Run `pgrep -f -l cockpit-channel.ts`"),
+    ).toHaveLength(1);
+  });
+
+  test("passes a pattern anchored to a flag or a path", async () => {
+    expect(
+      await lintGate(
+        "- [ ] Run `pgrep -f 'cockpit-server.ts --no-open --port'`",
+      ),
+    ).toEqual([]);
+    expect(
+      await lintGate("- [ ] Run `pgrep -f /tmp/x/cockpit-server.ts`"),
+    ).toEqual([]);
+  });
+
+  test("ignores pgrep without -f", async () => {
+    expect(await lintGate("- [ ] Run `pgrep cockpit-channel`")).toEqual([]);
+  });
+});

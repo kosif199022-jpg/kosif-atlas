@@ -1,0 +1,69 @@
+{
+  "skill_name": "teaching_block_synthesized",
+  "notes": "Evals 0-2 inherited from the teaching-block lineage (should-trigger, varied domains). Evals 3-5 added for the synthesis: non-technical domain, a session with no clean resolution, and attribution honesty. Evals 6-8 are should-NOT-trigger near-misses.",
+  "evals": [
+    {
+      "id": 0,
+      "category": "should-trigger",
+      "prompt": "Here is a conversation transcript from a debugging session. Please produce a teaching block article from it.\n\n---\nUSER: My Supabase Edge Function keeps returning 401 even though I set the anon key. Can you help me debug?\n\nASSISTANT: Let me look at your setup. Can you share the fetch call you're using?\n\nUSER: Sure:\n```js\nconst res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {\n  method: 'POST',\n  body: JSON.stringify({ to: email, subject }),\n})\n```\n\nASSISTANT: I see the issue — you're missing the Authorization header. Edge Functions require it even for public endpoints.\n\nUSER: Oh wow, I didn't realize the anon key had to go in the header. I thought setting it in the Supabase client was enough. That fixed it! But now I'm getting a 500. The logs show \"Cannot read property 'to' of undefined\".\n\nASSISTANT: The body isn't being parsed. Inside your Edge Function you need `const { to, subject } = await req.json()`.\n\nUSER: Ah — I was doing `req.body.to` thinking it would work like Express. That makes total sense now. Fixed and working.\n---",
+      "expected_output": "Walkthrough of the two successive errors with verbatim code, the Express-to-Deno mental model shift named as the underlying cause, imperative concept stamps, a diagram of the two-error sequence or the mental-model before/after, a 'what this unlocks' section generalising beyond Supabase, key takeaways and how-to-start steps. Section headings must not spoil their outcomes.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "category": "should-trigger",
+      "prompt": "Here is a conversation transcript about building a custom Claude skill. Please produce a teaching block article from it.\n\n---\nUSER: I want to build a skill that generates client proposal outlines from a conversation.\n\nASSISTANT: You'd create a SKILL.md in ~/.claude/skills/. What does the outline need to contain?\n\nUSER: Client's problem, 3 service tiers, rough timeline for each. I always forget the timeline and it looks bad.\n\nASSISTANT: Here's the structure: extract client name, problem, constraints; generate 3 tiers with increasing scope; for each give deliverables, timeline, one-sentence rationale.\n\nUSER: That's exactly it. Can it also flag if the client mentioned a budget?\n\nASSISTANT: Yes — scan for budget signals before generating tiers, and add a 'Budget context' section at the top so you don't miss it.\n\nUSER: Perfect. Let's build it.\n\nASSISTANT: [Builds it, tests on the current conversation, produces a sample outline]\n\nUSER: Exactly what I needed. I've been writing these by hand for months.\n---",
+      "expected_output": "A 'here's how I built this' walkthrough. Must surface the reasoning behind the budget-detection addition as a design decision rather than a feature list, include the actual skill structure verbatim, and generalise to a pattern the reader can apply to other recurring documents they produce by hand.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "category": "should-trigger",
+      "prompt": "Here is a conversation transcript where someone was figuring out how to prompt Claude more effectively. Please produce a teaching block article from it.\n\n---\nUSER: I keep getting generic answers when I ask Claude to review my client's marketing strategy.\n\nASSISTANT: Usually one of three things: too open-ended, no success criteria, or no role. Which does this feel like?\n\nUSER: Probably all three. I just say 'review this strategy' and hope.\n\nASSISTANT: Try: 'You are a B2B marketing strategist who has worked with SaaS companies at Series A. Review the following and identify: (1) top 3 gaps vs what typically works at this stage, (2) one thing they're doing well to double down on, (3) the single highest-leverage change in the next 30 days.'\n\nUSER: That's so much more specific. [pastes strategy] This is 10x more useful. What made the biggest difference?\n\nASSISTANT: Three things together: the persona gave a lens, the numbered structure forced specificity, the 30-day constraint forced prioritisation. Any one alone would help; together they're the difference between generic and actionable.\n\nUSER: Can we document it as a template?\n\nASSISTANT: 'You are a [specific expert with context]. Review [X] and identify: (1) top N gaps vs [benchmark], (2) what's working, (3) highest-leverage change in [timeframe].'\n---",
+      "expected_output": "Both prompts shown verbatim and contrasted, ideally with a before/after diagram. The three mechanisms named as separate concept stamps in imperative form. The reusable template as an artifact. Attribution note: the three-part diagnosis came from the assistant, not the operator — the write-up must not credit it as the operator's discovery.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "category": "should-trigger",
+      "prompt": "Turn this into a teaching block.\n\n---\nUSER: I need to cut my keynote from 45 minutes to 20 and I don't know what to lose.\n\nASSISTANT: What's the one thing you need the audience to do differently afterwards?\n\nUSER: Honestly? Stop treating their archive as clutter. Everything else is supporting material.\n\nASSISTANT: Then cut anything that doesn't build to that. Which sections currently do?\n\nUSER: Two of the six. The other four are credibility-building — my background, case studies, market data.\n\nASSISTANT: Those four are answering 'why should I listen to you', which a 45-minute slot has room for and a 20-minute slot doesn't. In a short slot the opening story does that work implicitly. What if you kept one case study as the proof and cut the rest?\n\nUSER: That leaves me feeling exposed, but you're right that nobody's asked for my CV. Let me try it.\n\nASSISTANT: [helps restructure to 3 sections]\n\nUSER: This is tighter and it says more. I've been padding with credentials for years.\n---",
+      "expected_output": "A non-technical teaching block. No code, so verbatim artifacts are the spoken structure and section lists. Must extract the operator's own realisation ('padding with credentials') without asserting it of the reader, generalise the pattern beyond keynotes to any constrained-format decision, and include a diagram of the 6-section to 3-section restructure.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "category": "should-trigger-unresolved",
+      "prompt": "Write this up as a teaching block.\n\n---\nUSER: Our onboarding drop-off is at step 4 and I can't work out why.\n\nASSISTANT: What happens at step 4?\n\nUSER: Bank connection. We assumed it was trust, so we added security copy. No change.\n\nASSISTANT: Did the copy test isolate trust, or could the issue be that step 4 is where the effort spikes?\n\nUSER: Hadn't separated those. We don't have session recordings to tell the difference.\n\nASSISTANT: Then the honest position is that you have two live hypotheses and no instrument to distinguish them. Adding recordings is cheaper than another copy test.\n\nUSER: So we don't actually know yet. Annoying but fair. Instrumenting first.\n---",
+      "expected_output": "Must NOT manufacture a resolution. The article's honest ending is that the question is open and what is now known to be open — two undistinguished hypotheses and a missing instrument. Concept stamp about not testing a fix before you can tell which cause you have. 'How to start' should be about instrumenting before iterating.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "category": "attribution-honesty",
+      "prompt": "Produce a teaching block from this transcript.\n\n---\nUSER: This landing page isn't converting. Ideas?\n\nASSISTANT: The headline is describing the product rather than the reader's problem. Also the CTA appears once, below the fold. The pattern I'd name here is that you're selling the mechanism instead of the outcome.\n\nUSER: Change the headline and add a CTA higher up?\n\nASSISTANT: Yes, and rewrite the headline as the outcome.\n\nUSER: Done. Conversions went from 1.2% to 2.9% over the following week.\n---",
+      "expected_output": "Tests attribution discipline. The 'selling the mechanism instead of the outcome' insight came from the assistant, not the operator — the write-up must attribute it accordingly rather than presenting it as the operator's own realisation. The 1.2%-to-2.9% figure is stated by the operator and may be reported, but must not be embellished or extrapolated.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "category": "should-not-trigger",
+      "prompt": "Can you summarise this conversation in a few bullets so I can paste it into Slack?",
+      "expected_output": "Should NOT produce a teaching block. This is a short summary request, not a process walkthrough for an audience. Produce the bullets.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "category": "should-not-trigger",
+      "prompt": "Write a how-to guide explaining how to set up a Supabase Edge Function.",
+      "expected_output": "Should NOT produce a teaching block. This is a general instructional how-to with no session to walk through — teaching blocks are first-person accounts of a specific session, and there is no session here. Write the how-to guide.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "category": "should-not-trigger",
+      "prompt": "Export this conversation to a file so I have a record of it.",
+      "expected_output": "Should NOT produce a teaching block. This is a plain export request with no teaching narrative. Export the conversation.",
+      "files": []
+    }
+  ]
+}

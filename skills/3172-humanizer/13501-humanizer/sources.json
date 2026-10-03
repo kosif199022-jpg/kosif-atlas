@@ -1,0 +1,30 @@
+{
+  "created_at": "2026-03-17T00:00:00.000Z",
+  "updated_at": "2026-07-13T00:00:00.000Z",
+  "type": "fork",
+  "sources": [
+    {
+      "url": "https://github.com/blader/humanizer/tree/main",
+      "repository": "blader/humanizer",
+      "path": ".",
+      "branch": "main",
+      "sha": "1b48564898e999219882660237fde01bf4843a0f",
+      "original_name": "humanizer",
+      "fetched_at": "2026-07-13T00:00:00.000Z",
+      "note": "Base v2.8.2. Re-based from earlier v2.2.0 import onto current upstream: adds Detection Guidance, hard em/en-dash cut, and patterns for diff-anchored writing, manufactured punchlines, aphorism formulas, conversational openers, hyphenated-pair overuse, subjectless fragments, and speculative gap-filling."
+    }
+  ],
+  "modifications": [
+    "Claude-specific graft (§34-37): post-action summaries, unsolicited ethical/safety caveats, standalone caveat lines, and broad markdown overuse. Originally derived from upstream PR #51 (closed, never merged) and PR #39 (closed).",
+    "Source-aware curly-quote rule (§19): skip on Claude output; boldface/inline-header lists flagged as high-confidence Claude tells (§15-16).",
+    "Fabrication guardrails on vague attributions (§5): [NEEDS REAL SOURCE] placeholder, never invent citations or named people.",
+    "Extended Collaborative Communication Artifacts (§20) with Claude openers ('I'd be happy to', 'Let me [verb]', 'I'll now proceed to').",
+    "Added DO NOT TOUCH section (quotes, code/specs, legal wording, 3x-consistent stylistic choices).",
+    "Removed upstream Voice Calibration (optional writing-sample voice matching) — unused by the maintainer.",
+    "§14 scope clause: the hard em/en-dash cut applies to text being rewritten, not clean human prose left untouched."
+  ],
+  "license": "MIT",
+  "copyright": "Copyright (c) blader",
+  "license_override": false,
+  "license_override_reason": null
+}

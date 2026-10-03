@@ -1,0 +1,218 @@
+<!--
+  INTERACTIVE REPORT COMPONENTS LIBRARY
+  =====================================
+  Copy and customize these components for your reports.
+  Each component includes the HTML structure and can be styled with styles.css
+-->
+
+<!-- ==================== TOC ITEM ==================== -->
+<!-- Main section link -->
+<li><a href="#section-id">1. Section Title</a></li>
+<!-- Subsection link -->
+<li class="subsection"><a href="#subsection-id">1.1 Subsection Title</a></li>
+
+<!-- ==================== HERO TAG ==================== -->
+<div class="hero-tag">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="12" cy="12" r="10"/>
+  </svg>
+  Tag Label
+</div>
+
+<!-- ==================== STAT CARD ==================== -->
+<div class="stat-card">
+  <div>
+    <div class="stat-value">300%</div>
+    <div class="stat-label">Description of the statistic</div>
+  </div>
+  <div class="stat-icon">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+      <line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+  </div>
+</div>
+
+<!-- ==================== SECTION ==================== -->
+<section class="section" id="section-id">
+  <h2>Section Title</h2>
+  <p>Section introduction paragraph with <strong>bold text</strong> for emphasis.</p>
+
+  <h3>Subsection Title</h3>
+  <p>Subsection content goes here.</p>
+</section>
+
+<!-- ==================== INFO CARD ==================== -->
+<div class="info-card">
+  <div class="info-card-header">
+    <h4>Card Title</h4>
+    <svg class="info-card-icon" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="3" width="18" height="18" rx="2"/>
+    </svg>
+  </div>
+  <p>Card description text explaining the topic.</p>
+  <ul>
+    <li>First bullet point</li>
+    <li>Second bullet point</li>
+    <li>Third bullet point</li>
+  </ul>
+</div>
+
+<!-- ==================== CARDS GRID (2-3 cards in a row) ==================== -->
+<div class="cards-grid">
+  <div class="info-card">
+    <div class="info-card-header">
+      <h4>Card 1</h4>
+    </div>
+    <p>Description for card 1.</p>
+  </div>
+  <div class="info-card">
+    <div class="info-card-header">
+      <h4>Card 2</h4>
+    </div>
+    <p>Description for card 2.</p>
+  </div>
+  <div class="info-card">
+    <div class="info-card-header">
+      <h4>Card 3</h4>
+    </div>
+    <p>Description for card 3.</p>
+  </div>
+</div>
+
+<!-- ==================== CALLOUT BOX (Info) ==================== -->
+<div class="callout">
+  <h4>Key Finding: Important Insight</h4>
+  <p>This is important information that should stand out. Include <strong>bold text</strong> for key data points. <a href="#">[Source: Reference Link]</a></p>
+</div>
+
+<!-- ==================== CALLOUT BOX (Warning) ==================== -->
+<div class="callout warning">
+  <h4>Critical Limitation:</h4>
+  <p>Warning or critical information that users should be aware of. Only <strong>8% visibility</strong> vs <strong>100% on alternative</strong>.</p>
+</div>
+
+<!-- ==================== CODE BLOCK ==================== -->
+<div class="code-block">
+  <pre><span class="comment"># Comment explaining the code</span>
+User-agent: ExampleBot
+Allow: /content/
+Disallow: /private/
+
+<span class="comment"># Another section</span>
+<span class="keyword">function</span> example() {
+  <span class="keyword">return</span> <span class="string">"Hello World"</span>;
+}</pre>
+</div>
+
+<!-- ==================== JSON CODE BLOCK ==================== -->
+<div class="code-block">
+  <pre>{
+  <span class="string">"@context"</span>: <span class="string">"https://schema.org"</span>,
+  <span class="string">"@type"</span>: <span class="string">"Organization"</span>,
+  <span class="string">"name"</span>: <span class="string">"Company Name"</span>,
+  <span class="string">"url"</span>: <span class="string">"https://example.com"</span>
+}</pre>
+</div>
+
+<!-- ==================== SOURCE LINK ==================== -->
+<a href="https://example.com" class="source-link">Source: Reference Title</a>
+
+<!-- ==================== TWO COLUMN LAYOUT ==================== -->
+<div class="two-column">
+  <div>
+    <h4>Left Column Title</h4>
+    <p>Content for the left column.</p>
+    <ul>
+      <li>Item one</li>
+      <li>Item two</li>
+    </ul>
+  </div>
+  <div>
+    <h4>Right Column Title</h4>
+    <p>Content for the right column.</p>
+    <ul>
+      <li>Item one</li>
+      <li>Item two</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ==================== EXAMPLE TRANSFORMATION ==================== -->
+<div class="example-box">
+  <div class="bad">
+    <span>&#x2716;</span> "Bad Example Title"
+  </div>
+  <div class="good">
+    <span>&#x2714;</span> "Good Example Title"
+  </div>
+</div>
+
+<!-- ==================== DATA TABLE ==================== -->
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Option A</th>
+      <th>Option B</th>
+      <th>Option C</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Row 1 Feature</td>
+      <td>Value A1</td>
+      <td>Value B1</td>
+      <td>Value C1</td>
+    </tr>
+    <tr>
+      <td>Row 2 Feature</td>
+      <td>Value A2</td>
+      <td>Value B2</td>
+      <td>Value C2</td>
+    </tr>
+    <tr>
+      <td>Row 3 Feature</td>
+      <td>Value A3</td>
+      <td>Value B3</td>
+      <td>Value C3</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ==================== HIGHLIGHT CARD ==================== -->
+<div class="highlight-card">
+  <div>
+    <div class="value">67%</div>
+    <div class="label">Improvement metric description</div>
+  </div>
+  <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+    <polyline points="17 6 23 6 23 12"/>
+  </svg>
+</div>
+
+<!-- ==================== NESTED LIST WITH LABELS ==================== -->
+<ul>
+  <li><strong>Label 1:</strong> Description for first item</li>
+  <li><strong>Label 2:</strong> Description for second item</li>
+  <li><strong>Label 3:</strong> Description for third item</li>
+</ul>
+
+<!-- ==================== SECTION WITH BORDER HIGHLIGHT ==================== -->
+<div class="callout">
+  <h4>Section Header</h4>
+  <p>Main description paragraph.</p>
+  <div class="cards-grid" style="margin-top: 16px;">
+    <div class="info-card">
+      <h4>Sub-card 1</h4>
+      <p>Description</p>
+    </div>
+    <div class="info-card">
+      <h4>Sub-card 2</h4>
+      <p>Description</p>
+    </div>
+  </div>
+  <a href="#" class="source-link">Source: Reference</a>
+</div>

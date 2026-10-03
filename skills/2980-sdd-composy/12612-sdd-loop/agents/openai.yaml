@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD Loop"
+  short_description: "Bounded correction loop for one task"
+  default_prompt: "Use $sdd-loop to start, inspect, continue, or cancel a bounded loop on one approved task."

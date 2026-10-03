@@ -1,0 +1,82 @@
+---
+name: implementation-planning
+description: "Plan repository changes before implementation: scope, sequence, risks, and verification."
+---
+
+# Implementation Planning
+
+Turn an approved goal into the smallest executable technical plan supported by the real codebase.
+
+## Boundary
+
+Use this skill to author a plan. Use `plan-review` when an existing plan should be challenged for readiness, missing flows, or unnecessary scope.
+
+Do not implement the plan unless the user explicitly asks for implementation.
+
+## Required Inputs
+
+Establish:
+
+- goal and user-visible outcome
+- scope, non-goals, and constraints
+- acceptance criteria
+- current repository state and relevant guidance
+- rollout, compatibility, or deadline constraints
+
+Ask only questions whose answers would materially change the plan. Record lesser uncertainty as assumptions.
+
+## Workflow
+
+1. Inspect the current code paths, tests, configuration, documentation, and existing abstractions related to the request.
+2. Restate the problem and acceptance criteria in verifiable terms.
+3. Identify the smallest change that satisfies the goal. Reuse existing patterns before proposing new layers or dependencies.
+4. Trace affected contracts and consumers, including dynamic dependencies or shared state when relevant. Expand inspection where the effect of the change is uncertain.
+5. For each material risk, name the triggering path, plausible failure, consequence, and verification. Omit generic risks without a concrete path and mark missing evidence.
+6. Divide the work into ordered, independently understandable steps. Name the likely files or subsystems and the observable result of each step.
+7. Include required tests with the behavior or regression each test proves.
+8. Address migrations, compatibility, deployment ordering, feature flags, rollback, monitoring, and cleanup only when the change actually requires them.
+9. Verify current third-party APIs, platform behavior, or standards when the plan depends on them.
+10. End with exact verification commands or checks supported by the repository.
+
+Keep the plan proportional to the change. Reuse current inspection evidence and omit sections that do not affect execution. Define the completion endpoint, including how to exercise the behavior, fix failures caused by the change, and report blockers. Distinguish local verification from any separately authorized deployment.
+
+## Resolve Interface and Design Questions
+
+When a change creates or alters a shared interface, start with a realistic consumer example. Show the inputs, returned values, errors, and side effects that the caller needs. Derive the proposed signatures, data types, and ownership boundaries from that example. Check existing consumers and supported contracts before choosing the shape. Use the project's compiler or type checker when available.
+
+Use an isolated, disposable experiment only when existing source, tests, and supported contracts do not resolve a material design choice that depends on observable behavior. State the question, relevant conditions, and result that would select an approach before running it. Compare alternatives only when the choice remains unresolved. Record the command and observed result, then connect that evidence to the plan's decision. Identify any part the experiment did not establish.
+
+Experiments stay outside product source and use permitted local resources. If the required environment or authority is unavailable, state the unresolved question and the check needed to resolve it. A prototype does not authorize implementation, establish production readiness, or replace required regression coverage.
+
+## Step Standard
+
+Every implementation step should state:
+
+- purpose
+- files or subsystem affected
+- concrete change
+- dependencies on earlier steps
+- verification or acceptance evidence
+
+Do not leave material design choices as “figure out during implementation.”
+
+## Output
+
+1. **Goal and acceptance criteria**
+2. **Scope and non-goals**
+3. **Current-state findings**
+4. **Assumptions and unresolved decisions**
+5. **Ordered implementation steps**
+6. **Change risk, evidence gaps, migration, and rollback notes**
+7. **Verification plan**
+
+## Quality Gate
+
+Before returning the plan, confirm that:
+
+- every step maps to the stated goal
+- consuming code and integration points are covered
+- change risk follows the proposed behavior through static and dynamic paths
+- risky paths have verification
+- no unnecessary abstraction or speculative scope was introduced
+- a different engineer could execute the plan without inventing major decisions

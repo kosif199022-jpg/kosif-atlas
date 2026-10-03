@@ -1,0 +1,140 @@
+# `_context/` Files
+
+`tasks/_context/` holds the **shared, decision-level** information that task files reference instead of duplicating. Every task file's `Required reading` header points here.
+
+Think of `_context/` as a surgical extract from PLAN.md. It holds only the parts an executor needs while writing code. PLAN.md remains the source of truth. `_context/` mirrors the slices that matter at execution time.
+
+## Inline, don't link
+
+`_context/` files must **inline** the substance executors need. Do not delegate to repo files with phrases like "see `eslint.config.js` for the rules" or "follow the convention in `app/components/`". That breaks the self-containment contract. An executor would have to open those files to know what to do.
+
+Rules:
+
+- **Inline the rule** as plain prose or a bulleted list (e.g. "use 2-space indent; no semicolons; prefer `const`").
+- **Cite the source file** as a verification pointer (e.g. "authoritative source: `eslint.config.js`"). An executor can check it, but does not have to read it.
+- If a convention is long enough that inlining feels heavy, extract it into its own `_context/<topic>.md`. Reference that file, not the repo file.
+
+Executors should never need to open a file outside `tasks/` to understand a decision.
+
+## What always exists
+
+### `shared.md` (always)
+
+Every plan gets `_context/shared.md`. It carries the convention layer that all tasks rely on:
+
+```markdown
+# Shared context
+
+> All tasks reference this. Decisions here override anything inferred from the codebase.
+
+## Project at a glance
+
+<2–3 sentences: what is being built, where it lives, who uses it.>
+
+## Tech stack
+
+- **Frontend**: <framework + version>
+- **Backend**: <framework + version>
+- **Storage**: <DB / cache>
+- **Other**: <queues, CDNs, payment, auth, etc.>
+
+## Code style
+
+Inline the rules executors actually need:
+
+- <Style rule 1>
+- <Style rule 2>
+- Authoritative source (for verification only): `<linter config path>`
+
+## File / directory layout
+
+<Inline the convention: where new components / routes / migrations / tests go. Don't just point at a folder — describe what lives there and how new entries are named.>
+
+## Commit & branching style
+
+- Branch off: <base branch>
+- Commit format: <emoji + conventional, or whatever the team uses>
+- PR target: <branch>
+- Tasks do not commit. Under autopilot, a commit agent commits each wave; leave changes unstaged.
+
+## Verification baseline
+
+Commands every task can rely on:
+
+- `<build command>`
+- `<test command>`
+- `<lint command>`
+- `<dev-server command>` (run by user, not by sub-agents)
+
+## Decisions frozen during interview
+
+Any decision the user made during flightplan's interview that affects multiple tasks. List as bullets with one-line context.
+
+- **<Decision>** — <one-line context>
+- **<Decision>** — <one-line context>
+```
+
+## What sometimes exists
+
+Create additional `_context/*.md` files only when the same body of context is referenced by multiple tasks. Common ones: `api-contract.md` (a client/server interface), `backend-conventions.md` / `frontend-conventions.md` (scaffolding rules several tasks share), `data-model.md` (a shared schema), `migration-plan.md` (phases, cutover criteria, rollback), and `style-guide.md` (writing topics). Two have a fixed shape:
+
+### `design.md`
+
+When the interview chose impeccable. Write it from the approved `docs/<slug>/design/mock.html`, in the DESIGN.md format impeccable reads and writes (authoritative source: impeccable's `reference/document.md`). The tokens are the contract; the mock is the verification pointer.
+
+Open with YAML frontmatter. It is the normative layer:
+
+- `name` and `description`.
+- `colors`, `typography`, `rounded`, `spacing`, and `components`, and no other top-level group. Take every value from the mock.
+- Name component variants as sibling keys (`button-primary`, `button-primary-hover`). Give them only the 8 props `backgroundColor`, `textColor`, `typography`, `rounded`, `padding`, `size`, `height`, `width`, and reference primitives as `{colors.<key>}`.
+
+Follow with these sections, in this order, under these exact headings. Omit a section the mock does not use; never rename one.
+
+1. `## Overview` — the concept in two or three sentences. When the target is not the web, state the unit and colour conversion once here (e.g. CSS px = pt, `#RRGGBBAA` = `0xAARRGGBB`).
+2. `## Colors` — each colour by role: Primary, Secondary, Tertiary, Neutral.
+3. `## Typography` — the families, how the target stack loads them, and the hierarchy.
+4. `## Layout` — the order and arrangement of every region, the container and grid, the spacing rhythm, and what changes at each viewport the mock draws, with its switch point.
+5. `## Elevation & Depth` — shadow, blur, and layering values, which the frontmatter has no group for.
+6. `## Shapes` — radius, border, and clipping.
+7. `## Components` — per component: shape, colours, every state the mock draws (hover, press, focus, selected, disabled, empty, error), and what each click does. Put its motion here, or `None`.
+8. `## Do's and Don'ts` — guardrails the user confirmed, with exact values.
+
+Name a frontmatter value in prose by its role; never restate its number.
+
+Every value the mock uses appears in this file. A value the frontmatter cannot hold — a shadow, a blur, a focus ring — goes in the prose of its section, never only in impeccable's `.impeccable/design.json` sidecar, which executors never read.
+
+The Step 7 reviewer bundles Markdown only, so it never sees the mock. The `(human)` side-by-side check is the only guard against drift between the mock and this file.
+
+### `rubric.md`
+
+When tasks share one quality bar — the common case. Each task's `## Eval rubric` carries its own threshold line and weighted table. `lint-task.ts` and `score-task.ts` parse this, per task. The **scale** and the **generic dimension definitions** are worth pinning once here instead. Tasks can then reference `../_context/rubric.md` instead of re-explaining what a 4–5 means.
+
+Contents:
+
+- **Scoring scale** — what 0–1 / 2–3 / 4–5 mean in general (the bands every task reuses).
+- **Generic dimensions** — what `Correctness` / `Test coverage` / `Interface & readability` / `Assumptions & docs` look at. Per-task tables then only need the task-specific anchors.
+- **Scoring & pass line** — the weighted-average formula, the default pass threshold (`> 4.0`), and the hard-fail convention (`Correctness < 4 is an automatic veto`).
+
+Per-task rubrics still carry their own threshold line and weighted table. This keeps them self-contained for the linter. This file just saves them from redefining the scale. See `task-template.md` → "`Eval rubric`" for the parseable contract.
+
+## What does NOT belong in `_context/`
+
+- **Task-specific details** — that goes in the task file's `Implementation notes`.
+- **PLAN.md narrative** — context here is reference material, not justification.
+- **History or "why we changed our mind"** — that lives in PLAN.md or commit messages.
+- **TODOs** — those live in the task file as `Acceptance criteria` checkboxes.
+
+## Sizing
+
+- `shared.md` aims for ≤ 300 lines. If it grows past that, it's doing too much. Split out a topic file.
+- Each topic file aims for ≤ 400 lines. If it grows past that, the topic deserves multiple files.
+
+## Update rules
+
+When a decision changes mid-execution:
+
+1. Update PLAN.md.
+2. Update the relevant `_context/*.md`.
+3. Notify executors. The task file itself usually doesn't need editing. It describes *what* to do, not *why*.
+
+If a change *does* require editing task files, that's a signal the original task was leaking decision context. Move the decision to `_context/`. Slim the task file.

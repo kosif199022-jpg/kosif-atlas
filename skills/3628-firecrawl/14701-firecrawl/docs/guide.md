@@ -1,0 +1,161 @@
+> Source: https://docs.firecrawl.dev/contributing/guide.md
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.firecrawl.dev/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Contributor setup for Firecrawl
+
+> Set up the Firecrawl API development environment, verify a local scrape, and run the source-owned test harness before contributing.
+
+Run Firecrawl locally when you are changing the API, workers, or tests. This path installs development dependencies and starts source-owned services with the API harness.
+
+
+  This is a contributor development environment, not a deployment guide. If
+  you want to run Firecrawl on infrastructure you control without changing the
+  product, use [Self-hosting Firecrawl](/contributing/self-host).
+
+
+## Choose local development or self-hosting
+
+* **Develop locally** when you need fast code-test-debug loops against the current source revision.
+* **Self-host a pinned release** when you want a stable Docker Compose baseline on your own infrastructure.
+* **Use Firecrawl Cloud** when you want the fastest managed path without operating either environment.
+
+Keep these environments separate. The API development file at `apps/api/.env` and the root Compose `.env` serve different processes and are not interchangeable.
+
+## Start the Firecrawl development environment
+
+### Install the prerequisites
+
+Install:
+
+* [Git](https://git-scm.com/downloads)
+* Node.js 22
+* pnpm `11.4.0`
+* [Redis](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/)
+* Docker or Podman for the PostgreSQL and RabbitMQ containers managed by the API harness
+* [Go](https://go.dev/dl/) 1.23 or newer, rebuilt by the API harness on every start
+* [Rust](https://www.rust-lang.org/tools/install), built during `pnpm install` for the `@mendable/firecrawl-rs` native package
+
+Enable the package manager version used by the API:
+
+```bash theme={null}
+corepack enable
+corepack prepare pnpm@11.4.0 --activate
+```
+
+### Clone Firecrawl and install dependencies
+
+```bash theme={null}
+git clone https://github.com/firecrawl/firecrawl.git
+cd firecrawl/apps/api
+pnpm install
+```
+
+Create `apps/api/.env` with the smallest unauthenticated development configuration:
+
+```bash theme={null}
+cat > .env <<'EOF'
+PORT=3002
+HOST=0.0.0.0
+REDIS_URL=redis://localhost:6379
+REDIS_RATE_LIMIT_URL=redis://localhost:6379
+USE_DB_AUTHENTICATION=false
+PLAYWRIGHT_MICROSERVICE_URL=
+EOF
+```
+
+Leave `NUQ_DATABASE_URL` and `NUQ_RABBITMQ_URL` unset when you want the harness to create local PostgreSQL and RabbitMQ containers. Set them only when you intentionally operate those dependencies yourself.
+
+### Start Redis and Firecrawl
+
+Start Redis in one terminal:
+
+```bash theme={null}
+redis-server
+```
+
+Then start Firecrawl from `apps/api` in another terminal:
+
+```bash theme={null}
+pnpm start
+```
+
+The start command builds the API, launches the API and worker processes, and manages the local queue containers. Keep that terminal open while you develop.
+
+### Verify one local scrape
+
+Check that the API process responds:
+
+```bash theme={null}
+curl \
+  --fail \
+  --silent \
+  --show-error \
+  http://localhost:3002/v0/health/readiness
+```
+
+Expected response:
+
+```json theme={null}
+{"status":"ok"}
+```
+
+Then exercise the scraping path:
+
+```bash theme={null}
+curl \
+  --fail-with-body \
+  --silent \
+  --show-error \
+  --max-time 75 \
+  -X POST \
+  http://localhost:3002/v2/scrape \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "url": "https://example.com",
+    "formats": ["markdown"],
+    "timeout": 60000
+  }'
+```
+
+A successful response includes `success: true`, Markdown in `data.markdown`, and an HTTP status in `data.metadata.statusCode`.
+
+## Change and test Firecrawl
+
+Keep each change focused, add a successful path and relevant failure coverage, and run the narrowest source-owned test command that proves the behavior.
+
+From `apps/api`, run the API snippet suite with its dependencies:
+
+```bash theme={null}
+pnpm harness pnpm test:snips
+```
+
+The harness starts the API, workers, PostgreSQL, and RabbitMQ for the test command, then cleans up the processes it started. Use a more targeted Vitest path when the full snippet suite is unnecessary.
+
+For the contribution workflow, review the repository's [`CONTRIBUTING.md`](https://github.com/firecrawl/firecrawl/blob/main/CONTRIBUTING.md) before opening a pull request.
+
+## Troubleshoot the development environment
+
+### Redis does not connect
+
+Confirm Redis is listening on `localhost:6379` and that both Redis URLs in `apps/api/.env` use that address.
+
+### The harness cannot start PostgreSQL or RabbitMQ
+
+Start Docker or Podman, then rerun `pnpm start`. If you manage the services yourself, set their connection URLs explicitly instead of relying on harness-managed containers.
+
+### Port 3002 is already in use
+
+Stop the other process or change `PORT` in `apps/api/.env`, then use the same port in your verification requests.
+
+### Basic fetch works but browser rendering does not
+
+An empty `PLAYWRIGHT_MICROSERVICE_URL` leaves the separate Playwright service disabled. Start and configure that service only when the change you are testing requires it.
+
+## Where to go next
+
+* **Deploying instead of developing?** Follow [Self-hosting Firecrawl](/contributing/self-host).
+* **Still choosing a path?** Compare [Open source or Firecrawl Cloud](/contributing/open-source-or-cloud).
+* **Ready to contribute?** Use the source-owned [contribution guide](https://github.com/firecrawl/firecrawl/blob/main/CONTRIBUTING.md).

@@ -1,0 +1,133 @@
+> Source: https://raw.githubusercontent.com/caronc/apprise-docs/master/locales/en/getting-started/index.mdx
+
+---
+title: Introduction
+description: What is Apprise and how does it work?
+sidebar:
+  label: What is Apprise?
+  order: 1
+---
+
+<style>{`
+  /* Existing styling to ensure block behavior */
+  .theme-aware-a1-diagram img {
+    display: block;
+    width: 100%;
+  }
+
+  /* Force Dark SVG when the Astro Starlight toggle is set to 'dark' */
+  :root[data-theme="dark"] .theme-aware-a1-diagram img {
+    content: url("./images/apprise-notifications-dark.svg");
+  }
+
+  /* Force Light SVG when the Astro Starlight toggle is set to 'light' */
+  :root[data-theme="light"] .theme-aware-a1-diagram img {
+    content: url("./images/apprise-notifications-light.svg");
+  }
+
+  /* Overview diagram, same light/dark swap as the diagram above. */
+  :root[data-theme="dark"] .apprise-flow img {
+    content: url("/assets/apprise-overview-en-dark.svg");
+  }
+
+  :root[data-theme="light"] .apprise-flow img {
+    content: url("/assets/apprise-overview-en-light.svg");
+  }
+
+`}</style>
+
+The name **Apprise** (/əˈpraɪz/) is pronounced like "uh-prise", similar to _surprise_ or _arise_, with emphasis on the second syllable.
+
+**Apprise** is a notification router. You describe each destination as a URL, hand Apprise a message, and it delivers to every destination you listed.
+
+<picture class="theme-aware-a1-diagram">
+  <source
+    srcset="./images/apprise-notifications-dark.svg"
+    media="(prefers-color-scheme: dark)"
+  />
+  <img
+    src="./images/apprise-notifications-light.svg"
+    alt="One message sent through Apprise fanning out to many notification services."
+    loading="lazy"
+  />
+</picture>
+
+It does not replace your chat platform, email provider, or alerting system. It sits in front of them, so you only have to learn one way to send a message.
+
+Whether you run cron jobs, manage containers, or build applications, Apprise saves you from learning and maintaining a different API for every service.
+
+## One Syntax to Rule Them All
+
+At the core of Apprise is the **Universal Notification URL**.
+
+Instead of learning a unique payload format for every service, you configure destinations using a single, predictable syntax:
+
+```text
+service://credentials/direction/?parameter=value
+```
+
+Switching services later means changing the URL, not your code or your scripts.
+
+This makes notifications portable, maintainable, and easy to reason about.
+
+## How Apprise Fits Together
+
+<picture class="apprise-flow">
+  <source
+    srcset="/assets/apprise-overview-en-dark.svg"
+    media="(prefers-color-scheme: dark)"
+  />
+  <img
+    src="/assets/apprise-overview-en-light.svg"
+    alt="Sources on the left send through the Apprise API or core library in the middle, which deliver to notification services on the right."
+    loading="lazy"
+  />
+</picture>
+
+- **Something needs to send a message.** A script, a webhook, the command line, the mobile app, or software that already speaks Apprise.
+- **Apprise handles the delivery.** You either import the Python library into your own code, or run the API server as a shared gateway that anything can post to.
+- **The message goes out.** A single request can reach one destination or every destination you have configured, in parallel.
+
+Because the URL format is the same everywhere, a URL you test on the command line works unchanged in a script, in the API server, or on your phone.
+
+## What It Looks Like
+
+From a script or the command line:
+
+```bash
+apprise -t "Backup Complete" -b "The server is safe" \
+  "discord://webhook_id/webhook_token"
+```
+
+Or from your own Python code:
+
+```python
+import apprise
+
+apobj = apprise.Apprise()
+apobj.add("tgram://credentials")
+
+apobj.notify(
+    body="Hello World",
+    title="My Notification",
+)
+```
+
+Both send the same notification. Point them at a different service and only the URL changes.
+
+## Key Features
+
+- **{/_ SERVICES:COUNT _/} supported services**, from popular chat platforms to specialized gateways
+- **Format-aware delivery**, including Markdown, HTML, and plain text
+- **Attachment support**, automatically adapted to each service's capabilities
+- **High performance**, with parallel notification delivery
+- **Minimal dependencies**, designed to stay lightweight
+
+## Where to Start
+
+| If you want to...                                    | Use...                                                          |
+| ---------------------------------------------------- | --------------------------------------------------------------- |
+| Notify from cron jobs, scripts or CI                 | [The CLI](/cli/)                                                |
+| Send notifications from your own application         | [The Python Library](/library/)                                 |
+| Give many systems one shared notification gateway    | [The API Server](/api/), stateless or with saved configurations |
+| Send from your phone against your self-hosted server | [Apprise Mobile](/mobile/)                                      |

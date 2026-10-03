@@ -1,0 +1,18 @@
+{
+  "name": "blueprint",
+  "version": "0.4.1",
+  "description": "Turn a settled scope into an implementation plan at docs/plans/NNNN-<slug>.md: files affected, phased sequence, acceptance criteria, edge-case ledger, rollback and risk. Consumes PRDs + ADRs. Formerly heist.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/blueprint",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "planning",
+    "implementation-plan",
+    "prd",
+    "adr"
+  ]
+}

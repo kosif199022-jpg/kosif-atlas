@@ -1,0 +1,7 @@
+interface:
+  display_name: "SpecTrack Handoff"
+  short_description: "Record durable workflow handoff context"
+  default_prompt: "Prepare a SpecTrack handoff for this session"
+
+policy:
+  allow_implicit_invocation: true

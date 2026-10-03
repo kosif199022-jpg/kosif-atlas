@@ -1,0 +1,23 @@
+{
+  "skill_name": "wrap",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "ok that's working now. wrap up this session — i'll pick it up in a new chat tomorrow",
+      "expected_output": "Commits staged specific files (no push if no remote), exports conversation to chat_exports/, writes teaching narrative with the need→journey→result→benefit arc, writes/updates HANDOFF.md, runs the memory-harvest check (may correctly report 'nothing earned it'), closes with a checklist of paths.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "export this conversation to chat_exports/ and add a narrative file that explains the why, what, how and what results came out of it",
+      "expected_output": "Recognizes this as the wrap ritual even though only two steps were named; performs export + narrative and offers/performs the remaining steps (commit, handoff, harvest) rather than stopping at the literal request.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "heading to bed — save whatever you need so we don't lose anything",
+      "expected_output": "Triggers the full ritual from the session-ending signal. Handoff is high-signal (state, locked decisions, next steps, what-not-to-do). Does not push to any remote without permission.",
+      "files": []
+    }
+  ]
+}

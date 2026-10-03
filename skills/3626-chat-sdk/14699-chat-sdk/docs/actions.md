@@ -1,0 +1,166 @@
+> Source: https://chat-sdk.dev/docs/actions.md
+
+---
+title: Actions
+description: Handle button clicks and interactive card events across platforms.
+type: guide
+prerequisites:
+  - /docs/cards
+related:
+  - /docs/modals
+  - /docs/approvals
+---
+
+# Actions
+
+
+Actions let you handle button clicks, dropdown selections, and other interactive events from [cards](/docs/cards). Register handlers with `onAction` to respond when users interact with your cards.
+
+## Handle a specific action
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAction("approve", async (event) => {
+  await event.thread.post(`Order approved by ${event.user.fullName}!`);
+});
+```
+
+## Handle multiple actions
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAction(["approve", "reject"], async (event) => {
+  const action = event.actionId === "approve" ? "approved" : "rejected";
+  await event.thread.post(`Order ${action} by ${event.user.fullName}`);
+});
+```
+
+## Catch-all handler
+
+Register a handler without an action ID to catch all actions:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAction(async (event) => {
+  console.log(`Action: ${event.actionId}, Value: ${event.value}`);
+});
+```
+
+## ActionEvent
+
+The `event` object passed to action handlers:
+
+| Property    | Type                                                  | Description                                                                        |
+| ----------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `actionId`  | `string`                                              | The `id` from the Button or Select component                                       |
+| `value`     | `string` (optional)                                   | The `value` from the Button or selected option                                     |
+| `user`      | `Author`                                              | The user who clicked                                                               |
+| `thread`    | `Thread \| null`                                      | The thread containing the card (null for view-based actions like home tab buttons) |
+| `messageId` | `string`                                              | The message containing the card                                                    |
+| `threadId`  | `string`                                              | Thread ID                                                                          |
+| `adapter`   | `Adapter`                                             | The platform adapter                                                               |
+| `triggerId` | `string` (optional)                                   | Platform trigger ID (used for opening modals)                                      |
+| `openModal` | `(modal) => Promise<{ viewId: string } \| undefined>` | Open a modal dialog. Resolves to `undefined` if the adapter doesn't support modals |
+| `raw`       | `unknown`                                             | Platform-specific event payload                                                    |
+
+## Pass data with buttons
+
+Use the `value` prop on buttons to pass extra context to your handler:
+
+```tsx title="lib/bot.tsx"
+<Button id="report" value="bug">Report Bug</Button>
+<Button id="report" value="feature">Request Feature</Button>
+```
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAction("report", async (event) => {
+  if (event.value === "bug") {
+    // Open bug report flow
+  } else if (event.value === "feature") {
+    // Open feature request flow
+  }
+});
+```
+
+## Open a modal from an action
+
+Use `event.openModal()` to open a [modal](/docs/modals) in response to a button click:
+
+```tsx title="lib/bot.tsx" lineNumbers
+import { Modal, TextInput, Select, SelectOption } from "chat";
+
+bot.onAction("feedback", async (event) => {
+  await event.openModal(
+    <Modal callbackId="feedback_form" title="Send Feedback" submitLabel="Send">
+      <TextInput id="message" label="Your Feedback" multiline />
+      <Select id="category" label="Category">
+        <SelectOption label="Bug" value="bug" />
+        <SelectOption label="Feature" value="feature" />
+      </Select>
+    </Modal>
+  );
+});
+```
+
+
+  Only the Slack and Teams adapters support modals. On other platforms, `event.openModal()`
+  logs a warning and resolves to `undefined` without opening anything.
+
+
+## Callback URLs
+
+Buttons accept a `callbackUrl` prop. When a user clicks the button, the action data is POSTed to that URL in addition to firing any `onAction` handler. With a webhook-based workflow engine, you can build approval flows without an `onAction` handler:
+
+```tsx title="lib/bot.tsx" lineNumbers
+bot.onNewMention(async (thread) => {
+  const approveUrl = "https://example.com/webhook/approve";
+  const denyUrl = "https://example.com/webhook/deny";
+
+  await thread.post(
+    <Card title="Deploy v2.4.1?">
+      <Actions>
+        <Button callbackUrl={approveUrl} id="approve" style="primary">
+          Approve
+        </Button>
+        <Button callbackUrl={denyUrl} id="deny" style="danger">
+          Deny
+        </Button>
+      </Actions>
+    </Card>
+  );
+});
+```
+
+Callback tokens are bound to the button action and conversation, expire after seven days, and are consumed on first use. A repeated click or an attempt to move the token to another conversation does not trigger the callback URL again.
+
+### Callback payload
+
+The POST body sent to the `callbackUrl`:
+
+```json
+{
+  "type": "action",
+  "actionId": "approve",
+  "user": { "id": "U123", "name": "alice" },
+  "threadId": "slack:C123:1234567890.123",
+  "messageId": "1234567890.456"
+}
+```
+
+If the button also has a `value` prop, it is included in the payload as `"value"`.
+
+
+  Platform limits apply to encoded button data. Discord's `custom_id` has a
+  100-character limit, and posting the card throws a `ValidationError` if the
+  action ID plus callback token exceed it. Telegram's `callback_data` has a
+  64-byte limit, and buttons that exceed it also throw a `ValidationError`. Keep
+  action IDs short when using `callbackUrl` on these platforms.
+
+
+For modals, see [callbackUrl on modals](/docs/modals#callback-urls).
+
+
+---
+
+For a semantic overview of all documentation, see [/sitemap.md](/sitemap.md)
+
+For an index of all available documentation, see [/llms.txt](/llms.txt)
+
+For agent-facing discovery, including API and MCP surfaces, see [/agents.md](/agents.md)

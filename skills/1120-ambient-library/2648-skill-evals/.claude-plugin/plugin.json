@@ -1,0 +1,11 @@
+{
+  "name": "skill-evals",
+  "description": "Runs one skill's existing evals/evals.json \u2014 triggering cases against a fresh subagent, quality cases judged against prose pass criteria \u2014 and reports a PASS/FAIL table, no scores; use for \"run the evals for X\", \"test this skill's evals\", \"does X still trigger right\".",
+  "version": "1.0.1",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

@@ -1,0 +1,379 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:autonomy-plugin:guardrails-security-binding",
+  "title": "GuardrailsSecurityBinding",
+  "description": "Contract-owned schema for the security binding document that lives in the settings-as-code home, outside the blast radius of the agents it governs. Fail-closed semantics: an ABSENT or INVALID security binding blocks autonomous dispatch — every signal enqueues human-gated; no axis serialized here ever resolves from a default or from any repo-local (agent-writable) surface.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "executor_class",
+    "isolation_bindings",
+    "merge_policy",
+    "verification_blocking",
+    "escalation_routes",
+    "admission"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "executor_class": {
+      "description": "Merge-policy gating input, security-surface data per the trigger contract: vendor-hosted caps every class at human-gated merge.",
+      "enum": ["self-operated", "vendor-hosted"]
+    },
+    "dispatch_posture": {
+      "description": "An org may record its security settings while keeping every dispatch human-gated. Under human-gated-only a binding without an L2 surface is a deliberate posture, not a defect; under autonomous-enabled a missing L2 surface fail-closes as invalid.",
+      "enum": ["autonomous-enabled", "human-gated-only"],
+      "default": "autonomous-enabled"
+    },
+    "isolation_bindings": {
+      "description": "Keyed by EXECUTION SURFACE (org-named surface id), so one surface's binding can never satisfy the check for a different dispatch surface. Each surface maps level tokens to a bound substrate instance.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/SurfaceLevels" }
+    },
+    "merge_policy": {
+      "description": "Per-class merge disposition, capped by the guardrail matrix: only the C2 and C3 cells are auto-merge ELIGIBLE (each after its own promotion); every other class merges human, and C4/C5 human always.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["C1", "C2", "C3", "C4", "C5"],
+      "properties": {
+        "C1": { "$ref": "#/$defs/MergeDisposition" },
+        "C2": { "$ref": "#/$defs/MergeDisposition" },
+        "C3": { "$ref": "#/$defs/MergeDisposition" },
+        "C4": { "$ref": "#/$defs/MergeDisposition" },
+        "C5": { "$ref": "#/$defs/MergeDisposition" }
+      }
+    },
+    "verification_blocking": {
+      "description": "Per-layer per-class blocking knobs. The security-review leaf's shipped defaults are FLOORS: tightening is legal, weakening below a floor makes the binding invalid — the admission-rule override_justification escape does NOT apply here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deterministic", "ai-review"],
+      "properties": {
+        "deterministic": { "$ref": "#/$defs/PerClassVerification" },
+        "ai-review": { "$ref": "#/$defs/PerClassVerification" }
+      }
+    },
+    "verification_topology": {
+      "description": "Optional per-class verification-topology binding over the verification-topology leaf's vocabulary: WHO verifies, how those verifiers must differ, and the per-class checker floor. An absent key (or an absent class) is NOT a hole: the leaf's shipped floors apply, exactly as escalation_severity falls back to contract defaults. Shipped floor values are FLOORS: tightening is legal, weakening below a shipped value makes the binding invalid — the admission-rule override_justification escape does NOT apply here, the same rule verification_blocking carries. Policy is roles + relational constraints + machine-checkable predicates; every concrete model instance is an org-binding outcome resolved on the binding seam at run time, so no entry here ever names a vendor or instance.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "C1": { "$ref": "#/$defs/ClassTopology" },
+        "C2": { "$ref": "#/$defs/ClassTopology" },
+        "C3": { "$ref": "#/$defs/ClassTopology" },
+        "C4": { "$ref": "#/$defs/ClassTopology" },
+        "C5": { "$ref": "#/$defs/ClassTopology" }
+      }
+    },
+    "promotion_state": {
+      "description": "Keyed by PROMOTABLE cell id only (C2-auto-merge, C3-auto-merge, C3-ai-review-blocking); an entry for a non-promotable cell (C4/C5 merge never promotes) makes the binding invalid. The bound state is a CEILING: consumers must resolve the effective state against live promotion-evidence telemetry before every autonomous dispatch/merge decision, fail-closing to unpromoted when evidence is unavailable.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/PromotionEntry" }
+    },
+    "escalation_routes": {
+      "description": "Org-bound queue route per escalation event class — a security-sensitive axis; every inherited guardrail event class must route. The two additive runner classes are legal OPTIONAL keys (never required, so existing bindings validate unchanged) — but a runner class bound in escalation_severity REQUIRES its entry here: severity selects only notification fan-out and can never supply the filed item's queue destination.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate-failure",
+        "verification-divergence",
+        "admission-rejection",
+        "demotion",
+        "structural-plan-approval",
+        "untrusted-provenance"
+      ],
+      "properties": {
+        "gate-failure": { "$ref": "#/$defs/Route" },
+        "verification-divergence": { "$ref": "#/$defs/Route" },
+        "admission-rejection": { "$ref": "#/$defs/Route" },
+        "demotion": { "$ref": "#/$defs/Route" },
+        "structural-plan-approval": { "$ref": "#/$defs/Route" },
+        "untrusted-provenance": { "$ref": "#/$defs/Route" },
+        "runner-needs-human": { "$ref": "#/$defs/Route" },
+        "runner-cap-exceeded": { "$ref": "#/$defs/Route" }
+      }
+    },
+    "escalation_severity": {
+      "description": "Optional event class -> severity join: which severity each event class escalates at. Keys are the escalation event-class registry — the six inherited guardrail classes plus the two additive runner classes (runner-needs-human, runner-cap-exceeded). Contract-default severities are defined in the runner escalation contract, so an absent binding leaves every class at its default; entries here are org-bound overrides. Severity never redirects the escalation item itself: the item files at the event class's own escalation_routes destination regardless, and the severity selects only the NOTIFICATION fan-out layered on that filed item (escalation_severity_routes). A severity with no bound notification legs degrades to tracker-item-only fan-out — never a missing item. A severity-bound RUNNER class additionally requires its own escalation_routes entry: binding notification depth for a class with no queue destination for its filed item is an incomplete runner binding (the six inherited classes always carry theirs).",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/EscalationEventClass" },
+      "additionalProperties": { "$ref": "#/$defs/Severity" }
+    },
+    "escalation_severity_routes": {
+      "description": "Optional severity token -> NOTIFICATION legs map: the fan-out depth applied on top of the filed escalation item, with the channel and personal-push legs modeled separately. Keyed only by the three severity tokens; each entry binds at least one leg. This is never the item's queue destination and never replaces an event class's escalation_routes entry; absent an entry (or a leg), fan-out degrades toward the tracker item only. The fan-out ladder is cumulative — the push tier rides on top of the channel notification — so a push leg without a channel leg in the same entry is rejected by the checker.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/Severity" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "channel": { "$ref": "#/$defs/Route" },
+          "push": { "$ref": "#/$defs/Route" }
+        }
+      }
+    },
+    "escalation_ack": {
+      "description": "Optional acknowledgment and re-escalation knobs. Contract defaults (72h staleness window, one re-escalation) live in the runner escalation contract, not here, so an absent binding leaves both at their default; entries are org-bound overrides.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "staleness_window": {
+          "description": "Whole hours an unacknowledged item may go stale before it re-escalates once with a one-level severity bump.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "reescalation_cap": {
+          "description": "Maximum number of stale-unacked re-escalations. The escalation contract caps this at a single bump, never a loop, so 1 is the only accepted value; the key exists so an org binds the knob explicitly rather than inheriting it silently.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        }
+      }
+    },
+    "admission": {
+      "description": "The serialized admission policy the trigger contract's admission seam enforces. An absent or invalid admission object fail-closes the seam: everything enqueues human-gated.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "rules", "autonomous_concurrency", "items_per_run"],
+      "properties": {
+        "classification": {
+          "description": "Signal-to-work-class classification rules, homed per signal-surface class — the mappings adapters stamp signal.work_class from (e.g. label string to class for tracker-vcs-event). A signal these rules cannot resolve is fail-closed human-gated before table evaluation.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tracker-vcs-event": { "$ref": "#/$defs/ClassificationRuleHome" },
+            "temporal": { "$ref": "#/$defs/ClassificationRuleHome" },
+            "agent-internal": { "$ref": "#/$defs/ClassificationRuleHome" },
+            "channel-feed": { "$ref": "#/$defs/ClassificationRuleHome" }
+          }
+        },
+        "rules": {
+          "description": "Decision-table rules; matching is most-specific-wins (full triple > two axes > one axis > default human-gated). Two matching rules of equal specificity with different dispositions make the binding invalid — fail-closed. A rule more permissive than the shipped default for its cell is invalid without override_justification; tightening needs none.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/AdmissionRule" }
+        },
+        "autonomous_concurrency": {
+          "description": "Total autonomous dispatches in flight at any moment — bounds fan-out across all rules and surfaces, never per rule.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "items_per_run": {
+          "description": "Items one drain run may dispatch autonomously.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "SurfaceLevels": {
+      "type": "object",
+      "propertyNames": { "pattern": "^L[0-3]$" },
+      "additionalProperties": { "$ref": "#/$defs/LevelBinding" }
+    },
+    "LevelBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["substrate", "substrate_class", "probe_evidence"],
+      "properties": {
+        "substrate": {
+          "description": "Bound substrate instance id (org-supplied; the ladder names substrate classes only).",
+          "type": "string",
+          "minLength": 1
+        },
+        "substrate_class": {
+          "description": "The HUMAN-RATIFIED substrate-class assertion the eligibility decision keys off, living here on the agent-unwritable surface — never resolved from the probe transcript, whose recorded class is capture evidence the executing agent could doctor and must EQUAL this value to verify. An L3 entry ratifying a class outside the kernel-separated pair (vm-microvm, hosted-ephemeral-executor) is an invalid binding, fail-closed.",
+          "enum": ["container", "os-sandbox", "vm-microvm", "hosted-ephemeral-executor"]
+        },
+        "host_interop": {
+          "description": "The HUMAN-RATIFIED statement of whether the surface's host can launch host binaries from inside the boundary, living here on the agent-unwritable surface because no capture can establish it. \"wsl2\": the surface is WSL2-hosted, so an L2/L3 probe transcript verifies only when it records the interop launch check (assertions.interop_launch_denied: a present Windows executable whose launch succeeds in the outer context and is denied inside, with identical arguments, equal SHA-256 digests on both sides, and a PE MZ header). \"none\": no host interop applies; a transcript whose credential expansion, workspace host path, or recorded interop executable sits under a Windows drive mount (/mnt/<letter>/) then leaves the level UNPROVEN, since capture evidence may only tighten the verdict. An ABSENT field leaves an L2/L3 level UNPROVEN and excluded from isolation eligibility, fail-closed.",
+          "enum": ["none", "wsl2"]
+        },
+        "component_reachable_hosts": {
+          "description": "The HUMAN-RATIFIED set of external destinations this surface's installed components may request — an outer-world fact no capture can establish, so it lives here on the agent-unwritable surface rather than in the transcript. An L2/L3 probe transcript verifies only when its probed egress targets cover this set in FULL: each ratified destination is a separate policy decision, so covering one says nothing about the rest. The EMPTY list is the explicit claim that this surface installs nothing carrying policy rules of its own; an ABSENT field leaves the level UNPROVEN and excluded from isolation eligibility, fail-closed.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "base_egress_allowlist": {
+          "description": "Informational record of the destinations the surface's base egress policy allows, shown to the reviewing human. Shape-checked only: it is never merged into component_reachable_hosts, never counts as probe coverage of a ratified destination, and is never read as proof that other traffic is denied. The empty array is allowed.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "probe_evidence": {
+          "description": "Reference to the live-validation probe transcript that proved this boundary; a binding without probe evidence is invalid. For L2/L3 the referenced transcript must VERIFY: the capture shape with the three core assertions (denied egress proven by peer identity, absent host credentials, contained workspace host-writes), a fourth, the interop launch denial, where host_interop is \"wsl2\", and a networked outer context. Under autonomous-enabled an unverifiable transcript leaves the level UNPROVEN and excluded from isolation eligibility, fail-closed. A transcript captured before the workspace assertion existed does not verify: the level goes UNPROVEN and the surface re-probes. The transcript must additionally cover every ratified component_reachable_hosts destination, and a recorded interop assertion is validated whatever host_interop ratifies.",
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_markers": {
+          "description": "Per-surface TRUSTED identifying markers the dispatch seam matches platform-attested runner context against — key/value pairs drawn from metadata the executing workload cannot forge. Serialized here, on the agent-unwritable security surface, so surface attestation never falls back to a repo-local recorded id. Required non-empty on every surface under dispatch_posture autonomous-enabled; marker sets must be pairwise unambiguous under joint satisfiability across surfaces.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "MergeDisposition": { "enum": ["auto", "human"] },
+    "PerClassVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["C1", "C2", "C3", "C4", "C5"],
+      "properties": {
+        "C1": { "$ref": "#/$defs/VerificationKnob" },
+        "C2": { "$ref": "#/$defs/VerificationKnob" },
+        "C3": { "$ref": "#/$defs/VerificationKnob" },
+        "C4": { "$ref": "#/$defs/VerificationKnob" },
+        "C5": { "$ref": "#/$defs/VerificationKnob" }
+      }
+    },
+    "VerificationKnob": { "enum": ["not-required", "advisory", "blocking"] },
+    "PromotionEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "ratified_by_change", "evidence_window", "ratified_at"],
+      "properties": {
+        "state": {
+          "description": "Promotion is a human-ratified knob flip, never automatic; demotion on contrary evidence is automatic, fail-closed, and resolved at evaluation time without writing this document.",
+          "enum": ["promoted", "unpromoted"]
+        },
+        "ratified_by_change": {
+          "description": "The reviewable change on the governance surface that ratified the flip.",
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_window": {
+          "description": "The telemetry window the promotion's evidence predicate was satisfied over.",
+          "type": "string",
+          "minLength": 1
+        },
+        "ratified_at": {
+          "description": "Ratification instant — anchors the promotion epoch: contrary evidence predating it belongs to a previous epoch, already consumed by the re-earn that produced this ratification.",
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "ClassTopology": {
+      "description": "One class's declared verification topology: a list of checker SLOTS plus the floors evaluated over it. All four axes are required — a count with no slot list is a length with no coverage, so a declared class always carries the list its counts are checked against. The checker enforces the floor comparisons, relational-reference resolution, the declared distinctness the leaf requires of every model-adjudicated slot, and the never-vacuous cross_vendor_required rule; this schema fixes the shape.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_checkers", "min_model_checkers", "cross_vendor_required", "roles"],
+      "properties": {
+        "min_checkers": {
+          "description": "Floor-bounded count of DISTINCT checker slots — a coverage floor, never a list length: deterministic slots are distinguished by scanner class, model-adjudicated slots by declared distinctness, and two slots that resolve identically declare ONE checker.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "min_model_checkers": {
+          "description": "Floor-bounded count of MODEL-ADJUDICATED checker slots. Exists because a total count cannot express which KIND of coverage is owed: without it a class meets its floor with deterministic slots alone and never faces a model judge.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cross_vendor_required": {
+          "description": "Whether the model-adjudicated slots must be pairwise vendor-disjoint AND disjoint from the generator. The knob itself carries that obligation onto every model-adjudicated slot, and it is never vacuously satisfied: asserting it with fewer than two model-adjudicated slots is invalid rather than trivially conforming. Floor-bounded: false where the shipped floor is true is invalid.",
+          "type": "boolean"
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/TopologyRole" }
+        }
+      }
+    },
+    "TopologyRole": {
+      "description": "One declared slot in the class's verification pipeline. A slot is filled by either a DETERMINISTIC layer (role checker carrying scanner_class) or a MODEL-ADJUDICATED role; a deterministic layer has no model or vendor identity, so the relational constraints and predicates bind only model-adjudicated slots and are never accepted on a deterministic one. name is the class-local id relational constraints resolve against: a constraint naming a role its own class does not declare is invalid, not ignored — that resolution is what keeps the constraint machine-checkable rather than decorative. A slot name says nothing about what it resolves to, so every model-adjudicated checker slot DECLARES distinct_model_from against the generator and against every other model-adjudicated checker slot; undeclared distinctness is unestablished distinctness. Predicates are requirements a binding can EVALUATE against a candidate instance; a requirement that cannot be evaluated is a preference, and preferences are not policy, so an unrecognized predicate key is rejected rather than carried as decoration.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "role": { "enum": ["generator", "checker", "cross_vendor_checker", "ranker"] },
+        "scanner_class": {
+          "description": "Marks the slot as a DETERMINISTIC layer and names the scanner class that distinguishes it — two deterministic slots sharing a scanner class resolve identically and declare one checker. Legal on role checker only.",
+          "type": "string",
+          "minLength": 1
+        },
+        "distinct_model_from": { "$ref": "#/$defs/RoleReference" },
+        "distinct_vendor_from": { "$ref": "#/$defs/RoleReference" },
+        "min_context_tokens": {
+          "description": "Evaluated against the declared input limit of the bound instance.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "requires_modality": { "$ref": "#/$defs/PredicateTokenList" },
+        "requires_feature": { "$ref": "#/$defs/PredicateTokenList" }
+      }
+    },
+    "RoleReference": {
+      "description": "Relational-constraint target(s): the class-local name(s) of declared roles this role must differ from. A list is several constraints of one kind; entries must be distinct, because repeating a target restates one constraint while presenting as several.",
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      ]
+    },
+    "PredicateTokenList": {
+      "description": "Non-empty, duplicate-free token list. For requires_feature the names are vendor-local, so the binding declares the mapping it resolves them against; a repeated token is one requirement presenting as several.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "Route": { "type": "string", "minLength": 1 },
+    "EscalationEventClass": {
+      "description": "The escalation event-class registry: the six inherited guardrail classes plus the two additive runner classes. escalation_routes keeps requiring only the six inherited classes; the two runner classes bind additively, and a runner class keyed in escalation_severity must also carry its own escalation_routes entry (the queue destination severity can never supply).",
+      "enum": [
+        "gate-failure",
+        "verification-divergence",
+        "admission-rejection",
+        "demotion",
+        "structural-plan-approval",
+        "untrusted-provenance",
+        "runner-needs-human",
+        "runner-cap-exceeded"
+      ]
+    },
+    "Severity": { "enum": ["notice", "attention", "urgent"] },
+    "ClassificationRuleHome": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          { "enum": ["C1", "C2", "C3", "C4", "C5"] },
+          {
+            "description": "Surface-bound classification entry: binds the marker (a routine identity, for the temporal home) to its work class, the one emitting surface admission attests, the ratified attestation anchor run_link_prefix, AND the ratified producer_identity. The run_link_prefix pins the platform-and-repository run-permalink namespace — which may be shared across schedules on repo-scoped platforms, where every schedule mints run permalinks under one shared namespace — while the producer_identity (the workflow or unit reference the platform injects into the authenticated run context) pins WHICH schedule within that namespace is allowed to emit this identity (ci-cron: absolute https prefix; local-scheduler: durable file:/artifact-scheme prefix). The protected associations live here, on the agent-unwritable surface — without them the marker is an unprotected selector an agent-writable scheduled workflow could point at any class, and an agent-writable schedule can neither mint run permalinks outside the ratified namespace nor forge the producer identity the platform attests into the authenticated run context.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["class", "source_surface", "run_link_prefix", "producer_identity"],
+            "properties": {
+              "class": { "enum": ["C1", "C2", "C3", "C4", "C5"] },
+              "source_surface": { "type": "string", "minLength": 1 },
+              "run_link_prefix": { "type": "string", "minLength": 1 },
+              "producer_identity": { "type": "string", "minLength": 1 }
+            }
+          }
+        ]
+      }
+    },
+    "AdmissionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signal_class", "provenance", "work_class", "disposition"],
+      "properties": {
+        "signal_class": {
+          "enum": ["tracker-vcs-event", "temporal", "agent-internal", "channel-feed", "*"]
+        },
+        "provenance": { "enum": ["human", "agent", "system", "*"] },
+        "work_class": { "enum": ["C1", "C2", "C3", "C4", "C5", "*"] },
+        "disposition": { "enum": ["autonomous-eligible", "human-gated", "audited-rejection"] },
+        "override_justification": {
+          "description": "Required when this rule is more permissive than the shipped default for any cell it matches; recorded justification makes the override reviewable.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

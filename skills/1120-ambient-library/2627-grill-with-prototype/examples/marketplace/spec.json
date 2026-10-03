@@ -1,0 +1,53 @@
+{
+  "name": "Fieldstay",
+  "slug": "fieldstay",
+  "tagline": "Book working farms, vineyards and orchards for a weekend of real work and real food.",
+  "seed": 7,
+  "currency": "$",
+  "nav": { "style": "topbar", "items": ["home", "browse", "hosts"] },
+  "footer": ["About", "Help", "Become a host", "Privacy"],
+  "entities": {
+    "Stay": {
+      "count": 9,
+      "fields": [
+        { "name": "title", "type": "title", "examples": ["Cedar Ridge Orchard", "Willow Creek Dairy", "Slate Hill Vineyard", "Harbor Oyster Farm", "Juniper Flats Ranch", "Ember Valley Apiary", "Meridian Olive Grove", "North Fork Hops", "Copper Bend Sheep Station"] },
+        { "name": "photo", "type": "image" },
+        { "name": "location", "type": "city" },
+        { "name": "price", "type": "money", "label": "Per night", "range": [90, 420] },
+        { "name": "rating", "type": "rating" },
+        { "name": "work", "type": "category", "label": "Work", "options": ["Harvest", "Animals", "Pruning", "Cellar", "Kitchen"] },
+        { "name": "about", "type": "paragraph" }
+      ]
+    },
+    "Host": {
+      "count": 6,
+      "fields": [
+        { "name": "name", "type": "name" },
+        { "name": "farm", "type": "title" },
+        { "name": "since", "type": "int", "label": "Hosting since", "range": [2016, 2025] },
+        { "name": "stays", "type": "int", "label": "Stays hosted", "range": [12, 340] }
+      ]
+    }
+  },
+  "screens": [
+    { "id": "home", "title": "Home", "archetype": "landing",
+      "hero": { "headline": "Work the land for a weekend. Eat what you picked.", "sub": "Fieldstay matches you with small farms that want an extra pair of hands and have a spare room.", "cta": { "label": "Find a stay", "target": "browse" }, "secondary": { "label": "How it works", "target": "how" } },
+      "stats": [ { "value": "1,240", "label": "farms" }, { "value": "38k", "label": "stays booked" }, { "value": "4.9", "label": "average rating" } ],
+      "sections": [
+        { "kind": "showcase", "title": "Popular this month", "lead": "Harvest season is here.", "entity": "Stay", "count": 3, "target": "stay", "see_all": "browse" },
+        { "kind": "features", "title": "How it works", "items": [ { "title": "Pick a farm", "text": "Filter by the kind of work you want to do and how far you'll drive." }, { "title": "Book two nights", "text": "Stays are Friday to Sunday. Meals included, work is four hours a day." }, { "title": "Go home with a box", "text": "Every host sends you off with what you helped harvest." } ] },
+        { "kind": "quotes", "title": "From guests", "items": [ { "text": "We pruned vines all Saturday and drank the results at dinner. Best weekend in years.", "who": "Priya Sharma", "role": "Guest, Slate Hill Vineyard" }, { "text": "Our kids still talk about the lambs.", "who": "Lucas Moreau", "role": "Guest, Copper Bend" }, { "text": "I came for the quiet and left with calluses and a friend.", "who": "Mei Tanaka", "role": "Guest, Cedar Ridge" } ] },
+        { "kind": "cta", "title": "Have a farm and a spare room?", "lead": "Hosts earn an average of $2,400 a season.", "button": { "label": "Become a host", "target": "host-apply" } }
+      ] },
+    { "id": "browse", "title": "Browse stays", "archetype": "list", "entity": "Stay", "view": "cards", "sub": "Weekends this autumn, within a day's drive", "filters": ["Harvest", "Animals", "Cellar", "Under $150"], "sort": "Top rated", "row_action": { "target": "stay" } },
+    { "id": "stay", "title": "Stay", "archetype": "detail", "entity": "Stay", "tabs": ["Overview", "The work", "Reviews", "Location"], "actions": [ { "label": "Book this weekend", "target": "checkout", "tone": "primary" }, { "label": "Message host", "target": "messages" }, { "label": "Save" } ], "side_note": "Free cancellation until 7 days before.", "related": "Stay", "related_title": "Nearby farms" },
+    { "id": "checkout", "title": "Book your stay", "archetype": "form", "sub": "Two nights, meals and one farm box included", "summary_entity": "Stay", "summary_note": "Fri 9 Oct – Sun 11 Oct · 2 guests",
+      "fields": [ { "name": "guests", "type": "select", "label": "Guests", "options": ["1 guest", "2 guests", "3 guests", "4 guests"] }, { "name": "arrival", "type": "select", "label": "Arrival", "options": ["Friday evening", "Saturday morning"] }, { "name": "diet", "type": "text", "label": "Dietary notes", "placeholder": "Anything the host should know", "full": true }, { "name": "card", "type": "text", "label": "Card number", "placeholder": "•••• •••• •••• 4242" }, { "name": "expiry", "type": "text", "label": "Expiry", "placeholder": "MM / YY" }, { "name": "agree", "type": "bool", "label": "I understand this is real farm work" } ],
+      "submit": { "label": "Confirm and pay", "target": "confirmed" }, "cancel": "stay" },
+    { "id": "confirmed", "title": "You're booked", "archetype": "empty", "note": "What should the guest see after paying? Confirmation, itinerary, packing list?" },
+    { "id": "hosts", "title": "Hosts", "archetype": "list", "entity": "Host", "view": "table", "sub": "The people behind the farms", "filters": ["New", "Superhost"], "row_action": { "target": "host", "label": "View" } },
+    { "id": "signin", "title": "Sign in", "archetype": "auth", "mode": "signin", "sub": "Welcome back to Fieldstay", "submit": { "target": "browse" }, "alt": { "label": "Create one", "target": "signup" } },
+    { "id": "signup", "title": "Create account", "archetype": "auth", "mode": "signup", "submit": { "target": "browse" }, "alt": { "target": "signin" } }
+  ],
+  "journeys": [ { "name": "Book a stay", "steps": ["home", "browse", "stay", "checkout", "confirmed"] } ]
+}

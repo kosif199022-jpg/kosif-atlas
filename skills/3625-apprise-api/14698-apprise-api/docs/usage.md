@@ -1,0 +1,436 @@
+> Source: https://raw.githubusercontent.com/caronc/apprise-docs/master/locales/en/api/usage.mdx
+
+---
+title: API Usage
+description: Learn how to send stateless and stateful notifications via the Apprise API.
+sidebar:
+  order: 3
+---
+
+<style>{`
+  /* Existing styling to ensure block behavior */
+  .theme-aware-sf-diagram img,
+  .theme-aware-sl-diagram img {
+    display: block;
+    width: 100%;
+  }
+
+  /* Force Dark SVG when the Astro Starlight toggle is set to 'dark' */
+  :root[data-theme="dark"] .theme-aware-sl-diagram img {
+    content: url("../images/stateless-api-integration-dark.svg");
+  }
+  :root[data-theme="dark"] .theme-aware-sf-diagram img {
+    content: url("../images/stateful-api-integration-dark.svg");
+  }
+
+  /* Force Light SVG when the Astro Starlight toggle is set to 'light' */
+  :root[data-theme="light"] .theme-aware-sl-diagram img {
+    content: url("../images/stateless-api-integration-light.svg");
+  }
+  :root[data-theme="light"] .theme-aware-sf-diagram img {
+    content: url("../images/stateful-api-integration-light.svg");
+  }
+`}</style>
+
+This guide covers the core functionality of the Apprise API: sending notifications. You can send notifications in two ways:
+
+1. **Stateless:** You provide the configuration URLs in the request payload.
+1. **Stateful:** You reference a pre-saved configuration Key.
+
+## Response Formats
+
+By default, endpoints return `text/plain`. If you prefer JSON, send `Accept: application/json`.
+
+For notification endpoints (`/notify` and `/notify/{KEY}`), you can also request a simple HTML log view by sending `Accept: text/html`. This is mainly useful for human testing in a browser.
+
+These normal responses wait for notification work to finish, then send retained
+logs one entry at a time. This avoids rebuilding a large on-disk result in
+memory and does not change the response format.
+
+### Live Progress Streaming
+
+Notification endpoints can report progress as each service is notified. Use `?stream=yes` or send `Accept: text/event-stream`.
+
+Any `log` events are followed by one `result` event. An unexpected failure produces an `error` event instead.
+
+```bash
+curl -N -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"body": "Backup completed successfully.", "title": "System Status"}' \
+  "http://localhost:8000/notify?stream=yes"
+```
+
+```text
+event: log
+data: {"level": "INFO", "asctime": "2025-01-01 12:00:00,000", "message": "Sent to Telegram", "service": "Telegram"}
+
+event: result
+data: {"status": "SUCCESS"}
+```
+
+The stream starts with HTTP `200`, before delivery finishes. Check the final `result` status (`SUCCESS`, `FAILURE`, `NOMATCH`, `PARTIAL`, or `TIMEOUT`) instead of expecting HTTP `424`.
+
+Each connection keeps up to 2 MB of waiting logs in memory. If the client falls
+behind, up to 256 MB more can use temporary disk storage. Events stay ordered
+unless either limit is reached.
+
+If the storage limit is reached or temporary storage fails, notification
+delivery continues. The stream sends an `ERROR` log asking the caller to
+contact the server administrator. New entries resume after the stored backlog
+drains.
+
+Operators can change these limits with `APPRISE_STREAM_MEMORY_SIZE` and
+`APPRISE_STREAM_DISK_SIZE`. The same limits also keep the completed result's
+logs from growing without bound in memory. See [Environment Variables](/api/reference/environment/#storage--limits) for the zero-value modes.
+
+At most `APPRISE_STREAM_WORKER_COUNT` streamed notifications run concurrently
+in each Gunicorn worker process. The default is `4`, so the effective
+server-wide default is `APPRISE_WORKER_COUNT * 4`.
+
+`APPRISE_STREAM_QUEUE_SIZE` allows up to `8` additional streams to remain
+connected in each worker process while waiting for an active slot or
+finishing their responses. When both the active and queued slots are full, a
+new stream receives HTTP `503` with a `Retry-After` header. Non-streaming
+notifications are unaffected.
+
+Work still occupies its slot if the client disconnects during delivery. A
+reverse proxy may also enforce its own limits before a request reaches
+Apprise API.
+
+In the packaged container, `APPRISE_CONNECTION_TIMEOUT` controls how long a
+proxy waits for live-stream activity and defaults to 10 minutes.
+
+:::note
+`-N` (`--no-buffer`) tells `curl` to print each event as it arrives instead of waiting for the connection to close.
+:::
+
+## Stateless Notifications
+
+<picture class="theme-aware-sl-diagram">
+  <source
+    srcset="../images/stateless-api-integration-dark.svg"
+    media="(prefers-color-scheme: dark)"
+  />
+  <img
+    src="../images/stateless-api-integration-light.svg"
+    alt="Stateless API Integration"
+    loading="lazy"
+  />
+</picture>
+
+Stateless notifications are ideal for "sidecar" usage where you don't want to manage persistent configuration on the server. You must provide the `urls` parameter in every request.
+
+With authentication enabled, use administrator credentials, or send explicit `urls` with configuration-user credentials and the matching `X-Apprise-Config-ID` header. Configuration-user access must be `user`; `locked`, `public`, and `disabled` cannot send stateless notifications. For Apprise API v2 compatibility, the header without `urls` remains a stateful send through the saved configuration.
+
+### Basic JSON Request
+
+The most common method is sending a JSON payload to `/notify`.
+
+**Endpoint:** `POST /notify`
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": "mailto://user:pass@gmail.com",
+    "body": "Backup completed successfully.",
+    "title": "System Status"
+  }' \
+  http://localhost:8000/notify
+```
+
+### File Attachments
+
+To send attachments, use `multipart/form-data`. The API accepts standard file uploads or remote URLs. Use `attach` as the recommended field name. The aliases `attachment` and `attachments` are also accepted.
+
+For JSON payloads that supply remote or encoded attachment values, use the same field names.
+
+```bash
+# Upload a local file
+curl -X POST \
+    -F "urls=discord://webhook_id/token" \
+    -F "body=See attached log." \
+    -F "attach=@/var/log/syslog" \
+    http://localhost:8000/notify
+
+# Reference a remote URL (Apprise will download and forward it)
+curl -X POST \
+    -F "urls=discord://webhook_id/token" \
+    -F "body=Security Camera Snapshot" \
+    -F "attach=http://camera-ip/snapshot.jpg" \
+    http://localhost:8000/notify
+```
+
+## Stateful Notifications
+
+<picture class="theme-aware-sf-diagram">
+  <source
+    srcset="../images/stateful-api-integration-dark.svg"
+    media="(prefers-color-scheme: dark)"
+  />
+  <img
+    src="../images/stateful-api-integration-light.svg"
+    alt="Stateful API Integration"
+    loading="lazy"
+  />
+</picture>
+
+Stateful notifications allow you to simplify your client code. You store the complex URLs on the server once, assigned to a **Key**, and your client simply references that Key.
+
+**Endpoint:** `POST /notify/{KEY}`
+
+### Sending to a Key
+
+If you have saved a configuration under the key `my-alerts`:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "body": "Database connection failed",
+    "type": "warning"
+  }' \
+  http://localhost:8000/notify/my-alerts
+```
+
+When authentication is enabled, keep the same keyed URL and add Basic Auth:
+
+```bash
+curl -u "user:password" -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"body": "Database connection failed", "type": "warning"}' \
+  http://localhost:8000/notify/my-alerts
+```
+
+A password-only administrator login uses `-u ":password"`.
+
+An administrator may also set a Config ID to `public`. Public callers omit Basic Auth but must provide a specific tag other than `all`. Public access works only for stateful notification calls; other endpoints remain protected.
+
+The `disabled` mode freezes configuration-user access without deleting its saved configuration or credentials. An administrator can still manage and use it.
+
+### Tagging
+
+Stateful configurations support tagging, allowing you to notify specific subgroups of your saved URLs.
+
+The value passed in the `tag` field follows these rules:
+
+| `tag` value        | Selected services                         |
+| ------------------ | ----------------------------------------- |
+| `"TagA"`           | Has `TagA`                                |
+| `"TagA TagB"`      | Has `TagA` **AND** `TagB`                 |
+| `"TagA+TagB"`      | Has `TagA` **AND** `TagB`                 |
+| `"TagA&TagB"`      | Has `TagA` **AND** `TagB`                 |
+| `"TagA,TagB"`      | Has `TagA` **OR** `TagB`                  |
+| `"TagA\|TagB"`     | Has `TagA` **OR** `TagB`                  |
+| `"TagA TagC,TagB"` | Has (`TagA` **AND** `TagC`) **OR** `TagB` |
+
+```bash
+# Notify services tagged "devops" OR "admin"
+curl -X POST -d '{"tag": "devops,admin", "body": "..."}' ...
+
+# Notify services tagged "devops" AND "critical"
+curl -X POST -d '{"tag": "devops critical", "body": "..."}' ...
+
+# Notify services matching ('comment' AND 'create') OR 'admin'
+curl -X POST -d '{"tag": "comment create,admin", "body": "..."}' ...
+```
+
+### Supplying Template Values
+
+If a saved configuration uses `${NAME}` markers, the URLs that need them are
+not used until a value is available. You can supply values with the
+notification itself.
+
+The saved YAML must declare each marker:
+
+```yaml
+template:
+  api_key:
+
+urls:
+  - sendgrid://${API_KEY}:noreply@example.com/admin@example.com:
+      - tag: alerts
+```
+
+With JSON, use a `template` object:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tag": "alerts",
+    "body": "Database connection failed",
+    "template": {"api_key": "your-secret-key"}
+  }' \
+  http://localhost:8000/notify/my-alerts
+```
+
+With a form post, name each field `template[name]`:
+
+```bash
+curl -X POST \
+  -F "tag=alerts" \
+  -F "body=Database connection failed" \
+  -F "template[api_key]=your-secret-key" \
+  http://localhost:8000/notify/my-alerts
+```
+
+A value sent this way takes priority. If it is blank or whitespace-only,
+Apprise uses the configuration default, then the server's environment.
+Names are case-insensitive. Extra valid names are accepted and ignored, with
+their names acknowledged only in
+the server's local debug log.
+
+Missing values skip only the affected URLs. The result is `PARTIAL` if another
+matching URL sends, or `FAILURE` if all matching URLs are skipped. Missing names
+appear only in the local server log. Use the **Review** tab or
+`GET /json/urls/{KEY}` to see what a configuration needs.
+
+These values affect saved configurations only; stateless requests ignore them.
+
+The **Notifications** tab adds a concealed key/value row for each variable used
+by the selected destinations. Defaults declared in `template:` are filled when
+available, but server environment values are never shown. A blank field uses
+the configuration default, then the environment. You may remove rows freely,
+and **Clear Form** rebuilds the suggestions. **Add Value** is available after
+every current row has a name; highlighted rows will be sent. Quick tests use a
+separate concealed prompt. Stateless tests are unchanged.
+
+Any caller allowed to send through a saved configuration may supply its
+declared template values. See [Template Variables](../getting-started/template/)
+for setup and placement guidance.
+
+:::note
+`X-Apprise-Log-Level: debug` (or `trace`) may expose a saved configuration, so
+it requires administrator privileges or `user` access. Calls using `locked`,
+`public`, or `disabled` access receive no more than `info`.
+:::
+
+### Seeing What a Configuration Needs
+
+`GET /json/urls/{KEY}` lists each saved URL together with the template names it uses:
+
+```json
+{
+  "url": "mailto://user:pass@gmail.com?smtp=${SMTPSERVER}&to=${RECIPIENT}",
+  "template": { "smtpserver": null, "recipient": "default@example.com" }
+}
+```
+
+`template` maps every name the URL uses to the default declared for it in the configuration's `template:` section:
+
+- `null` means there is no default to hand over. Either none was written, or `privacy=1` or `APPRISE_CONFIG_LOCK` withheld it.
+- `null` does not mean the value is unavailable. The server may still fill the name in from its own environment when the notification is sent. Environment values, and whether one exists, are never listed.
+- The object is always present. It is empty when there is nothing to report.
+
+The markers inside `url` are left exactly as written:
+
+- They are never percent-encoded and never masked, so a client can search for them and substitute its own values.
+- Marker names are upper case while the keys under `template` are lower case. Match them without regard to case.
+
+Each `url` also carries the settings written underneath it in the configuration, so substituting the markers gives you a URL that sends the same way the saved entry does. The exception is a setting the service has no URL argument for, which is left out because a URL cannot express it.
+
+Add `privacy=1` and the text around each marker is masked and every default is withheld. That listing is fine to display, but it cannot be used to send.
+
+## Payload Mapping (Hooks)
+
+Sometimes you cannot change the payload format sent by a third-party tool (e.g., Grafana, Prometheus). Apprise API allows you to map incoming fields to Apprise-compatible fields using query parameters prefixed with a colon (`:`).
+
+:::note
+Mapping keys are passed in the query string and must be URL encoded if they contain special characters.
+:::
+
+### Mapping Rules
+
+| Syntax                           | Effect                                       |
+| -------------------------------- | -------------------------------------------- |
+| `?:incoming_field=apprise_field` | Rename `incoming_field` to the Apprise field |
+| `?:incoming_field=`              | Remove `incoming_field` from the payload     |
+| `?:apprise_field=literal value`  | Hard-code `apprise_field` to a fixed string  |
+
+**Example**: your tool sends `{"message": "Server Down", "severity": "high"}`, but Apprise expects `body` and `type`:
+
+```bash
+curl -X POST \
+  -d '{"message": "Server Down", "severity": "high"}' \
+  "http://localhost:8000/notify/my-alerts?:message=body&:severity=type"
+```
+
+### Nested Field Mapping
+
+When the incoming payload uses nested objects or arrays, reference them on the source side of the rule using **dot-notation** for nested objects and **bracket-notation** for array elements. Both can be freely combined.
+
+#### Nested Objects (Dot-Notation)
+
+Use a dot-separated path to walk into nested dictionaries:
+
+```bash
+# Payload from a monitoring tool:
+# { "event": { "title": "CPU spike", "state": "critical" },
+#   "component": { "name": "web-server-01" } }
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"event":{"title":"CPU spike","state":"critical"},"component":{"name":"web-server-01"}}' \
+  "http://localhost:8000/notify/my-alerts?:event.title=title&:event.state=type&:component.name=body"
+```
+
+#### Array Elements (Bracket-Notation)
+
+Append `[N]` directly after the key name to dereference index `N` of that array. Multiple subscripts and mixing with dot-notation are both supported:
+
+```bash
+# Payload from a forum / project-management webhook (e.g. Scoold / Para):
+# { "items": [ { "title": "New post", "objectURI": "https://example.com/q/1234" } ] }
+curl -g -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"items":[{"title":"New post","objectURI":"https://example.com/q/1234"}]}' \
+  "http://localhost:8000/notify/my-alerts?:items[0].title=title&:items[0].objectURI=body"
+```
+
+:::note
+`curl` treats brackets in URLs as globbing syntax, so `-g` (or `--globoff`) is required when using mapping paths such as `items[0].title`. Keep the URL quoted so your shell passes it through unchanged.
+:::
+
+Chained subscripts traverse nested arrays:
+
+```text
+# Source key          What it resolves to
+items[0]              first element of the items array
+items[0].objectURI    .objectURI of the first element
+matrix[0][1]          row 0, column 1 of a 2-D array
+a[0][1][2].value[3]   nested arrays -> dict -> array
+```
+
+**Rules and limits:**
+
+- Only the **source** side may use path notation; the target must be a flat Apprise field (`title`, `body`, `type`, `format`, `tag`, etc.).
+- `N` in `[N]` must be a non-negative integer. Both `key[abc]` (non-integer) and `key[0` / `key0]` (unmatched bracket) are rejected with a `WARNING`.
+- If any step in the path cannot be resolved (missing key, index out of range, or a non-list node encountered at an index step), the server returns **400** and logs a `WARNING`. No notification is sent. This lets you catch misconfigured rules without silently dropping messages.
+- **Depth** is counted as the total number of individual traversal operations. Each dict-key lookup _and_ each array-index dereference counts as one step. For example, `items[0].objectURI` is **3** steps (`items` -> `[0]` -> `objectURI`), and `a[0][1][2].b[3]` is **6** steps.
+- The maximum traversal depth defaults to **5**. Adjust it with the `APPRISE_WEBHOOK_MAPPING_MAX_DEPTH` environment variable.
+
+## Language
+
+The web interface chooses a language for every page it serves, in this order:
+
+1. The language you pick from the menu at the top of the page. It is remembered in a cookie for a year and always wins.
+2. Otherwise the `Accept-Language` header your browser sends, using the order of preference in it. A language your browser marks as unwanted (`q=0`) is skipped.
+3. Every full tag in that header is tried before any shortened one. Asking for `pt-BR, de` tries `pt-BR`, then `de`, and only then `pt`.
+4. English, when none of your languages is available.
+
+### Asking for a Language From Your Own Code
+
+The header is not only for browsers. Any client can send it, and steps 2 to 4 above apply the same way:
+
+```http
+GET /details HTTP/1.1
+Accept-Language: en-US,en;q=0.9,de;q=0.5
+```
+
+Every response tells you which language it used through a `Content-Language` header. Human-readable text follows it, so the service names and field descriptions returned by `/details` arrive in that language.
+
+Apprise API is translated into Arabic, Chinese, Dutch, English, French, German, Hindi, Indonesian, Italian, Japanese, Korean, Malay, Polish, Portuguese, Russian, Spanish, Tagalog, Thai, Turkish, and Vietnamese.
+
+:::note
+Only text that people read is translated. Values the API accepts, such as `type=success` or `format=text`, are always English, and so are the JSON keys and status words your own code reads.
+:::

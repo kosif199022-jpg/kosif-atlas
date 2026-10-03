@@ -1,0 +1,95 @@
+> Source: https://chat-sdk.dev/adapters/community/qq.md
+
+---
+title: QQ Bot
+description: Community QQ Bot adapter for Chat SDK with WebSocket and webhook modes, multi-scene support (DM, group, text channel), rich media, and Ed25519 signature verification.
+tagline: QQ Bot adapter for Chat SDK. Connects to the QQ Bot Gateway over WebSocket or HTTP callback, supporting DM, group, and text-channel scenes with images, video, voice, and files.
+package: @agentor/chat-qq
+---
+
+# QQ Bot
+
+
+## Install
+
+
+## Quick start
+
+QQ bots receive events in one of two modes. WebSocket mode is the default; set
+`mode: "callback"` to use webhooks.
+
+### WebSocket mode
+
+The adapter connects directly to the QQ Bot Gateway, so you don't need a public endpoint:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createQQBotAdapter } from "@agentor/chat-qq";
+
+const adapter = createQQBotAdapter({
+  appId: process.env.QQ_BOT_APP_ID,
+  clientSecret: process.env.QQ_BOT_CLIENT_SECRET,
+});
+
+await adapter.initialize({
+  processMessage: async (_adapter, threadId, factory) => {
+    const message = await factory();
+    await adapter.postMessage(threadId, message.text);
+  },
+});
+```
+
+### Webhook (callback) mode
+
+The adapter receives events over HTTP and verifies their Ed25519 signatures.
+The two modes are mutually exclusive: once you configure an HTTPS callback URL
+on the bot, WebSocket mode is no longer available.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createQQBotAdapter } from "@agentor/chat-qq";
+
+const adapter = createQQBotAdapter({
+  mode: "callback",
+  appId: process.env.QQ_BOT_APP_ID,
+  clientSecret: process.env.QQ_BOT_CLIENT_SECRET,
+});
+```
+
+## Configuration
+
+
+### Environment variables
+
+| Variable               | Required | Description            |
+| ---------------------- | -------- | ---------------------- |
+| `QQ_BOT_APP_ID`        | Yes      | QQ Bot application ID. |
+| `QQ_BOT_CLIENT_SECRET` | Yes      | QQ Bot client secret.  |
+
+## Rich media
+
+`postMessage` uploads local files (`FileUpload`) and URL attachments, then
+sends them as rich-media messages. Scenarios that don't support rich media fall
+back to text.
+
+```typescript
+// Send a local file
+await adapter.postMessage(threadId, {
+  text: "Document",
+  files: [
+    {
+      data: buffer,
+      filename: "report.xlsx",
+      mimeType: "application/vnd.ms-excel",
+    },
+  ],
+});
+```
+
+## Scenes
+
+The adapter supports four QQ scenes: QQ DM (C2C), QQ Group, Text Channel, and
+Channel DM. File upload in group chats is not currently available. Text
+channels and channel DMs send images and videos via `msg_type: 7`.
+
+## Feature support
+
+

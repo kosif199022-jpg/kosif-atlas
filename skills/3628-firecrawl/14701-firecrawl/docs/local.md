@@ -1,0 +1,114 @@
+> Source: https://docs.firecrawl.dev/mcp-server/local.md
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.firecrawl.dev/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Run Firecrawl MCP locally
+
+> Start and configure the open-source Firecrawl MCP server over stdio or Streamable HTTP.
+
+Run Firecrawl MCP locally when a client needs to launch a local process, when you need a local HTTP transport, or when the MCP server must connect to a self-hosted Firecrawl API. For the managed service, start with [Get Started](/mcp-server).
+
+## Prerequisites
+
+* Node.js 22 or newer
+* npm and `npx`, included with Node.js
+* A Firecrawl API key for the cloud API, or a self-hosted Firecrawl API URL
+
+Confirm the installed Node.js version:
+
+```bash theme={null}
+node --version
+```
+
+## Start the server
+
+
+    Use stdio when the MCP client launches Firecrawl as a local process:
+
+    ```bash
+    env FIRECRAWL_API_KEY=fc-YOUR-API-KEY \
+      npx -y firecrawl-mcp@3.23.7
+    ```
+
+    Configure the client to run `npx -y firecrawl-mcp@3.23.7` and provide `FIRECRAWL_API_KEY` through the client's protected environment or secret mechanism.
+
+
+    Use HTTP when a client such as n8n connects to an already-running server:
+
+    ```bash
+    env HTTP_STREAMABLE_SERVER=true \
+      FIRECRAWL_API_KEY=fc-YOUR-API-KEY \
+      npx -y firecrawl-mcp@3.23.7
+    ```
+
+    Connect the client to:
+
+    ```text
+    http://localhost:3000/mcp
+    ```
+
+    Confirm the server is ready:
+
+    ```bash
+    curl http://localhost:3000/health
+    ```
+
+    The health check returns `ok`. The local route is `/mcp`; `/v2/mcp` belongs to the hosted Firecrawl service.
+
+
+## Configure the Firecrawl API
+
+| Environment variable | Purpose |
+| - | - |
+| `FIRECRAWL_API_KEY` | Authenticates to the Firecrawl cloud API. It is optional only when a self-hosted API does not require authentication. |
+| `FIRECRAWL_API_URL` | Sends requests to a self-hosted Firecrawl API instead of the cloud API. |
+| `HTTP_STREAMABLE_SERVER` | Set to `true` to start the local Streamable HTTP transport instead of stdio. |
+
+<CodeGroup>
+  ```bash Cloud API
+  export FIRECRAWL_API_KEY=fc-YOUR-API-KEY
+  npx -y firecrawl-mcp@3.23.7
+  ```
+
+  ```bash Self-hosted API
+  export FIRECRAWL_API_URL=https://firecrawl.your-domain.com
+  export FIRECRAWL_API_KEY=your-api-key # Omit if the instance does not require authentication
+  npx -y firecrawl-mcp@3.23.7
+  ```
+</CodeGroup>
+
+
+  Direct local-file parsing with `firecrawl_parse` requires `FIRECRAWL_API_URL` pointing to a self-hosted Firecrawl API. A local MCP server connected only to the cloud API cannot upload a local file through that tool; the [hosted server uses a signed upload handoff](/mcp-server/tools#important-behavior) instead.
+
+
+## Install globally
+
+Use `npx` for the shortest setup. To install the same reviewed release globally instead:
+
+```bash theme={null}
+npm install -g firecrawl-mcp@3.23.7
+```
+
+Then run:
+
+```bash theme={null}
+env FIRECRAWL_API_KEY=fc-YOUR-API-KEY firecrawl-mcp
+```
+
+## Troubleshooting
+
+
+    Install Node.js 22 or newer, confirm that `npx` is on the client's `PATH`, and fully restart the client. On Windows, run `where npx` in Command Prompt and configure the client to use the returned `npx.cmd` path.
+
+
+    Confirm that `HTTP_STREAMABLE_SERVER=true`, then call `http://localhost:3000/health`. Use `http://localhost:3000/mcp` as the client endpoint, not the hosted `/v2/mcp` path.
+
+
+    Tool availability depends on the Firecrawl services enabled in the target deployment. Compare the connection in [Tools](/mcp-server/tools) and check the local process output for registration or authentication errors.
+
+
+    Rate limits are enforced by the connected Firecrawl API. Review the current [rate limits](/rate-limits) and the limits configured for a self-hosted deployment.
+
+

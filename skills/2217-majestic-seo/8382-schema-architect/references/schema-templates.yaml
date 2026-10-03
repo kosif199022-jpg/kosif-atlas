@@ -1,0 +1,176 @@
+# JSON-LD examples. Placeholder values are strings for parsing only.
+# Before deployment, replace only with approved facts visible on the page.
+# Omit unknown optional fields instead of emitting guessed placeholders.
+
+organization:
+  template: |
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "{{company_name}}",
+      "url": "{{website_url}}",
+      "logo": "{{logo_url}}",
+      "description": "{{company_description}}",
+      "sameAs": [
+        "{{approved_profile_url}}"
+      ]
+    }
+  notes:
+    - Name, URL, logo, description, and profiles require approved visible evidence.
+    - Omit logo, description, sameAs, founder, and foundingDate when unknown or not supported.
+    - Organization and WebSite do not guarantee a Knowledge Panel.
+
+website:
+  template: |
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "{{site_name}}",
+      "url": "{{website_url}}"
+    }
+  notes:
+    - Use the visible site name and canonical URL.
+    - Google retired the sitelinks search box starting November 21, 2024; ordinary sitelinks are not guaranteed by this markup.
+    - "Source: https://developers.google.com/search/blog/2024/10/sitelinks-search-box"
+
+faq_page:
+  template: |
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "{{question_text}}",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "{{answer_text}}"
+          }
+        }
+      ]
+    }
+  notes:
+    - Each visible Q&A pair is a separate Question entity.
+    - Answers must be visible, factual, and not misleading.
+    - FAQ rich results no longer appear in Google Search as of May 7, 2026.
+    - Retain for valid non-Google Schema.org use only when the page warrants it.
+
+how_to:
+  template: |
+    {
+      "@context": "https://schema.org",
+      "@type": "HowTo",
+      "name": "{{title}}",
+      "description": "{{description}}",
+      "step": [
+        {
+          "@type": "HowToStep",
+          "name": "{{step_title}}",
+          "text": "{{step_description}}"
+        }
+      ]
+    }
+  notes:
+    - Add totalTime or images only when visible and verified.
+    - How-to rich results no longer appear in Google Search on desktop or mobile.
+    - Retain for valid non-Google Schema.org use only when the page visibly describes sequential steps.
+
+article:
+  template: |
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "headline": "{{title}}",
+      "description": "{{description}}",
+      "author": {
+        "@type": "Person",
+        "name": "{{author_name}}"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "{{publisher_name}}"
+      },
+      "datePublished": "{{publish_date}}",
+      "dateModified": "{{modified_date}}",
+      "image": "{{featured_image_url}}"
+    }
+  notes:
+    - Author, publisher, dates, description, and image must match visible approved facts.
+    - Omit unknown optional fields, including author URL, publisher logo, and image.
+    - Do not change dates without a substantive corresponding update.
+
+product:
+  template: |
+    {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "name": "{{product_name}}",
+      "description": "{{description}}",
+      "image": "{{image_url}}",
+      "brand": {
+        "@type": "Brand",
+        "name": "{{brand_name}}"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "{{price}}",
+        "priceCurrency": "{{currency}}",
+        "availability": "{{approved_availability_url}}"
+      }
+    }
+  notes:
+    - Use only current visible product, price, currency, and availability facts.
+    - Omit Offer when no appropriate visible offer exists.
+    - Do not add AggregateRating unless genuine reviews, the reviewed entity, and current policy eligibility are verified.
+    - Product and Offer do not guarantee a price result or stars.
+
+review:
+  template: |
+    {
+      "@context": "https://schema.org",
+      "@type": "Review",
+      "itemReviewed": {
+        "@type": "{{supported_reviewed_type}}",
+        "name": "{{reviewed_entity_name}}"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "{{review_author_name}}"
+      },
+      "reviewBody": "{{visible_review_body}}",
+      "reviewRating": {
+        "@type": "Rating",
+        "ratingValue": "{{rating_value}}",
+        "bestRating": "{{best_rating}}",
+        "worstRating": "{{worst_rating}}"
+      }
+    }
+  notes:
+    - Confirm the reviewed type is supported for the intended Google feature.
+    - Confirm the review and rating are genuine, visible, directly sourced, and not self-controlled in a prohibited way.
+    - Omit rating fields when no approved rating evidence exists.
+    - Review markup does not guarantee a review snippet or stars.
+
+breadcrumb:
+  template: |
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "{{base_url}}"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "{{category}}",
+          "item": "{{category_url}}"
+        }
+      ]
+    }
+  notes:
+    - Include only visible breadcrumb levels and canonical URLs.
+    - Breadcrumb validity and Google display eligibility are separate.

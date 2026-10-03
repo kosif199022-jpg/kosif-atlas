@@ -1,0 +1,7 @@
+{
+  "mutations": [],
+  "accepted_count": 0,
+  "rejected_count": 0,
+  "deferred_count": 0,
+  "notes": "Each run proposes one mutation targeting the weakest role. Accepted mutations are applied to role/variant files. Rejected mutations are never re-proposed. Deferred mutations can be A/B tested."
+}

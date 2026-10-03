@@ -1,0 +1,4 @@
+interface:
+  display_name: "Find Library Documentation"
+  short_description: "Find current official library and API docs"
+  default_prompt: "Use $find-library-docs to find authoritative current documentation for this library question."

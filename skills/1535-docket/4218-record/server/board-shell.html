@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+/* tokens:core:start */
+/* Shared design core — do not hand-edit; edit scripts/tokens/core.css. */
+:root {
+  --background: #111110;
+  --card: #191918;
+  --card-foreground: #eeeeec;
+  --popover: #222221;
+  --foreground: #eeeeec;
+  --muted: #222221;
+  --muted-foreground: #b5b3ad;
+  --border: #3b3a37;
+  --input: #3b3a37;
+  --primary: #978365;
+  --primary-foreground: #ffffff;
+  --primary-hover: #a39073;
+  --primary-muted: #24231f;
+  --primary-text: #cbb99f;
+  --ring: #978365;
+  --accent: #2a2a28;
+  --success: #71d083;
+  --success-muted: #1b2a1e;
+  --success-border: #2d5736;
+  --warning: #ffca16;
+  --warning-muted: #302008;
+  --warning-border: #5c3d05;
+  --destructive: #ff977d;
+  --destructive-muted: #391714;
+  --destructive-border: #6e2920;
+  --info: #70b8ff;
+  --info-muted: #0d2847;
+  --info-border: #104d87;
+  /* categorical — series identity; neither the accent nor the semantics */
+  --cat-1: #cf686e;
+  --cat-2: #897ed6;
+  --cat-3: #41a265;
+  --cat-4: #3694d4;
+  --cat-5: #94911b;
+  --cat-6: #ba6cae;
+  --cat-7: #c37827;
+  --cat-8: #00a0a4;
+  --cat-other: #686560;
+  --outline: rgba(237, 237, 236, 0.08);
+  --subtle: #686560;
+  --shadow-sm: 0 1px 2px rgba(6, 6, 5, 0.5);
+  --shadow-md: 0 4px 14px rgba(6, 6, 5, 0.55);
+  --shadow-lg: 0 20px 60px rgba(6, 6, 5, 0.62);
+  --mono: "Geist Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  --sans: "Geist", "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.5rem;
+  --text-4xl: 3.5rem;
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.7;
+  --tracking-tight: -0.022em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.06em;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+  --space-12: 4rem;
+  --radius-sm: 0.1875rem;
+  --radius: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --background: #f6f5ef;
+    --card: #fcfbf6;
+    --card-foreground: #36302a;
+    --popover: #fcfbf6;
+    --foreground: #36302a;
+    --muted: #f0efe3;
+    --muted-foreground: #726c5e;
+    --border: #ddd6c6;
+    --input: #ddd6c6;
+    --primary: #967e60;
+    --primary-foreground: #ffffff;
+    --primary-hover: #897254;
+    --primary-muted: #efece0;
+    --primary-text: #6f5e44;
+    --ring: #967e60;
+    --accent: #eae7da;
+    --success: #3f7a34;
+    --success-muted: #e6f5e2;
+    --success-border: #c2e1b3;
+    --warning: #93761d;
+    --warning-muted: #fbf4c4;
+    --warning-border: #ebd87f;
+    --destructive: #bf4f3b;
+    --destructive-muted: #fbe8e2;
+    --destructive-border: #f0c9ba;
+    --info: #3f6fa6;
+    --info-muted: #e6f1fc;
+    --info-border: #bed7ef;
+    --cat-1: #b04d54;
+    --cat-2: #6f63b8;
+    --cat-3: #1e874b;
+    --cat-4: #0a78b7;
+    --cat-5: #797600;
+    --cat-6: #9d5192;
+    --cat-7: #a45e00;
+    --cat-8: #008f93;
+    --cat-other: #a8a294;
+    --outline: rgba(54, 48, 42, 0.08);
+    --subtle: #a8a294;
+    --shadow-sm: 0 1px 2px rgba(54, 48, 42, 0.1);
+    --shadow-md: 0 4px 14px rgba(54, 48, 42, 0.13);
+    --shadow-lg: 0 20px 60px rgba(54, 48, 42, 0.18);
+  }
+}
+:root[data-theme="light"] {
+  --background: #f6f5ef;
+  --card: #fcfbf6;
+  --card-foreground: #36302a;
+  --popover: #fcfbf6;
+  --foreground: #36302a;
+  --muted: #f0efe3;
+  --muted-foreground: #726c5e;
+  --border: #ddd6c6;
+  --input: #ddd6c6;
+  --primary: #967e60;
+  --primary-foreground: #ffffff;
+  --primary-hover: #897254;
+  --primary-muted: #efece0;
+  --primary-text: #6f5e44;
+  --ring: #967e60;
+  --accent: #eae7da;
+  --success: #3f7a34;
+  --success-muted: #e6f5e2;
+  --success-border: #c2e1b3;
+  --warning: #93761d;
+  --warning-muted: #fbf4c4;
+  --warning-border: #ebd87f;
+  --destructive: #bf4f3b;
+  --destructive-muted: #fbe8e2;
+  --destructive-border: #f0c9ba;
+  --info: #3f6fa6;
+  --info-muted: #e6f1fc;
+  --info-border: #bed7ef;
+  --cat-1: #b04d54;
+  --cat-2: #6f63b8;
+  --cat-3: #1e874b;
+  --cat-4: #0a78b7;
+  --cat-5: #797600;
+  --cat-6: #9d5192;
+  --cat-7: #a45e00;
+  --cat-8: #008f93;
+  --cat-other: #a8a294;
+  --outline: rgba(54, 48, 42, 0.08);
+  --subtle: #a8a294;
+  --shadow-sm: 0 1px 2px rgba(54, 48, 42, 0.1);
+  --shadow-md: 0 4px 14px rgba(54, 48, 42, 0.13);
+  --shadow-lg: 0 20px 60px rgba(54, 48, 42, 0.18);
+}
+/* tokens:core:end */
+
+/* kit:css:start */
+/* Shared state layer — do not hand-edit; edit scripts/tokens/kit.css. */
+
+/* :where() keeps these at zero specificity, so a surface overrides them by
+   writing a plain rule rather than escalating into an !important contest. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Mouse users should not see the ring; keyboard users must. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
+  outline: none;
+}
+
+.kit-skip {
+  position: absolute;
+  left: var(--space-2);
+  top: -4rem;
+  z-index: 999;
+  padding: var(--space-2) var(--space-3);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: top var(--dur) var(--ease-out);
+}
+
+.kit-skip:focus {
+  top: var(--space-2);
+}
+
+/* Empty, loading and error states. Namespaced kit- because three of the four
+   surfaces already own an .empty or .error class of their own. */
+.kit-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--muted-foreground);
+}
+
+.kit-empty__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-md);
+  color: var(--foreground);
+}
+
+.kit-empty__body {
+  margin: 0 auto;
+  max-width: 44ch;
+  font-size: var(--text-sm);
+  text-wrap: pretty;
+}
+
+.kit-error {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-3);
+  background: var(--destructive-muted);
+  border: 1px solid var(--destructive-border);
+  border-radius: var(--radius);
+  color: var(--destructive);
+  font-size: var(--text-sm);
+}
+
+/* Shaped like the content it stands in for — never a spinner. Width is the
+   caller's job, so one rule serves a title, a row and a paragraph. */
+.kit-skel {
+  height: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--muted) 0%, var(--accent) 50%, var(--muted) 100%);
+  background-size: 200% 100%;
+  animation: kit-shimmer 1.4s var(--ease-out) infinite;
+}
+
+@keyframes kit-shimmer {
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Keyboard help overlay, populated by kit.js from the live binding registry. */
+.kit-help {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in oklch, var(--background) 78%, transparent);
+}
+
+.kit-help[hidden] {
+  display: none;
+}
+
+.kit-help__panel {
+  width: min(34rem, 100%);
+  max-height: 80dvh;
+  overflow-y: auto;
+  padding: var(--space-5);
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.kit-help__title {
+  margin: 0 0 var(--space-4);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+
+.kit-help__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+}
+
+.kit-help__keys {
+  flex: none;
+  display: flex;
+  gap: var(--space-1);
+}
+
+.kit-kbd {
+  min-width: 1.4rem;
+  padding: 0.1rem 0.4rem;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--foreground);
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.kit-theme {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.kit-theme button {
+  font: inherit;
+  font-size: var(--text-2xs);
+  padding: var(--space-1) var(--space-2);
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.kit-theme button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.kit-theme button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.kit-theme button:hover {
+  color: var(--foreground);
+  border-color: var(--primary);
+}
+
+.kit-theme button[aria-pressed="true"] {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* A keyboard layer nobody can discover is a keyboard layer nobody uses. kit.js
+   places this next to every theme group, so the ? overlay has a visible way in
+   for anyone who was never told the shortcut exists. */
+/* kit.js wraps the theme group and the help button in this. The pairing is
+   content-sized, so ? sits against the group no matter what the host is: in a
+   flex row the wrapper shrink-wraps anyway, and in block flow (a sidebar) the
+   wrapper fills the width but the group no longer stretches across it. Growing
+   the group is opt-in — a host that wants it to fill the row says so itself,
+   the way the style guide's rail does with `.kit-controls > .themebar`. This
+   was the default until 2026-08-25, and the one surface hosting the group in
+   block flow (plan-review's nav) got a ? at the far edge (docket #52). */
+.kit-controls {
+  display: flex;
+  align-items: center;
+}
+
+.kit-controls > .kit-theme {
+  flex: none;
+}
+
+.kit-helpbtn {
+  margin-left: var(--space-2);
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: none;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.kit-helpbtn:hover {
+  color: var(--foreground);
+  border-color: var(--primary);
+}
+
+.kit-copied {
+  color: var(--success);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Browsers do not print background colours by default, so a dark-themed page
+   prints light text onto white and reads as blank. Repointing the tokens is
+   what makes Ctrl-P work at all; hiding chrome is the surface's opt-in. */
+@media print {
+  :root {
+    --background: #ffffff;
+    --card: #ffffff;
+    --popover: #ffffff;
+    --muted: #f4f4f2;
+    --accent: #f4f4f2;
+    --foreground: #000000;
+    --card-foreground: #000000;
+    --muted-foreground: #444444;
+    --subtle: #666666;
+    --border: #999999;
+    --input: #999999;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+  }
+
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .kit-skip,
+  .kit-help,
+  .kit-helpbtn,
+  .kit-theme,
+  [data-kit-chrome] {
+    display: none !important;
+  }
+
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 90%;
+    color: #555555;
+  }
+
+  .kit-skel {
+    animation: none;
+  }
+}
+/* kit:css:end */
+
+/* docket board — per-surface layout, outside the markers on purpose: anything
+   inside them is replaced by --fix. The board is a column per DOCKET.md
+   section (docket #45); the tokens serve that layout rather than being adopted
+   in place. Signed-off render: specs/docket/board-direction-a.html. */
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;min-height:100dvh;background:var(--background);color:var(--foreground);font-family:var(--sans);font-size:var(--text-md);line-height:var(--leading-normal);-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4,p,ul{margin:0}
+/* One sticky row — identity, figures, controls. Every row the header takes is
+   a row the board never gets back; the columns carry the per-section counts
+   the old pill row used to. */
+header{position:sticky;top:0;z-index:2;padding:var(--space-3) var(--space-6);background:color-mix(in oklch, var(--background) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+.hrow{display:flex;align-items:center;gap:var(--space-5);flex-wrap:wrap}
+h1{font-family:var(--mono);font-size:var(--text-md);letter-spacing:var(--tracking-tight);white-space:nowrap}
+.meta{display:flex;gap:var(--space-4);font-family:var(--mono);font-size:var(--text-xs);color:var(--muted-foreground);letter-spacing:var(--tracking-wide);font-variant-numeric:tabular-nums}
+.meta b{color:var(--foreground);font-weight:500}
+.hactions{margin-left:auto;display:flex;align-items:center;gap:var(--space-2)}
+header .kit-error{margin-bottom:var(--space-2)}
+/* The filter box and button sit in one row with the kit's theme group and ?
+   button, which are 1.65rem tall (text-2xs, space-1 padding) — so these take
+   the same height rather than the kit restating itself to match them. */
+.btn{font:inherit;font-size:var(--text-xs);height:1.65rem;padding:0 var(--space-3);border:1px solid var(--border);border-radius:var(--radius);background:var(--card);color:var(--muted-foreground);cursor:pointer;display:inline-flex;gap:var(--space-2);align-items:center;transition:color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+.btn .kit-kbd{padding-top:0;padding-bottom:0}
+.btn:hover{color:var(--foreground);border-color:var(--primary)}
+.btn[aria-expanded="true"]{background:var(--primary-muted);color:var(--primary-text);border-color:var(--primary)}
+#filter{font:inherit;font-size:var(--text-xs);height:1.65rem;padding:0 var(--space-3);border:1px solid var(--border);border-radius:var(--radius);background:var(--card);color:var(--foreground);width:18rem;max-width:100%}
+#filter[hidden]{display:none}
+.tags{display:flex;gap:var(--space-2);flex-wrap:wrap;margin-top:var(--space-2)}
+.tag{display:inline-flex;align-items:center;gap:var(--space-1);font:inherit;font-size:var(--text-xs);padding:var(--space-1) var(--space-3);border:1px solid var(--border);border-radius:var(--radius-full);background:var(--card);color:var(--muted-foreground);cursor:pointer;font-variant-numeric:tabular-nums;transition:color var(--dur-fast) var(--ease-out),background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+.tag:hover{color:var(--foreground);border-color:var(--primary)}
+.tag.active{background:var(--primary-muted);color:var(--primary-text);border-color:var(--primary)}
+.count{margin-left:var(--space-1);background:var(--muted);border-radius:var(--radius-full);padding:.05rem var(--space-2);font-family:var(--mono);font-size:var(--text-xs);font-variant-numeric:tabular-nums}
+.tag.active .count{background:var(--card)}
+main>.kit-empty{margin:var(--space-6) var(--space-6) 0}
+/* The board scrolls sideways, not the page: the section count is user-defined
+   and unbounded, so lanes beyond the viewport are one horizontal scroll away.
+   Under 48rem the lanes stack. */
+.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(21rem,28rem);gap:var(--space-5);padding:var(--space-6) var(--space-6) var(--space-8);overflow-x:auto;align-items:start;scroll-snap-type:x proximity}
+.col{display:flex;flex-direction:column;gap:var(--space-3);scroll-snap-align:start;min-width:0}
+.colhead{display:flex;align-items:baseline;justify-content:space-between;padding:0 var(--space-1) var(--space-2);border-bottom:1px solid var(--border);margin-bottom:var(--space-1);scroll-margin-top:4rem}
+.colhead h2{font-family:var(--mono);font-size:var(--text-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--muted-foreground);font-weight:500;scroll-margin-top:4rem}
+.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--foreground);line-height:1}
+.colhead .n{font-size:var(--text-xl)}
+.n.zero{color:var(--muted-foreground);opacity:.5}
+/* An empty section is a quiet slot, never nothing (docket #44). */
+.empty{border:1px dashed var(--border);border-radius:var(--radius-lg);padding:var(--space-5);color:var(--muted-foreground);font-size:var(--text-sm);text-align:center}
+/* Cards: a lifted surface, not a bordered box. */
+.card{background:var(--card);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-5);box-shadow:var(--shadow-sm);scroll-margin-top:4rem;transition:box-shadow var(--dur) var(--ease-out),transform var(--dur) var(--ease-out)}
+.card:hover,.card:focus-within{box-shadow:var(--shadow-md);transform:translateY(-1px)}
+.card:target,.row:target{outline:2px solid var(--primary);outline-offset:2px}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:var(--space-3);font-family:var(--mono);font-size:var(--text-xs);color:var(--muted-foreground);margin-bottom:var(--space-2)}
+.id{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--primary);text-decoration:none;transition:color var(--dur-fast) var(--ease-out)}
+.id:hover{color:color-mix(in oklch, var(--primary), var(--foreground) 25%);text-decoration:underline}
+.age{font-variant-numeric:tabular-nums}
+.card h3{font-size:var(--text-md);font-weight:600;line-height:var(--leading-snug);letter-spacing:var(--tracking-tight);text-wrap:pretty;margin-bottom:var(--space-2)}
+/* The lede is the first block, clamped to three lines until the fold opens;
+   an open fold reads as one document, so the lede un-clamps and takes the
+   body's size and measure. */
+.lede{color:var(--muted-foreground);font-size:var(--text-sm);line-height:var(--leading-normal);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.card:has(.more[open]) .lede{display:block;color:var(--foreground);font-size:var(--text-md);line-height:var(--leading-relaxed)}
+.more{margin-top:var(--space-3)}
+.more>summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:var(--space-2);font-family:var(--mono);font-size:var(--text-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--muted-foreground)}
+.more>summary::-webkit-details-marker{display:none}
+.more>summary::before{content:"+";font-size:var(--text-sm)}
+.more[open]>summary::before{content:"–"}
+.more>summary:hover{color:var(--primary-text)}
+.more>*:not(summary){margin-top:var(--space-3)}
+.lede p,.lede li,.more p,.more li,.body p,.body li{max-width:68ch}
+.more p,.more li,.body p,.body li{font-size:var(--text-md);line-height:var(--leading-relaxed)}
+.more h4,.body h4{margin-top:var(--space-3);font-size:var(--text-sm);color:var(--muted-foreground)}
+.body>*+*{margin-top:var(--space-2)}
+.prose{color:var(--muted-foreground);font-size:var(--text-sm)}
+pre{background:var(--muted);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);overflow-x:auto;font-family:var(--mono);font-size:var(--text-sm)}
+code{background:var(--muted);border-radius:var(--radius);padding:.05rem var(--space-1);font-family:var(--mono);font-size:.85em}
+pre code{background:none;padding:0}
+ul{padding-left:1.2rem}
+/* Tables (docket #43). mdLite emits these inside a card body, which is a ~450px
+   column that must not stretch — so the wrapper scrolls and the table keeps its
+   intrinsic width. Header in the mono/uppercase register the board already uses
+   for column heads, rules instead of fills so a table reads as part of the prose
+   rather than a widget dropped into it. */
+.tbl{overflow-x:auto;margin-top:var(--space-2)}
+.tbl table{border-collapse:collapse;font-size:var(--text-sm);line-height:var(--leading-snug)}
+.tbl th{text-align:left;font:500 var(--text-2xs)/1.4 var(--mono);text-transform:uppercase;letter-spacing:var(--tracking-wide);color:var(--muted-foreground);border-bottom:1px solid var(--border);padding:0 var(--space-3) var(--space-1) 0;white-space:nowrap}
+.tbl td{vertical-align:top;padding:var(--space-1) var(--space-3) var(--space-1) 0;border-bottom:1px solid var(--border);color:var(--muted-foreground)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl th:last-child,.tbl td:last-child{padding-right:0}
+/* The archive: a drawer under the board, never a peer column. Rows open to
+   the full body. */
+.drawer{margin:0 var(--space-6) var(--space-12);border-top:1px solid var(--border);padding-top:var(--space-4)}
+.drawer>summary{cursor:pointer;list-style:none;display:flex;gap:var(--space-3);align-items:baseline;font-family:var(--mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--tracking-wide);color:var(--muted-foreground)}
+.drawer>summary::-webkit-details-marker{display:none}
+.drawer>summary .n{font-size:var(--text-xl)}
+.drawer>summary::after{content:"show";margin-left:auto}
+.drawer[open]>summary::after{content:"hide"}
+.years{display:grid;grid-template-columns:repeat(auto-fill,minmax(26rem,1fr));gap:0 var(--space-6);margin-top:var(--space-4);align-items:start}
+.row{border-top:1px solid color-mix(in oklch, var(--border), transparent 40%);opacity:.85}
+.row>summary{cursor:pointer;list-style:none;display:grid;grid-template-columns:3.25rem 1fr auto;gap:var(--space-3);align-items:baseline;padding:var(--space-2) 0;font-size:var(--text-sm);color:var(--muted-foreground)}
+.row>summary::-webkit-details-marker{display:none}
+.row>summary:hover .t{color:var(--primary-text)}
+.row .t{color:var(--foreground);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.row[open] .t{white-space:normal}
+.row .y{font-family:var(--mono);font-size:var(--text-xs)}
+.row .body{padding:0 0 var(--space-4) 3.25rem}
+.hidden{display:none!important}
+@media (max-width: 48rem) {
+  header{padding:var(--space-3) var(--space-4)}
+  .hrow{gap:var(--space-3)}
+  .meta{order:3;width:100%}
+  /* The open filter box must wrap under the controls, not push the theme
+     group off the edge. */
+  .hactions{margin-left:0;width:100%;flex-wrap:wrap}
+  #filter{flex:1 1 12rem;width:auto}
+  main>.kit-empty{margin:var(--space-4) var(--space-4) 0}
+  .board{grid-auto-flow:row;grid-auto-columns:auto;grid-template-columns:1fr;padding:var(--space-4)}
+  .drawer{margin:0 var(--space-4) var(--space-8)}
+  .years{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body{{BODY_ATTRS}}>
+<header>
+  <div class="hrow">
+    <h1>{{TITLE}}</h1>
+    {{META}}
+    <div class="hactions">
+      <input id="filter" type="search" placeholder="Filter — title, body, #id" autocomplete="off" hidden>
+      <button type="button" class="btn" data-kit-filter data-kit-chrome aria-controls="filter" aria-expanded="false">Filter <span class="kit-kbd">/</span></button>
+      <div class="kit-theme" role="group" aria-label="Theme" data-kit-chrome>
+        <button type="button" data-kit-theme="light">Light</button>
+        <button type="button" data-kit-theme="dark">Dark</button>
+        <button type="button" data-kit-theme="system">Auto</button>
+      </div>
+    </div>
+  </div>
+  {{TAGS}}
+</header>
+<main>
+{{EMPTY}}
+<div class="board">
+{{BOARD}}
+</div>
+</main>
+{{ARCHIVE}}
+<script>
+/* kit:js:start */
+/* Shared behaviour layer — do not hand-edit; edit scripts/tokens/kit.js. */
+
+/* Deliberately free of backticks and interpolation openers. No target is a JS
+   template literal since the board-shell extraction, so this is insurance
+   rather than a requirement — but it is the difference between this file being
+   safe to inline anywhere and being safe only where someone remembered to
+   check. Regexes and escapes are avoided for the same reason. */
+
+(function () {
+  'use strict';
+
+  var THEME_KEY = 'jabworks-theme';
+  var THEME_MODES = ['light', 'dark', 'system'];
+  var root = document.documentElement;
+
+  /* localStorage throws on an opaque origin, which is what a file:// artifact
+     often gets. Degrade to session-only theming; never break the page. */
+  function readStored(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeStored(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (e) {
+      /* no-op */
+    }
+  }
+
+  function applyTheme(mode) {
+    if (mode === 'light' || mode === 'dark') root.setAttribute('data-theme', mode);
+    else root.removeAttribute('data-theme');
+
+    writeStored(THEME_KEY, mode);
+
+    var buttons = document.querySelectorAll('[data-kit-theme]');
+
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute('aria-pressed', String(buttons[i].getAttribute('data-kit-theme') === mode));
+    }
+  }
+
+  function currentTheme() {
+    return root.getAttribute('data-theme') || 'system';
+  }
+
+  function cycleTheme() {
+    applyTheme(THEME_MODES[(THEME_MODES.indexOf(currentTheme()) + 1) % THEME_MODES.length]);
+  }
+
+  function items() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-kit-item]'));
+  }
+
+  /* document.activeElement is null in a detached or not-yet-painted document,
+     and Element.closest is absent on the document node itself. */
+  function activeWithin(selector) {
+    var el = document.activeElement;
+
+    return el && el.closest ? el.closest(selector) : null;
+  }
+
+  function moveItem(step) {
+    var all = items();
+
+    if (all.length === 0) return;
+
+    var index = all.indexOf(activeWithin('[data-kit-item]'));
+    var next = all[Math.min(Math.max(index + step, 0), all.length - 1)] || all[0];
+
+    next.setAttribute('tabindex', '-1');
+    next.focus();
+    next.scrollIntoView({ block: 'nearest' });
+
+    /* Reflect the focused item in the URL so a board or a review can be linked
+       to a specific row. replaceState, not a hash assignment: assigning to
+       location.hash pushes a history entry per keypress. */
+    if (next.id && window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', '#' + next.id);
+    }
+  }
+
+  function reveal(el) {
+    if (el && el.focus) {
+      el.focus();
+      if (el.select) el.select();
+
+      return true;
+    }
+
+    return false;
+  }
+
+  /* A surface whose filter field ships hidden cannot hang the hook on the field
+     itself — a hidden element does not take focus, so the binding would be a
+     silent no-op. Those surfaces put the hook on the control that REVEALS the
+     field instead; activate it, then focus what it revealed via aria-controls.
+     Without this the ? overlay would advertise "Focus filter" for a key that
+     only moves focus to a button, and a generated overlay that misdescribes its
+     own bindings is worse than no overlay. */
+  function focusFilter() {
+    var hook = document.querySelector('[data-kit-filter]');
+
+    if (!hook) return false;
+
+    if (hook.tagName === 'BUTTON') {
+      if (hook.getAttribute('aria-expanded') === 'false' && hook.click) hook.click();
+
+      if (reveal(document.getElementById(hook.getAttribute('aria-controls') || ''))) return true;
+    }
+
+    return reveal(hook);
+  }
+
+  function flashCopied(el) {
+    el.classList.add('kit-copied');
+    window.setTimeout(function () {
+      el.classList.remove('kit-copied');
+    }, 900);
+  }
+
+  function copyFrom(el) {
+    if (!el) return;
+
+    var text = el.getAttribute('data-kit-copy') || el.textContent || '';
+
+    if (!text || !navigator.clipboard || !navigator.clipboard.writeText) return;
+
+    navigator.clipboard.writeText(text.trim()).then(
+      function () {
+        flashCopied(el);
+      },
+      function () {
+        /* Clipboard is permission-gated; a refusal is not an error worth
+           interrupting the page for. */
+      },
+    );
+  }
+
+  function sections() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-kit-section]'));
+  }
+
+  function jumpToSection(n) {
+    var target = sections()[n - 1];
+
+    if (target) target.scrollIntoView({ block: 'start' });
+  }
+
+  /* One registry drives both the key handler and the help overlay, so the
+     documented shortcuts cannot drift from the implemented ones. */
+  var BINDINGS = [
+    { keys: ['j'], label: 'Next item', when: function () { return items().length > 0; }, run: function () { moveItem(1); } },
+    { keys: ['k'], label: 'Previous item', when: function () { return items().length > 0; }, run: function () { moveItem(-1); } },
+    {
+      keys: ['/'],
+      label: 'Focus filter',
+      when: function () { return Boolean(document.querySelector('[data-kit-filter]')); },
+      run: focusFilter,
+    },
+    {
+      keys: ['y'],
+      label: 'Copy id or path',
+      when: function () { return Boolean(document.querySelector('[data-kit-copy]')); },
+      run: function () {
+        copyFrom(activeWithin('[data-kit-copy]'));
+      },
+    },
+    { keys: ['t'], label: 'Cycle theme', when: function () { return true; }, run: cycleTheme },
+    {
+      keys: ['g', '1-9'],
+      label: 'Jump to section',
+      when: function () { return sections().length > 0; },
+      run: null,
+    },
+    { keys: ['?'], label: 'Show shortcuts', when: function () { return true; }, run: null },
+    { keys: ['Esc'], label: 'Dismiss', when: function () { return true; }, run: null },
+  ];
+
+  var overlay = null;
+
+  function buildOverlay() {
+    var host = document.createElement('div');
+
+    host.className = 'kit-help';
+    host.hidden = true;
+    host.setAttribute('role', 'dialog');
+    host.setAttribute('aria-modal', 'true');
+    host.setAttribute('aria-label', 'Keyboard shortcuts');
+
+    var panel = document.createElement('div');
+
+    panel.className = 'kit-help__panel';
+
+    var title = document.createElement('p');
+
+    title.className = 'kit-help__title';
+    title.textContent = 'Keyboard shortcuts';
+    panel.appendChild(title);
+
+    for (var i = 0; i < BINDINGS.length; i++) {
+      if (!BINDINGS[i].when()) continue;
+
+      var row = document.createElement('div');
+
+      row.className = 'kit-help__row';
+
+      var label = document.createElement('span');
+
+      label.textContent = BINDINGS[i].label;
+      row.appendChild(label);
+
+      var keys = document.createElement('span');
+
+      keys.className = 'kit-help__keys';
+
+      for (var k = 0; k < BINDINGS[i].keys.length; k++) {
+        var kbd = document.createElement('kbd');
+
+        kbd.className = 'kit-kbd';
+        kbd.textContent = BINDINGS[i].keys[k];
+        keys.appendChild(kbd);
+      }
+
+      row.appendChild(keys);
+      panel.appendChild(row);
+    }
+
+    host.appendChild(panel);
+    host.addEventListener('click', function (event) {
+      if (event.target === host) toggleOverlay(false);
+    });
+    document.body.appendChild(host);
+
+    return host;
+  }
+
+  function toggleOverlay(show) {
+    if (!overlay) overlay = buildOverlay();
+
+    overlay.hidden = !show;
+  }
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+
+    var tag = el.tagName;
+
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+  }
+
+  var pendingJump = false;
+
+  function onKeydown(event) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+    if (event.key === 'Escape') {
+      toggleOverlay(false);
+      if (isTypingTarget(event.target) && event.target.blur) event.target.blur();
+
+      return;
+    }
+
+    /* A filter box must be typeable: every other binding is inert while the
+       caret is in a field. Escape above is the deliberate exception. */
+    if (isTypingTarget(event.target)) return;
+
+    if (pendingJump) {
+      pendingJump = false;
+
+      if (event.key >= '1' && event.key <= '9') {
+        jumpToSection(Number(event.key));
+        event.preventDefault();
+
+        return;
+      }
+    }
+
+    if (event.key === 'g' && sections().length > 0) {
+      pendingJump = true;
+      window.setTimeout(function () {
+        pendingJump = false;
+      }, 1200);
+
+      return;
+    }
+
+    if (event.key === '?') {
+      toggleOverlay(overlay ? overlay.hidden : true);
+      event.preventDefault();
+
+      return;
+    }
+
+    for (var i = 0; i < BINDINGS.length; i++) {
+      if (BINDINGS[i].run && BINDINGS[i].keys.indexOf(event.key) !== -1 && BINDINGS[i].when()) {
+        BINDINGS[i].run();
+        event.preventDefault();
+
+        return;
+      }
+    }
+  }
+
+  function init() {
+    applyTheme(readStored(THEME_KEY) || 'system');
+
+    var buttons = document.querySelectorAll('[data-kit-theme]');
+
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', function (event) {
+        applyTheme(event.currentTarget.getAttribute('data-kit-theme'));
+      });
+    }
+
+    /* Give the ? overlay a visible way in. It rides alongside the theme group
+       because every surface already has one, and because a floating badge is
+       chrome each surface would then have to design around. */
+    var groups = document.querySelectorAll('.kit-theme');
+
+    for (var g = 0; g < groups.length; g++) {
+      if (!groups[g].parentNode) continue;
+
+      var help = document.createElement('button');
+
+      help.type = 'button';
+      help.className = 'kit-helpbtn';
+      help.textContent = '?';
+      help.title = 'Keyboard shortcuts (?)';
+      help.setAttribute('aria-label', 'Keyboard shortcuts');
+      help.addEventListener('click', function () {
+        toggleOverlay(true);
+      });
+
+      /* Wrap rather than insert as a sibling: a surface may host the theme group
+         in a flex row (the board) or in block flow (the guide's rail), and in
+         block flow a bare sibling drops onto its own line. The wrapper makes the
+         pairing hold in either. */
+      var controls = document.createElement('div');
+
+      controls.className = 'kit-controls';
+      groups[g].parentNode.insertBefore(controls, groups[g]);
+      controls.appendChild(groups[g]);
+      controls.appendChild(help);
+    }
+
+    document.addEventListener('click', function (event) {
+      var target = event.target.closest ? event.target.closest('[data-kit-copy]') : null;
+
+      if (target) copyFrom(target);
+    });
+
+    document.addEventListener('keydown', onKeydown);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+/* kit:js:end */
+</script>
+<script>
+const filter = document.getElementById('filter');
+const filterToggle = document.querySelector('[data-kit-filter]');
+const tagButtons = [...document.querySelectorAll('.tags .tag')];
+const entries = [...document.querySelectorAll('.card, .drawer .row')];
+const drawer = document.querySelector('.drawer');
+let tag = '';
+
+// Filtering spans the board and the drawer. There are no scope pills to keep
+// in count any more — the columns are the scopes — so the tag totals stay
+// what the renderer wrote.
+function applyFilters() {
+  const q = filter.value.trim().toLowerCase();
+  let archiveHits = 0;
+
+  for (const el of entries) {
+    const tags = el.dataset.tags === '' ? [] : el.dataset.tags.split(' ');
+    const shown = (q === '' || el.dataset.search.includes(q)) && (tag === '' || tags.includes(tag));
+
+    el.classList.toggle('hidden', !shown);
+    // Keep the kit's j/k walk in sync with what filtering actually hides —
+    // display:none cards would otherwise still match [data-kit-item] and
+    // silently no-op moveItem's .focus() call. Archived rows never carry the
+    // attribute at all (see docket-render.mjs), so they stay excluded here too
+    // rather than being toggled back on by a filter match.
+    if (el.classList.contains('archived')) {
+      if (shown) archiveHits++;
+    } else {
+      el.toggleAttribute('data-kit-item', shown);
+    }
+  }
+
+  // A filter that empties a populated column must say so: reveal the column's
+  // no-match slot rather than leave a blank lane. Unfiltered, the slot stays
+  // hidden — the renderer's "Nothing in …" slot already covers a section that
+  // has no items at all.
+  const filtering = q !== '' || tag !== '';
+  for (const col of document.querySelectorAll('.col')) {
+    const slot = col.querySelector('.nohit');
+    if (!slot) continue;
+    const visible = [...col.querySelectorAll('.card')].some((card) => !card.classList.contains('hidden'));
+    slot.hidden = !filtering || visible;
+  }
+
+  // A filter that reaches into the archive opens the drawer so the hits are
+  // visible; clearing it leaves the drawer wherever the reader put it.
+  if (drawer && filtering && archiveHits > 0) drawer.open = true;
+}
+
+filter.addEventListener('input', applyFilters);
+
+filterToggle.addEventListener('click', () => {
+  const open = filter.hasAttribute('hidden');
+  filter.toggleAttribute('hidden', !open);
+  filterToggle.setAttribute('aria-expanded', String(open));
+
+  if (open) {
+    filter.focus();
+  } else if (filter.value !== '') {
+    // Collapsing the box must not leave an invisible query filtering the board.
+    filter.value = '';
+    applyFilters();
+  }
+});
+
+// Tags toggle rather than switch: clicking the active one clears it.
+for (const button of tagButtons) {
+  button.addEventListener('click', () => {
+    tag = tag === button.dataset.tag ? '' : button.dataset.tag;
+    for (const other of tagButtons) {
+      const on = other.dataset.tag === tag;
+      other.classList.toggle('active', on);
+      other.setAttribute('aria-pressed', String(on));
+    }
+    applyFilters();
+  });
+}
+
+// A deep link must not land on a fold: open the card's own fold, then every
+// <details> above it (an archived row, the drawer), then scroll. Runs for
+// --open on load and for every in-page #item-N jump after that.
+function reveal(id) {
+  const el = id ? document.getElementById(id) : null;
+  if (!el) return;
+
+  const fold = el.querySelector('details.more');
+  if (fold) fold.open = true;
+  for (let d = el.closest('details'); d; d = d.parentElement ? d.parentElement.closest('details') : null) d.open = true;
+  el.scrollIntoView();
+}
+
+const target = document.body.dataset.open;
+if (target) {
+  reveal(target);
+  const el = document.getElementById(target);
+  if (el) el.style.outline = '2px solid var(--primary)';
+} else if (location.hash) {
+  reveal(location.hash.slice(1));
+}
+window.addEventListener('hashchange', () => reveal(location.hash.slice(1)));
+{{SSE_JS}}</script>
+</body>
+</html>

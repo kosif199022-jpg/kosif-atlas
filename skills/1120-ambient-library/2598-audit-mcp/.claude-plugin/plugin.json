@@ -1,0 +1,11 @@
+{
+  "name": "audit-mcp",
+  "description": "Security-audits a third-party MCP server repo before installation; use for \"audit this MCP\", \"is this MCP safe\", \"check this repo before I install it\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

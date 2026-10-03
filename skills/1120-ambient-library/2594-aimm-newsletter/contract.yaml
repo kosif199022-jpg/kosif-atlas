@@ -1,0 +1,15 @@
+# Values this skill needs. Canonical stays empty; scripts/resolve.py asks once
+# and saves them in the project's .aai/skills/aimm-newsletter/. No secrets here —
+# Gmail credentials stay in the advanced-gmail-mcp accounts.json.
+environment:        # how mail is sent from this machine; inherited
+  account_alias:    # alias in the Gmail MCP's accounts.json
+  from_address:     # that account's From address
+project:            # travels with the newsletter's folder
+  org_name:         # template header
+  copyright_holder: # template footer
+  group_name:       # Google Contacts group to send to
+  unsubscribe_url:  # full URL, or "none"
+  subject_prefix:   # e.g. [ACME], or "none"
+  send_mode:        # individual | bcc
+state:
+  - .aai/memory/aimm-newsletter/   # preview.html

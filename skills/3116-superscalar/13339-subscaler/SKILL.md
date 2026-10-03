@@ -1,0 +1,99 @@
+---
+name: subscaler
+description: "Tiered model composition — pick the right model tier AND effort per lane instead of running every lane on the main model. Invoke as /subscaler on|off|status, or consult before any Workflow / parallel fan-out to route each lane to a tier. Five tiers (T1 frontier-reasoning · T1.5 frontier-execution · T2 agentic-execution · T3 bulk-worker · T4 resident-observer), routing by task shape, per-harness binding keys and vendor-exact effort values in plugins/superscalar/model-registry.json (dated, replaceable). Default OFF; recommended ON for fan-outs. Spec: Superscalar.md §5.1."
+---
+
+# /subscaler — tiered model composition
+
+`/superscalar` decides **how eagerly** to fan out. This skill decides **what each lane runs on** — tier *and* effort. The two are orthogonal; set them independently.
+
+The mechanism that makes a tier drop safe is **spec completion before offload**: a fully-specified lane loses little from one tier down, an underspecified one loses a lot. Spec completeness is the quality moderator, not model size.
+
+## Toggle contract
+
+- State = **one marker file**: `.agent/subscaler.json` — `{"on": true, "family": "<vendor>", "effort": "<level>"}`. Read at invocation time; never mirror the state into other settings surfaces (duplicated per-role model bindings have shipped state-convergence bugs).
+- `/subscaler on` writes it · `/subscaler off` removes it (or sets `"on": false`) · `/subscaler status` reads it back and reports where it would apply next.
+- **Default OFF.** ON is recommended where fan-out has *already* forfeited the shared prompt cache. A delegated subagent starts cache-cold on its own model, so a small, cache-hot, deep-context edit loses money on delegation.
+
+## Step 0 — frontier-main cost gate (when the orchestrator itself is T1)
+
+If the main conversation runs on a T1 model (a Fable-class flagship), **inheritance is the failure mode**: the Agent tool resolves a subagent's model as per-invocation `model` → frontmatter `model` → `CLAUDE_CODE_SUBAGENT_MODEL` (a default, not a pin, since v2.1.251 — before that the env var came first) → *the main model*, and a Workflow `agent()` that omits `opts.model` inherits the same way. Nothing in that chain says "frontier" — it just is. Two env facts sit outside the chain: `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (v2.1.257+) overrides every binding including the ones you wrote, and on the Claude API the built-in Explore agent inherits with an Opus cap (a Fable main runs Explore on Opus 5) — neither is visible from the spawn request, so verify with `/tasks` (v2.1.242+), which names each running subagent's model and effort. And `ultracode` sends `xhigh` to the model as a session setting, which every unbound lane inherits too. So, before any fan-out on a T1 main:
+
+- **Delegate by default.** Anything below T1 in the Step 2 table leaves the main model — research, collection, mechanical edits, test authoring, summarization — as subagents or Workflow lanes on their own tier. The main model keeps only what Step 2 says to retain.
+- **Bind every lane explicitly — model AND effort.** `model: "sonnet"` (or `"haiku"`) for exploration/collection/mechanical work at `low`–`medium`; `model: "opus"` for adversarial verification and judgment at `high`; `model: "fable"` **only** for a lane whose failure cost justifies T1 — architecture, ambiguous-requirement interpretation, final adversarial review — and name that reason in the lane label. Omitting `model` is not "let the harness choose"; it is choosing the most expensive option silently.
+- **Never let T1 × `xhigh`|`max` exist by inheritance.** The Agent tool has no per-invocation effort, so a Fable lane under an `ultracode` session runs at `xhigh` unless the subagent definition sets `effort`; prefer a Workflow `agent()` with `opts.effort` for such fan-outs, and if a T1 lane genuinely needs the top rung, say so in the script (`// lane-model-guard: allow-fable-xhigh`) or the prompt (`fable-xhigh-ok`).
+- **Step down before stepping across, even on T1.** The vendor's own Fable 5.1 guidance is that `low` is often competitive with Opus/Sonnet on cost per task while scoring higher — so a lane that truly needs T1 usually needs it at `low`/`medium`, not at the top rung.
+
+The reference mechanism is a PreToolUse guard on `Agent|Workflow` that reads the session model from the transcript and denies unbound lanes while the main is T1 — this plugin ships it as `reference/lane-model-guard.cjs` (not auto-wired: add it to your harness's hook settings; the file header shows the Claude Code stanza). A rule that lives only in this file is one compaction away from being forgotten — the 2026-08-02 measurement was two workflows, 24 agents, all inheriting the frontier model with the rule already written down.
+
+## Step 1 — read the registry, don't recall it
+
+`plugins/superscalar/model-registry.json` is the source of truth for anything perishable: which models occupy which tier, their exact `apiModelId`, context windows, prices, **the vendor's exact effort values**, per-plan availability, and per-harness binding keys. Read it before binding a lane.
+
+Never bind a model id from memory. Model ladders move monthly; the registry carries `asOf`, a `confirmedBy` URL per row, and a `caveats` list of what stayed unverified. If the model you want isn't in `models[]`, it isn't confirmed — check `caveats[]` before using it.
+
+**If `revisit.date` has passed**, say so in the turn and treat every price/availability claim as provisional. Re-research is scheduled work (the registry's `revisit.watchlist` names what to check), not something to improvise mid-task.
+
+## Step 2 — route each lane by its work shape
+
+| Lane shape | Tier | Effort |
+|---|---|---|
+| Architecture · design decisions · ambiguous requirements | **T1** frontier-reasoning | vendor default; step up only on observed failure |
+| Adversarial verification / red-team | **T1**, deliberately a **different family** than the author | raised |
+| Complex multi-step execution with residual judgment (daily-driver main loop, heavyweight implementation lanes) | **T1.5** frontier-execution | default (`high`); don't raise effort to buy deliberation — pair with verification gates (check-first, test gates) |
+| Spec-complete implementation | **T2** agentic-execution | default, dropping a rung once evals hold |
+| Mechanical multi-file edit / migration | **T2** (T3 if each file is independently verifiable) | low–medium |
+| Test authoring | **T2** | medium; raise when tests must infer intent |
+| Long-context review | **T2** on a large-window model | medium — window and price bind, not depth |
+| Read-only exploration / search | **T3** bulk-worker | low |
+| Summarization / extraction | **T3** (T4 if the output schema is fixed) | low, or none/minimal where offered |
+| Resident board / inbox watching | **T4** resident-observer | minimal/none |
+
+**Retain on the main model** regardless of tier availability: architecture decisions · ambiguous-requirement interpretation · cross-cutting design · complex debugging · final review · deep shared-context coding (vendor guidance is explicit that shared-context coding fits multi-agent decomposition poorly).
+
+Every delegated lane carries **explicit acceptance criteria + a test gate** written by the orchestrator before dispatch. The §2 cost-benefit gate runs FIRST (spawn at all?); this skill only picks the tier of lanes that pass it. The §3.1 Hyperbrief interlock for write/deploy/send lanes is unchanged.
+
+**Choosing inside a tier** (Superscalar §5.1.5), in this order: the model's measured **ceiling** covers the lane's aim → its harness still has **allowance** left → lowest **trust cost** (expected cost per verified result, where a measurement exists) → the registry's `communityRank` as the **tie-break only**. The rank is aggregated community sentiment — never the reason a lane lands on a model by itself; if it disagrees sharply with measured data, say so in the turn (that divergence is a finding). A `communityRank.revisit.date` in the past means the rank is stale: drop it from the tie-break rather than guess.
+
+## Step 3 — check availability before you bind
+
+Tier ≠ entitlement. The registry's `planGating` records what each subscription actually exposes, and the gaps bite exactly where fan-out does:
+
+- A frontier model can be *selectable* while its large-context variant needs credits — a wide fan-out on it can silently become a billing event.
+- Team/Business seats often do **not** inherit the higher-multiplier headroom of the equivalent personal Pro tier; assuming the paid-team plan buys concurrency is a common planning error.
+- Some harnesses' model pickers lag their own vendor API — a picker default can be a model the API has already shut down. Pin explicitly.
+- Org policy can cap maximum effort per model per role, and in JSON/stream output or background agents **the clamp can apply silently** — a scripted lane may run below the effort you requested with no signal.
+- Invitation-gated models (registry `availability: "restricted access"` — today claude-mythos-5) are listed for **recognition, not planning**: entitlement is per-org/account, so verify the concrete account is enrolled before binding — picker visibility or an allowlist mention is not enrollment.
+
+If the tier you want is unavailable — including an invitation-gated model whose enrollment you could not verify — degrade **down a tier at the same effort** rather than sideways to an unverified model.
+
+## Step 4 — bind per lane, using the harness's own keys
+
+Exact keys per harness live in the registry's `harnessBinding` (Claude Code · Codex CLI · Cursor · Gemini CLI · Kimi Code · router layers). Two rules are spec-level, not data-level:
+
+1. **Prefer per-invocation binding over any global env pin.** Since Claude Code v2.1.251 the plain `CLAUDE_CODE_SUBAGENT_MODEL` is only a default that explicit lanes beat; `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (v2.1.257+) is the pin that overrides even explicit per-lane choices, and a value excluded by org allowlist can still be substituted *silently* in headless or scripted sessions (interactive sessions print a warning since v2.1.222). Verify actual application when it matters. (This is also why the Step 0 guard denies rather than sets a default: `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` would stop the frontier leak, but it turns "no choice" into a silent cheap choice — a refutation lane that forgot its `model` would then run on sonnet with no signal. The guard makes the omission visible; it also reads the FORCE variable and refuses while a pin would land lanes on a T1 model.)
+2. **Bind effort together with the model.** Effort level names are not comparable across models — vendors state this outright — so a stored global effort number applied to whatever model is active is a meaningless number.
+
+## Step 5 — effort, three load-bearing rules
+
+- **Default first; escalate on evidence, not on principle.** Raise effort when you observed the model skip a file, skip the tests, or not double-check — not because the task feels important. Vendors document the top rung as prone to overthinking with diminishing returns: blanket-max is a documented anti-pattern, not merely expensive.
+- **Step DOWN the ladder before stepping ACROSS tiers.** A generation bump usually means the new model's cheap rung beats the old model's expensive rung. Check that before downgrading tier.
+- **Effort is a caching decision too.** Changing it mid-conversation invalidates the prompt cache (per model *and* per level). Pick one level at session start and vary effort *across* workloads, not within a cache-dependent session. Note also that low effort changes *tool behavior* — fewer, more combined tool calls — which in a search lane saves more than the token delta suggests.
+
+## Off-signals (turn it back OFF / leave it off)
+
+- Single-file or deep-context work where the main's prompt cache is hot.
+- Lanes needing repeated orchestrator↔executor negotiation (round-trip overhead eats the saving).
+- Latency-sensitive interactive work.
+- Executor output shows style/convention drift the review pass keeps correcting — the correction cost is the signal.
+
+## After every toggle: re-declare
+
+If this workspace is joined to a Constellation board, the toggle is not finished until the board knows: emit an updated `OpsState` carrying `subscaler {on, ...}` alongside the measured model (Constellation §13.23.4 — change-triggered, latest-wins). Toggle + announce are one unit of work. (EG-ops helper: `node scripts/emit-ops-state.cjs`.) Not board-joined → skip.
+
+## Composition
+
+- Superscalar §5.1 — normative spec (tier vocabulary, routing rubric, registry contract, evidence base).
+- `/superscalar` §5.2 — dispatch aggressiveness (orthogonal axis: how *many* lanes, not what they run on).
+- Superscalar §2 cost-benefit gate · §3 budgets · §3.1 Hyperbrief interlock — all upstream of this toggle.
+- Constellation §13.23.4 declaration events · §13.27.4 tier routing for resident unattended loops (separate jurisdiction, cross-linked).

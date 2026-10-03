@@ -1,0 +1,82 @@
+# Scan Briefing: canonical subagent prompt for Phase 1
+
+The friction scan fans out read-only exploration subagents. Brief every scan subagent with the
+structure below, the same way [interface-design.md](interface-design.md) briefs the Design-It-Twice
+agents. A canonical briefing keeps scan quality from varying run-to-run and puts the
+badge-acceptance heuristics in front of each agent while it is still forming its confidence rating.
+
+Assemble one briefing per subagent. Each briefing has five parts: vocabulary primer, friction
+checklist, dependency categories, badge-acceptance heuristics, and the per-candidate return schema
+with its stopping point.
+Include the project's own glossary terms (if it maintains one) alongside the architecture vocabulary
+so every agent names things the same way.
+
+## 1. Vocabulary primer
+
+Give each agent the deepening terms it must use, from [vocabulary.md](vocabulary.md): **module,
+interface, implementation, depth, seam, adapter, leverage, locality**. Give it that file's rejected
+framings too (never *component*, *service*, *boundary*, or depth-as-line-ratio). Consistent language
+is the point: a report assembled from agents that each named things differently is not comparable.
+
+## 2. Friction checklist
+
+The agent walks its assigned area of the codebase and notes where friction appears, against the same
+questions Phase 1 asks:
+
+- Where does understanding one concept require bouncing between many small modules?
+- Where are modules **shallow**, with an interface nearly as complex as the implementation?
+- Where have pure functions been extracted for testability, but real bugs hide in how they're
+  called (no **locality**)?
+- Where do tightly-coupled modules leak across their **seams**?
+- Where do bugs recur *at the seams between* several owned subsystems rather than inside any one?
+- Which parts are untested, or hard to test through their current **interface**?
+
+Apply the **deletion test** to anything suspected shallow: would deleting it *concentrate*
+complexity (the signal, earning its keep) or merely *move* it (a pass-through)?
+
+When judging whether an area is tested, a suite that skips because a required tool is missing is
+not a pass, and a stub standing in for the tool is not the tool. Report such an area as unverified,
+never as covered.
+
+## 3. Dependency categories
+
+The agent classifies each candidate's dependencies per [dependencies.md](dependencies.md) as
+in-process, local-substitutable, ports-and-adapters (remote-but-owned), or mock (true external),
+because the category determines the testing strategy the eventual recommendation names.
+
+## 4. Badge-acceptance heuristics (calibrate confidence at scan time)
+
+Have the agent rate its own confidence **against the two acceptance heuristics**, not on gut feel.
+Calibrating at scan time is what lets Phase 1.5 verify against a stated bar rather than a hunch.
+
+- **Deletion test (acceptance form)**: would a future maintainer, finding this module gone, rebuild
+  it substantially the same way? If not, the boundary is arbitrary and the candidate is weak.
+- **Two-adapter rule**: an abstraction or port earns its existence only with two real
+  consumers/adapters (typically production + test). A candidate whose value hinges on a one-adapter
+  abstraction is speculative indirection, and earns `speculative` confidence at best.
+
+## 5. Per-candidate return schema
+
+Every agent returns each candidate in this exact shape, so Phase 1.5 can verify and Phase 2 can
+render without re-deriving structure:
+
+```markdown
+- title: <short candidate name>
+- files: <comma-separated paths>
+- problem: <one sentence naming the friction, in vocabulary terms>
+- shallow-signal: <the concrete observation that is the evidence for shallowness, e.g. "three one-method
+  wrappers each forwarding their argument"; this is what Phase 1.5 reproduces>
+- category: in-process | local-substitutable | ports-and-adapters | mock
+- deletion-verdict: concentrates | moves
+- test-surface: <what a test at the deepened interface would assert>
+- confidence: strong | worth-exploring | speculative   # calibrated against §4, not gut feel
+- runtime-claim: <only if the candidate asserts a live bug or dead code. State it explicitly so
+  Phase 1.5 knows to reproduce it; omit otherwise>
+```
+
+The `shallow-signal` and `runtime-claim` fields exist specifically so the verification gate
+(Phase 1.5) has something concrete to reproduce rather than a bare assertion.
+
+End every briefing with its stopping point: the agent is done when it has walked the friction
+checklist over its assigned area and returned every candidate in this schema, or said it found
+none; it returns early with what it has when a candidate needs code outside that area.

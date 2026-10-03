@@ -1,0 +1,196 @@
+---
+description: "Run a structured session retrospective: extract transcript metrics, assess quality across five dimensions, check feedback-memory regressions, and codify learnings durably. Use when: 'retro', 'retrospective', 'what did we learn', 'how did I do', 'codify learnings', 'show trends', or at end of session; modes: session (default), codify, trends, quick."
+argument-hint: "[unattended] [session|codify|trends|quick]"
+user-invocable: true
+disable-model-invocation: false
+metadata:
+  workflow-stage: retro
+  summary: Structured session retrospective with codified learnings
+---
+
+**Arguments.** `[unattended] [session|codify|trends|quick]`. e.g., /retro, /retro session, /retro codify, /retro trends, /retro quick
+
+## Context. Gather first
+
+Take `session-id`, `branch`, `status`, `recent-commits` at `-5`, and `changed-files`, the only
+consumer taking that last one, since a retrospective reasons over what the session actually touched.
+Probe commands, the one-command-per-call and treat-failure-as-unknown rules, and the `$`-expansion
+rationale for gathering at run time rather than pre-computing:
+[`${CLAUDE_PLUGIN_ROOT}/reference/gather.md`](${CLAUDE_PLUGIN_ROOT}/reference/gather.md).
+
+## Purpose
+
+The self-improvement loop. Answers: "What happened, what did we learn, and how do we prevent the
+same mistakes next time?" Every other workflow stage is about the current task; this skill is about
+the next task, and every task after that.
+
+**Three concepts this skill enforces:**
+
+1. **Analyze**. Examine what happened with evidence (transcript metrics, conversation context,
+   feedback regressions)
+2. **Identify**. Find errors, behavioral adjustments, process improvements, and skill/tool
+   candidates
+3. **Codify**. Persist learnings durably (the consuming repo's instruction files and rules, or
+   Claude Code auto-memory for contributor-specific facts)
+
+**What this skill is NOT:** not a code review (design judgment on current work), not outcome
+verification (does the change match intent), and not Claude Code's built-in `/insights`
+(cross-session usage analytics); this is structured quality analysis with codification.
+
+## Paths
+
+Resolve at runtime, never hardcode machine-specific paths:
+
+- **Session data root**. `~/.claude/projects/<project-slug>/`, where `<project-slug>` is the
+  project's absolute path with every character outside `[A-Za-z0-9]` replaced by `-`:
+
+  ```bash
+  PROJECT_SLUG=$(pwd -W 2>/dev/null || pwd)          # Windows drive form when available
+  PROJECT_SLUG=$(printf '%s' "$PROJECT_SLUG" | sed 's/[^A-Za-z0-9]/-/g')
+  SESSION_DATA_DIR="$HOME/.claude/projects/$PROJECT_SLUG"
+  ```
+
+  Verify the directory exists before use; if the computed slug misses, find it by locating the
+  current session's JSONL: `ls "$HOME/.claude/projects"/*/"${CLAUDE_CODE_SESSION_ID}.jsonl"`.
+- Transcript: `<SESSION_DATA_DIR>/<session-id>.jsonl`; subagents:
+  `<SESSION_DATA_DIR>/<session-id>/subagents/`
+- **Auto-memory** (feedback regression check): `<SESSION_DATA_DIR>/memory/`. Present only when the
+  consumer uses Claude Code auto-memory; degrade gracefully when absent
+- **Score history** (plugin state): `${CLAUDE_PLUGIN_DATA}/scores/<project-slug>.md`. Survives
+  plugin updates, never lands in the consumer's repo
+- Parser: `${CLAUDE_PLUGIN_ROOT}/skills/retro/scripts/parse_transcript.py` (stdlib-only,
+  Python 3.10+)
+
+## Step 0: Detect mode
+
+| Signal | Mode | Context file |
+|--------|------|-------------|
+| End of session, bare `/session-flow:retro`, post-merge | **session** | `context/session.md`, full 5-phase analysis |
+| "codify", "save learnings", mid-session learning | **codify** | `context/codify.md`, targeted codification only |
+| "trends", "scores", "how am I doing" | **trends** | `context/trends.md`, cross-session score history |
+| "quick retro", short session, limited context | **quick** | `context/quick.md`, abbreviated pass |
+
+A leading bare `unattended` in `$ARGUMENTS` is stripped first; it only gates the `/export` step
+(record the suggestion in output, do not ask). Read the mode from the remainder. If it specifies a
+mode, use it. Otherwise infer from context; when the session is long or
+degraded, or compaction has occurred, prefer `quick`; ambiguous → `session`. Read the mode's context
+file before proceeding.
+
+## Step 1: Execute the mode
+
+Follow the selected context file. Each mode has its own phases, outputs, and interactive
+checkpoints.
+
+### Reference index. Load on demand
+
+| File | Load when |
+|---|---|
+| [reference/ecosystem-improvement-catalog.md](reference/ecosystem-improvement-catalog.md) | Before filling session mode's Phase 3 recommendation table, and any other time a finding has to be mapped to an ecosystem target. It owns the project-vs-personal placement decision tree and the per-target recommendation format for memory, rules, hooks, skills, agents, MCP servers, and settings. |
+
+## Step 2: Handoff
+
+After the retrospective:
+
+| Condition | Suggestion |
+|-----------|-----------|
+| End-of-session, retro complete | Suggest any wrap-up steps the consuming repo defines |
+| Codify mode, learnings saved | Return to the task at hand |
+| Trends mode, analysis presented | Suggest focus areas for next session |
+| Session mode, follow-ups queued | Suggest filing them in the consumer's work-item tracker |
+
+## Multi-session awareness
+
+When the sibling `handoff` skill's save-points exist (the resolved `<memory_dir>/handoffs/`,
+default `.work/handoffs/`; or the consuming repo's documented location), the retro spans the
+whole session CHAIN, not just the current session: the
+parser's `--chain-from` walks `previous_handoff` frontmatter pointers
+backwards from the newest handoff file and aggregates metrics across every chained transcript. See
+`context/session.md` Phase 1.
+
+**State the discovery basis, and never present a low-coverage chain retro silently.** The walk
+follows `previous_handoff` pointers, so it stops at the first session that wrote no handoff file,
+a chain linked by hand-pasted continuation prompts instead of save-points can end after one hop.
+The parser reports what it saw in `chain_coverage` (`requested` / `found` / `available` / `ratio`,
+where `available` is the requested chain, plus under `--chain-from` the other transcripts that
+mention the handoff's topic; `project_transcripts` counts the whole project directory apart from
+the ratio). When `ratio` is below ~0.5, say
+so before presenting: name the found and available counts, and offer `--sessions` with the ids
+enumerated explicitly. A retro authored from a fifth of the evidence must not read like a complete
+one. Offer each `fork_candidates` entry the same way: a fork shares records with the chain but no
+handoff points at it, so the walk never reaches it.
+
+**Offer a durable copy when the session was worth retrospecting.** The transcripts this retro reads
+are retention-swept (`cleanupPeriodDays`, default 30 days), and the conversation itself has no
+durable artifact; a session interesting enough to retrospect is the one worth keeping. The default
+is verified 2026-09-06 against Claude Code 2.1.263 and
+[Data usage](https://code.claude.com/docs/en/data-usage#data-retention), which states that clients
+store session transcripts locally under `~/.claude/projects/` for 30 days by default and that
+`cleanupPeriodDays` adjusts the period. Recheck when that page names a different default, or when a
+release note names `cleanupPeriodDays`.
+
+If /export is available in your session (gate basis: **Verification record: `/export`** below), suggest that the person run it for a durable conversation copy at `<memory_dir>/exports/<YYYYMMDDTHHMMSSZ>-<topic>.txt` after verifying the memory root's self-ignore guard (a `.gitignore` containing `*`; create it and announce it when absent). This skill never invokes `/export` itself. **`unattended`:** record the suggestion in output; do not ask.
+
+## Verification record: `/export`
+
+- **Claim.** `/export` is a built-in interactive command (local-jsx, not a prompt): the Skill tool never lists it and it is unavailable headless, so this skill suggests it to the person and never runs it. It has no documented disable switch: a command that is not available to the person is left out of the menu.
+- **Basis.** The `/export [filename]` row on <https://code.claude.com/docs/en/commands>, fetched 2026-09-29: "Export the current conversation as plain text. With a filename, writes directly to that file. Without, opens a dialog to copy to clipboard or save to a file". Probed 2026-08-24 on Claude Code 2.1.241: `claude --bare -p "/export <path>"` returned "/export isn't available in this environment."; invocation mode local-jsx on 2.1.263 (2026-09-11).
+- **As of.** 2026-09-29.
+- **Recheck when.** A Claude Code release note or the commands page adds an `/export` format or redaction flag, a headless or programmatic form, or an official conversation-sharing surface.
+
+## Boundary, the built-in `/insights` command
+
+Both look back at how sessions went, so "how did I do" can land on either.
+
+- **`/insights` (built-in command)**: generates an HTML report across your recent sessions on this
+  machine: projects, usage patterns, where things go wrong, features to try, and an auto mode
+  recommendation. It writes that report and nothing else. It is reserved for the person to run; the
+  model does not invoke it.
+- **This skill (marketplace plugin).** A structured retrospective of one session or handoff chain:
+  transcript metrics, five quality dimensions, feedback-memory regressions, and codification into
+  rules or memory behind approval.
+
+**Routing.** When the person asks about patterns across many sessions, or `trends` mode runs,
+offer it to the person: you can run `/insights` instead of or alongside this skill for a
+cross-session usage report. Make the offer at the end of the run. Prefer this skill for what one
+session taught and for codifying it. An unattended run records the offer in its output instead of
+asking.
+
+**Mutation gate.** This skill writes only approved codifications. It never runs `/insights` on the
+person's behalf.
+
+**Availability is never assumed.** `/insights` is not available in cloud sessions; this section
+states what to do when the person can run it, never that it is present. The four-part records
+live in [reference/native-insights.md](reference/native-insights.md).
+
+## What this skill does NOT do
+
+- **Does not run builds or tests**. That's the consuming repo's verify stage
+- **Does not review code quality**. That's its review stage
+- **Does not write scores or reports into the consumer's repo**. Plugin state stays in
+  `${CLAUDE_PLUGIN_DATA}`; only user-approved codifications (rule edits, memory entries) land
+  outside it
+- **Does not read a consumer-supplied scoring rubric**. The five dimensions are fixed plugin
+  identity, not consumer config, and there is no seam to swap them. What adapts is what each
+  dimension scores *against* (your repo's conventions, session-type calibration), never the
+  dimensions themselves.
+
+## Spoke paths
+
+The `context/` files write the plugin's root directory as `<plugin-root>`, which is
+`${CLAUDE_PLUGIN_ROOT}`. Put that path in place of the placeholder before running a command or
+writing it into a brief. Those files arrive through the Read tool as plain bytes, so a `${…}` token
+in them would reach the Bash tool unsubstituted, and the Bash tool's environment has no
+`CLAUDE_PLUGIN_ROOT` to expand it from. Basis: the plugins reference,
+<https://code.claude.com/docs/en/plugins-reference#where-each-variable-resolves>, verified
+2026-09-30; recheck when that table adds supporting files to where a `${…}` reference resolves.
+
+## Gotchas
+
+- **Run all phases by default** in session mode. Skip metrics only when the parser fails or the
+  user asks
+- **Always include skill-candidate and follow-up-candidate analysis**, even when the conclusion is
+  "no candidates this session"
+- **Codify follows the workflow too**. Adding a bullet to a rules file requires verification, not
+  just pasting
+- **Phase 4 is an interactive checkpoint**, never persist codifications without explicit user
+  approval

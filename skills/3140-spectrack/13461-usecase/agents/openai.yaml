@@ -1,0 +1,7 @@
+interface:
+  display_name: "SpecTrack Use Case Discovery"
+  short_description: "Turn a product idea into workflow use cases"
+  default_prompt: "Discover use cases for a team planning workspace"
+
+policy:
+  allow_implicit_invocation: true

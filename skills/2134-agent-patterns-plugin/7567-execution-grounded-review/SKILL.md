@@ -1,0 +1,396 @@
+---
+name: execution-grounded-review
+description: "Execution-grounded review: run tests first, trace each acceptance criterion to execution evidence. Use when verifying an implementation meets spec."
+args: "[target] [--criteria <file>]"
+argument-hint: "diff|PR|files to verify; optional --criteria <file> of acceptance criteria"
+allowed-tools: Agent, Read, Glob, Grep, Bash(git diff *), Bash(git log *), Bash(git merge-base *), Bash(git worktree *), Bash(git rev-parse *), Bash(gh pr view *), Bash(npm *), Bash(npx *), Bash(uv run *), Bash(pytest *), Bash(cargo *), Bash(go test *), TodoWrite
+model: opus
+created: 2026-06-22
+modified: 2026-10-02
+compatibility: claude-code
+reviewed: 2026-09-02
+---
+
+# Execution-Grounded Review
+
+A normal review reads the diff and asks *"does this look right?"* — and an
+implementation can *look* complete while a criterion silently fails. This skill
+refuses to grade an implementation on appearance: it **runs the suite first**,
+then traces each acceptance criterion to **execution evidence** — a test that
+actually exercised it, or observed behaviour — and marks anything it cannot
+back with execution as `UNVERIFIED` rather than passing it on faith.
+
+It is the **execution-grounded verifier** in the agent-patterns review family:
+where `adversarial-review` attacks a *design* for faults and `cold-read-gate`
+measures whether *text* survives a reader, this skill verifies that *running
+code* meets its *stated acceptance criteria*. It is the reusable independent
+verifier a judgement-based loop gate delegates to (`.claude/rules/loop-integrity.md`, Pillar 1).
+
+## When to Use This Skill
+
+| Use this skill when... | Use something else instead when... |
+|---|---|
+| Verifying an implementation meets explicit acceptance criteria, proven by running it | First-pass review of a diff → `code-quality-plugin:code-review` |
+| Gating a loop/phase `done` on an independent check of *behaviour* | Red-teaming a *design* or ADR for faults → `agent-patterns-plugin:adversarial-review` |
+| Confirming a fix actually fixes the reported failure (not just compiles) | Checking *premises/facts* before work starts → `agent-patterns-plugin:verify-before-plan` |
+| Closing the loop on "is every requirement actually covered by a test?" | Legibility of outward text → `agent-patterns-plugin:cold-read-gate` |
+
+## The Stance
+
+| Move | What it means |
+|---|---|
+| **Execute first** | Run the full suite + typecheck + lint *before* any verdict. A criterion is `PASS` only with execution evidence — never "the code looks like it does this". |
+| **Trace each criterion** | One ledger row per acceptance criterion: premise → evidence (file:line / test name / observed output) → verdict. |
+| **No silent pass** | A criterion with no execution backing is `UNVERIFIED` (a coverage gap to surface), not an assumed pass. |
+| **Flaws before the verdict** | The report states its narrative-changing limitations — gaps and caveats that would flip or weaken the verdict — *ahead of* the verdict, and says `none` explicitly when there are none (Step 5). |
+| **Match the production sequence** | For a round-trip / determinism / reproducibility / idempotence claim, a passing test is evidence only if its *operation sequence* reproduces the real production call path — not a convenient shorter one (see Step 3a). |
+| **Intent-starved verifier** | The isolated verifier reads the criteria, the diff, and the captured execution evidence — *not* the author's plan narrative or rationale, which would let it rationalise a pass. |
+| **Bounded loop** | One revise round on `fail`; a third means a structural problem the gate can't resolve. |
+
+> **Model is opus** — like `adversarial-review`, the inverse of `cold-read-gate`:
+> building an accurate requirement→evidence ledger is a reasoning task.
+
+## Parameters
+
+Parse `$ARGUMENTS`:
+
+- **Target** (first positional) — what to verify: a path, a PR ref (`#123` or
+  URL), explicit files, or absent. If absent, default to the current change
+  (`git diff HEAD` + staged) and say so.
+- **`--criteria <file>`** (optional) — a file of acceptance criteria. If absent,
+  gather criteria from the task/plan in context (the acceptance criteria stated
+  for this change) and **echo them back** before verifying, so the user can
+  correct the list the skill is grading against.
+
+## Execution
+
+Execute this execution-grounded verification:
+
+### Step 1: Run the suite first
+
+Before reading the diff for "correctness", establish ground truth by execution.
+Detect and run the project's full suite + typecheck + lint, capturing output to
+a scratch file (this is the **execution evidence** the verifier grades against):
+
+| Stack | Suite | Typecheck | Lint |
+|---|---|---|---|
+| Node/TS | `npm test` (or `npx vitest run`) | `npx tsc --noEmit` | `npx biome check` |
+| Python | `uv run pytest -q` | `uv run ty check` | `uv run ruff check` |
+| Rust | `cargo test` | `cargo check` | `cargo clippy` |
+| Go | `go test ./...` | `go vet ./...` | — |
+
+Record the exit codes and failing-test names. A red suite is itself an
+*independent* signal — a failing test does not care how hard the author worked
+(`.claude/rules/loop-integrity.md`).
+
+**When any step exits red, separate new failures from pre-existing ones.** Run
+the same command on the merge-base (`git merge-base HEAD origin/<default>`,
+checked out in a throwaway `git worktree`) and record each failure as *new*
+(passes on the base, fails on the head) or *pre-existing* (fails on both). Only
+a red run pays for this second run. If the base run cannot be made, record that:
+the comparison is then missing evidence, never an assumed pass.
+
+### Step 2: Name the criteria
+
+State, in one numbered list, the acceptance criteria under verification (from
+`--criteria` or context). Each criterion is one ledger row in Step 3.
+
+Always append one implicit criterion, last: **No regression — no test that
+passes on the merge-base fails on the head.** Grade it from Step 1's base
+comparison: `PASS` when nothing failed or every failure is pre-existing, `FAIL`
+naming each new failure, `UNVERIFIED` when a step is red and no base comparison
+exists. This is how breakage outside the listed criteria reaches the verdict
+without each caller restating it, while failures already on the base do not
+block a change that did not cause them.
+
+If there are no stated criteria, or no execution evidence (Step 1 could not run and
+none was supplied), stop: emit no ledger and no `VERDICT` line, name the missing
+input, and ask for it. A missing input is not a `fail` — `fail` claims the code
+was graded and found wanting, and nothing was graded.
+
+### Step 3: Dispatch the intent-starved verifier
+
+One `Agent`, `model: opus`, reading **only** the criteria, the diff, and the
+captured execution-evidence file — not the author's reasoning. Bind its output
+to the `LEDGER` schema below and paste that schema **verbatim** into the brief:
+a schema forces a determinate answer on every row where prose lets a row go
+quietly unanswered.
+
+#### The `LEDGER` schema
+
+```json
+{
+  "type": "object",
+  "required": ["rows", "coverage", "limitations", "verdict"],
+  "properties": {
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["criterion", "evidence", "evidenceSpan", "verdict", "sequenceMatchesProduction"],
+        "properties": {
+          "criterion": { "type": "string" },
+          "evidence": { "type": "string" },
+          "evidenceSpan": { "type": "string" },
+          "verdict": { "enum": ["PASS", "FAIL", "PARTIAL", "UNVERIFIED"] },
+          "sequenceMatchesProduction": { "enum": ["yes", "no", "not-applicable"] }
+        }
+      }
+    },
+    "coverage": { "type": "string" },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "verdict": { "enum": ["pass", "fail"] }
+  }
+}
+```
+
+`evidence` is the test name / `file:line` / observed output drawn from the
+execution-evidence file, or the literal `none`. `evidenceSpan` is where that
+evidence sits in the execution-evidence file — `<file>:<startLine>-<endLine>` —
+or the literal `none`; it lets the caller check an attribution instead of
+trusting it (Step 3b). It carries no `maxLength` or `pattern` on purpose: a
+locator rejected by a length cap gets resent, not fixed (#2280). `coverage` is
+`<#rows with PASS/FAIL evidence> / <total rows>`.
+
+`limitations` lists every **narrative-changing** fact — one that, read after the
+verdict, would change what the verdict means. It sits before `verdict` in the
+schema and in the report on purpose, and it carries `minItems: 1`: when there is
+nothing to declare, the single entry is the literal `none`, so an absent caveat
+is a stated claim rather than an omission. One entry per item, from this
+checklist:
+
+| Must appear in `limitations` | Why it changes the narrative |
+|---|---|
+| Every `UNVERIFIED` row, by criterion | The verdict rests on fewer criteria than were listed |
+| Every suite / typecheck / lint step that was skipped, errored before running, or ran on a subset (filtered, `--bail`, `-k`) | Step 1 evidence is narrower than "the suite passed" implies |
+| Every row with `sequenceMatchesProduction: "no"` | A green test exists but does not cover the production path |
+| Every `FAIL` or `PARTIAL` row whose `evidenceSpan` is `none` | The failure's cause was not located within the bound (Step 3b) |
+| Any caveat that would flip `pass` → `fail` if it proved true (flaky rerun, environment-only pass, stale evidence predating the last push) | The pass is conditional, and the reader must know on what |
+| Every step still running, timed out, or whose output is truncated or missing | The verdict describes a partial result as if it were complete |
+| Every pre-existing failure — red on both the merge-base and the head | The suite is red for a reason this change did not cause, and a reader who sees `pass` must know it |
+| Collateral damage no failing test catches: side effects or broken behaviour outside the listed criteria — including anything Step 4 drops from the verdict | Every criterion can pass while the change breaks something the suite does not cover |
+| Any factual claim in the inputs (a pass count, a metric, "all green") that the execution output does not back | The report would repeat a success the evidence never showed |
+
+Every entry points at something the inputs show, or show to be missing: a step
+that did not run, an output line, a criterion with no test. Speculative risks
+with no sign in the inputs — code the verifier did not open, evidence that
+"might" be stale with no later commit named — are not limitations. Listing them
+is the measured false-flag cost of over-reporting, and it makes `none` unreachable
+on a clean run.
+
+Why this field exists, which parts the source paper measured, and which parts
+are this skill's own extension: [REFERENCE.md](REFERENCE.md) § Insecure reporting.
+
+| Row verdict | Meaning |
+|---|---|
+| `PASS` | execution evidence demonstrates the criterion holds |
+| `FAIL` | execution evidence demonstrates it is violated — name the concrete failing input/test |
+| `PARTIAL` | covered for some inputs; a *stated* edge case is unhandled |
+| `UNVERIFIED` | no execution exercises this criterion (a coverage gap) — never pass a row because the code "looks right" |
+
+**`sequenceMatchesProduction` is required on every row**, and that requirement
+is the entire gain of the schema. Step 3a's check is the one a verifier skips
+silently when it is only prose, because a green test *looks* like evidence — a
+required enum makes "I did not check" unrepresentable.
+
+| Value | When |
+|---|---|
+| `yes` | the test's operation sequence reproduces the real production call path |
+| `no` | the test passes over a shorter or rearranged sequence than production uses → the row's `verdict` becomes `UNVERIFIED` |
+| `not-applicable` | the criterion makes no round-trip / determinism / reproducibility / idempotence claim |
+
+The overall `verdict` is `pass` only when every row is `PASS`, no row is
+`sequenceMatchesProduction: "no"`, **and** every Step 1 step ran to completion
+over the full suite. Any `FAIL`, any `UNVERIFIED`, any sequence divergence, or a
+Step 1 step that was skipped, errored before running, ran on a subset, or is
+still running makes it `fail`. Step 1 is a precondition of the verdict, not a
+caveat to list beside a `pass`.
+
+Template:
+
+```
+subagent_type: general-purpose
+model: opus
+prompt: |
+  You verify whether an implementation meets its acceptance criteria, grounded
+  in EXECUTION EVIDENCE. Read ONLY these inputs (no other files, no repo
+  exploration beyond resolving evidence cited below):
+    - Acceptance criteria: <numbered list from Step 2>
+    - The change under review: <diff / file paths>
+    - Execution evidence (suite/typecheck/lint output): <scratch file path>
+
+  Do NOT read the author's plan, commit narrative, or rationale — grade the
+  behaviour, not the intent.
+
+  Emit ONE object conforming to this schema, with one row per criterion:
+    <paste the LEDGER schema verbatim>
+
+  For every row, decide `sequenceMatchesProduction` explicitly: identify what
+  real call sequence exercises the claim in production and confirm the test
+  reproduces that sequence, not just a convenient shorter one.
+
+  When a criterion fails and the evidence file is long, locate before you read:
+  `grep -n` it for anchors from the criterion (test name, assertion text, error
+  class, changed file path), read only a window around each hit, and let a
+  candidate that does not explain the failure narrow the next query. Stop after
+  3 search rounds or 5 windows for that criterion; if nothing explains it, set
+  its `evidenceSpan` to "none" and say the cause was not located.
+  Cite evidence and its `evidenceSpan` for every row. Fill `limitations` from
+  the checklist (UNVERIFIED rows, skipped/partial/still-running steps, sequence
+  mismatches, unlocated spans, verdict-flipping caveats, collateral damage
+  outside the criteria, claims the output does not back); if there are none,
+  write the single entry "none" — never omit the field. Be honest in your response.
+  Your final message is the deliverable.
+```
+
+> **No workflow harness here — deliberately.** The schema is the whole delta;
+> agent count stays at one. This skill is the Pillar-1 oracle other loops
+> delegate their stop condition to, so a fan-out design would multiply through
+> every iteration of every loop in the repo — the one place where per-invocation
+> cost compounds rather than adds (`.claude/rules/workflow-vs-skill.md`).
+
+For several independent targets, dispatch one verifier per target in a
+single-message parallel `Agent` batch — except on a 1M-context model (every
+Fable 5.1 session, or Opus with the `[1m]` suffix), where the concurrent-
+subagent rate-limit caveat applies (`skill-fork-context.md`); run those
+sequentially. Do **not** set `context: fork` — the caller needs the ledger
+in the main context to act on it.
+
+### Step 3a: Match the test's operation sequence to production
+
+"A passing test exists for this claim" is **not** sufficient evidence for a
+round-trip, determinism, reproducibility, or idempotence claim. The test can
+pass while the design is broken, because a narrower hand-built repro silently
+avoids the exact *ordering* that would expose a divergence. The tell is when the
+test's sequence of operations differs from the real call path production uses.
+
+So for any such claim, add a step to the verifier's brief:
+
+> Identify what real call sequence exercises this claim in production, and
+> confirm the test under review reproduces that sequence — not just a convenient
+> shorter one.
+
+**Stateful / RNG-dependent code is the high-risk class** — lazy initialization,
+global mutable RNG state, and caching all defer or share observable state, so
+*when* an operation runs relative to its neighbours changes the result. A test
+of the shape `construct → forward immediately` and a production path of
+`construct → generate batches (consuming lazy RNG) → first forward` draw their
+deferred state at the *same relative point in each stream*, so the round-trip
+"works" with no error — while a real trained model's reload diverges. The
+passing test is real; it just exercises the one ordering that can't see the bug.
+
+Grade such a claim `UNVERIFIED` until the test reproduces the production
+sequence, even though a green test exists — that is the row whose
+`sequenceMatchesProduction` is `no`.
+
+### Step 3b: Attribute a failure by searching the trace, not reading it
+
+When a criterion fails on a **long** run, its evidence is usually sparse and
+spread across actions far apart in the trace. Reading end to end gets worse as
+the trace grows: the relevant lines are diluted by irrelevant ones, and the
+reader settles on the most recent plausible cause rather than the actual one.
+Summarising first does not help — a summary is exactly where sparse evidence is
+dropped. So when a row is heading for `FAIL` or `PARTIAL` and the
+execution-evidence file is longer than one pass (roughly 300+ lines), the
+verifier searches instead:
+
+1. **Locate first.** `grep -n` the evidence file for anchors taken from the
+   criterion — the test name, the assertion text, the error class, the changed
+   file's path. Each hit is a candidate.
+2. **Read narrowly.** Open only a window around each candidate (about ±20
+   lines), never the file end to end.
+3. **Narrow, don't stop.** A candidate that does not explain the failure feeds
+   the next query — drop its anchor, add the symbol it pointed at — rather than
+   ending the search on the nearest plausible line.
+4. **Report the span.** The window that explains the failure becomes the row's
+   `evidenceSpan`, so the caller can open that range and check the attribution.
+
+**Attribution bound:** at most 3 search rounds and 5 candidate windows per
+criterion — the hard ceiling `.claude/rules/loop-integrity.md` ("Bounding
+runaway") requires of every loop. When the bound is reached with no explaining
+span, the row records `evidenceSpan: "none"` and states that the cause was not
+located within the bound. That row goes to a human; it is never filled with the
+most plausible-looking line. A named failing test in `evidence` still stands —
+the missing span says only that its cause was not pinned down.
+
+### Step 4: Triage against over-correction
+
+The verifier grades strictly, so guard **both** failure modes before acting —
+neither talk yourself into passing broken code, nor into failing correct code:
+
+| Act on it | Drop it |
+|---|---|
+| A `FAIL` with a named failing test/input | A `FAIL` on a requirement the spec never stated (the implicit no-regression criterion counts as stated) |
+| An `UNVERIFIED` criterion → write/run the missing test, then re-grade | An `UNVERIFIED` on behaviour outside the change's responsibility |
+| A `PARTIAL` where a *stated* edge case is unhandled | Style/preference dressed up as a criterion failure |
+| A coverage gap on a load-bearing criterion | A hypothetical input the contract makes impossible |
+| A round-trip/determinism test whose sequence diverges from production (Step 3a) | A sequence difference that provably can't affect the claim's outcome |
+
+**"Drop" removes an item from the verdict, never from the report.** "Outside
+the scope of the task" is a recorded rationalisation for concealing a flaw
+([REFERENCE.md](REFERENCE.md)), so a dropped item that is still narrative-changing — a
+failing test unrelated to the criteria, a side effect on shared state, broken
+behaviour the spec never mentioned — goes into `LIMITATIONS` as collateral
+damage. Only items that cannot change the story leave the report entirely:
+style preferences, impossible inputs, and sequence differences that provably
+cannot affect the outcome.
+
+### Step 5: Report and bound the loop
+
+Emit the ledger in this order — the limitations come **before** the verdict, so
+a reader who stops at the verdict has already seen what it rests on:
+
+```
+TARGET: <target>
+ROWS: <per-criterion rows with evidence and evidenceSpan>
+COVERAGE: <n>/<total>
+LIMITATIONS:
+  - <one narrative-changing item per line, or the single line "none">
+VERDICT: pass|fail
+```
+
+`LIMITATIONS` is never omitted and never left empty: an empty list is written as
+`none`. A report that carries a `VERDICT` line with no `LIMITATIONS` block above
+it is malformed — re-emit it rather than acting on it. When Step 2 stopped for a
+missing input, there is no report to emit; ask for the input instead.
+
+Apply or hand off the genuine fixes (closing `UNVERIFIED` rows by adding the
+missing test counts as a fix). Re-run from Step 1 **only if the
+verdict was `fail`**; do not loop more than twice — a third round means a
+structural problem the gate can't resolve, which is the signal to surface to a
+human, not to keep grinding.
+
+## Anti-patterns
+
+| Mistake | Correct approach |
+|---|---|
+| Grading the diff without running anything | Execute first (Step 1) — appearance is not evidence |
+| Passing a criterion because the code "looks like it does that" | No execution evidence → `UNVERIFIED`, not pass |
+| Passing a round-trip/determinism claim because "a test exists and passes" | Confirm the test's operation sequence matches the production call path (Step 3a) |
+| Reading a long trace end to end and naming the latest plausible cause | Locate with `grep -n`, read narrow windows, report the span — within the attribution bound (Step 3b) |
+| Reporting the verdict first and caveats after — or not at all | `LIMITATIONS` block before `VERDICT`, `none` stated explicitly (Step 5) |
+| Feeding the verifier the author's plan/rationale | Intent-starved inputs — criteria + diff + execution evidence only |
+| Inventing requirements the spec never stated | Triage (Step 4) — FAIL only on listed criteria |
+| Omitting collateral damage because it is "out of scope" | Drop it from the verdict, list it in `LIMITATIONS` (Step 4) |
+| Looping until the verifier goes quiet | One revise round; persistent fail = structural problem |
+
+## Related
+
+- [`adversarial-review`](../adversarial-review/SKILL.md) — attacks a *design*
+  for faults; this skill verifies *running behaviour* against criteria
+- [`verify-before-plan`](../verify-before-plan/SKILL.md) — verifies *premises*
+  before work; this verifies *outcomes* after
+- [`cold-read-gate`](../cold-read-gate/SKILL.md) — the isolation + triage +
+  bounded-loop pattern this skill reuses (legibility lens; uses haiku)
+- `code-quality-plugin:code-review` — the first-pass review this layers on top of
+- `workflow-orchestration-plugin:workflow-checkpoint-refactor` — a loop whose
+  phase gate delegates its independent verdict here
+- `.claude/rules/loop-integrity.md` — Pillar 1: a loop's stop condition is judged
+  by an independent verifier like this one, not the worker. **Keep this literal
+  path in the body**: `scripts/check-loop-integrity.sh` requires the token
+  `loop-integrity.md` in this file, so a later "tighten the Related section" edit
+  that drops it fails the build.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Set up Guard for Codex"
+  short_description: "Install Guard's audit agents in this project"
+  default_prompt: "Set up Guard's Codex audit agents for this project."

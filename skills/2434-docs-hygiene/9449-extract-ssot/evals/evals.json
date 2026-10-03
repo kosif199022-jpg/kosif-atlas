@@ -1,0 +1,143 @@
+{
+  "skill_name": "extract-ssot",
+  "evals": [
+    {
+      "id": 1,
+      "name": "identify-on-duplication-smell",
+      "prompt": "The same 'always run the build before opening a PR' guardrail is reworded across five rule and skill files. I want a single source of truth for it.",
+      "expected_output": "Routes to the identify action (or a targeted single-cluster identify), grounding the cluster in Tier 0 grep evidence, and — because 5 instances land the cluster in the N>=3 bucket where the Rule of Three is met — proceeds toward planning an extraction into a single named home cited by exact heading.",
+      "files": [],
+      "expectations": [
+        "Output routes to the extract-ssot workflow (identify / verify / plan) rather than editing files ad hoc",
+        "Output confirms the instance count via direct (Tier 0) grep evidence, not recall",
+        "Output places the cluster in the N>=3 bucket and treats 5 instances as clearing the Rule of Three",
+        "Output only puts an artifact-creating output (rule-file / new-skill / new-action) on the table because the bucket is N>=3, and still runs it through the 6-test gate"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "two-instances-bucketed-no-new-artifact",
+      "prompt": "This constraint appears in exactly two files. Extract it into a shared SSOT rule so it's DRY.",
+      "expected_output": "Rosters the cluster in the N=2 bucket (source-of-truth bifurcation risk) rather than discarding it, and refuses to create any new artifact for it: with only 2 instances the Rule of Three is not met and premature abstraction is the dominant failure mode. It offers the non-abstracting remedies instead — name-an-owner (declare one of the two existing files canonical and have the other cite it), edit-existing-rule, normalize-wording — and notes the candidate can be revisited if a third instance lands.",
+      "files": [],
+      "expectations": [
+        "Output rosters the candidate in the N=2 bucket with its instance count rather than dropping it as below the Rule of Three",
+        "Output REFUSES to create a new SSOT artifact (no new rule file, skill, or action) at 2 instances, citing the Rule of Three",
+        "Output offers only non-abstracting remedies — name-an-owner / edit-existing-rule / normalize-wording — that edit the two existing files",
+        "Output frames premature extraction as the risk, not a benefit, while still surfacing the duplication to the user"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "tier0-evidence-not-recall",
+      "prompt": "I'm pretty sure the timeout guidance is duplicated all over the rules — I remember seeing it in a bunch of places. Just extract it into one rule.",
+      "expected_output": "Does not act on recall or a subagent summary as if it were proof. It promotes the claim to Tier 0 by running its own grep to confirm the actual instances and locations before planning or editing — a remembered roster is a lead list, never evidence.",
+      "files": [],
+      "expectations": [
+        "Output runs its own grep / file reads to confirm the duplication before extracting (Tier 0)",
+        "Output does NOT extract based solely on the user's recall / 'I remember seeing it'",
+        "Output treats the recalled claim as an unverified lead until grounded"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "code-cluster-out-of-scope",
+      "prompt": "The same magic string literal is repeated in four .cs source files. Use extract-ssot to DRY it up.",
+      "expected_output": "Flags the cluster but declines to apply its markdown citation contract to code: repeated code literals are extracted with language-idiomatic tooling (a constants file / shared module, IDE-rename / Roslyn), where compiler and lint catch missed call sites. The skill's HOW is markdown-specific.",
+      "files": [],
+      "expectations": [
+        "Output identifies the .cs cluster as code, out of scope for the skill's markdown citation contract",
+        "Output refers the caller to language-idiomatic extraction (constants/shared module, IDE rename / Roslyn)",
+        "Output does NOT apply a markdown 'cite by heading' contract to the code duplication"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "describe-use-expose-classification",
+      "prompt": "The install command `npm ci && npm run build` appears verbatim in the README's Getting Started section and is also referenced by a build rule. Should both cite one SSOT, or can they restate it?",
+      "expected_output": "Classifies roles: the build rule is a USE consumer and must cite the SSOT rather than recap body content, while the README is an EXPOSE surface that MAY restate the command for onboarding clarity when adjacent prose cross-references the SSOT. Contract identifiers themselves (the literal command tokens) stay inline.",
+      "files": [],
+      "expectations": [
+        "Output classifies the consumers by role (USE must cite; EXPOSE may restate)",
+        "Output allows the README (EXPOSE) to restate for onboarding clarity with a cross-reference, rather than forcing a bare citation",
+        "Output does not treat naming the literal command tokens as duplication"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "one-level-deep-no-citation-chains",
+      "prompt": "Plan an extraction where rule A.md would cite B.md, and B.md already cites C.md for the same concept. Is that fine?",
+      "expected_output": "Rejects the transitive chain: citations stay one level deep — never A -> B -> C. It consolidates so consumers cite the single canonical home directly, and notes a heading rename triggers a /rename-references sweep.",
+      "files": [],
+      "expectations": [
+        "Output rejects the multi-hop A -> B -> C citation chain (one level deep)",
+        "Output has consumers cite the single canonical SSOT directly",
+        "Output notes that a heading/identifier change requires a /rename-references sweep"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "bare-invocation-confirms-scope",
+      "prompt": "Run /docs-hygiene:extract-ssot with no argument. There are no prior working notes and the conversation has not named a scope.",
+      "expected_output": "Does NOT auto-dispatch the exhaustive survey. Asks one confirmation question with prescribed defaults (recommended option first: whole-repo under context/orchestrated-mode.md; then path/glob-scoped exhaustive survey; then targeted cluster; or stop). Non-interactive sessions without an explicit scope report the options and stop.",
+      "files": [],
+      "expectations": [
+        "Output asks the user to confirm scope before surveying (does not auto-start exhaustive identify)",
+        "Output presents prescribed defaults with a recommended option first, including a path/glob-scoped exhaustive survey choice distinct from targeted cluster grep",
+        "Output references whole-repo / orchestrated-mode defaults when offering the repo-wide option"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "single-inline-recap-of-existing-ssot",
+      "prompt": "Our .claude/rules/testing.md already owns the 'run the full suite before merge' constraint, but one skill body restates it in its own paragraph instead of citing it. Only that one file does this.",
+      "expected_output": "Rosters the single site in the N=1 bucket — it qualifies because a canonical home already exists that the site recaps instead of cites — and recommends trim-to-citation: replace the recap with a citation by exact heading plus a short inline summary, with normalize-wording if the drifted phrasing must survive. No new artifact is created; the SSOT already exists.",
+      "files": [],
+      "expectations": [
+        "Output reports the single-instance recap rather than dismissing it as below the Rule of Three",
+        "Output places it in the N=1 bucket and justifies admission by the existing canonical home it should be citing",
+        "Output recommends trim-to-citation (and/or normalize-wording) and creates no new rule file, skill, or action",
+        "Output does not propose a rule-file / new-skill / new-action output for a single instance"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "min-instances-3-regression-guard",
+      "prompt": "Run /docs-hygiene:extract-ssot identify --min-instances=3 over this repo. Some clusters have one or two instances.",
+      "expected_output": "Rosters only N>=3 clusters: --min-instances=3 sets the lowest bucket to roster at three, so the N=1 and N=2 buckets are not rostered at all and only N>=3 clusters reach the roster. The suppressed buckets are named as suppressed by the flag rather than silently omitted, so an empty section does not read as 'nothing found'. Read-only — no flags beyond --min-instances means no edits are applied.",
+      "files": [],
+      "expectations": [
+        "Output rosters only clusters with 3 or more instances under --min-instances=3",
+        "Output does NOT roster the one- and two-instance candidates",
+        "Output distinguishes 'suppressed by --min-instances' from 'no candidates found' for the omitted buckets",
+        "Output applies no edits (bare identify with only --min-instances stays read-only)"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "small-corpus-surveys-inline",
+      "prompt": "Run /docs-hygiene:extract-ssot identify over this whole repository. It has 11 tracked markdown files, about 430 lines in total.",
+      "expected_output": "Surveys inline in the main session instead of dispatching the survey subagent: an 11-file corpus is far below the scale the subagent route is sized for, and the brief plus a Tier 0 re-grep of every returned lead would cost more than reading the corpus. Reads the corpus, applies the duplication heuristics, and greps each candidate this turn so every rostered lead carries Tier 0 evidence. The roster keeps the usual bucket and instance-count shape. Read-only.",
+      "files": [],
+      "expectations": [
+        "Output does NOT dispatch a survey subagent for the 11-file corpus",
+        "Output reads the corpus in the main session and captures a grep per rostered candidate",
+        "Every rostered candidate carries a bucket and an instance count",
+        "Output applies no edits"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "all-refused-roster-is-not-resumable",
+      "prompt": "Run /docs-hygiene:extract-ssot identify --inline over docs/. Every candidate you find turns out to be a refusal (header-only matches and concept mentions). Afterwards, a later bare /docs-hygiene:extract-ssot runs in a fresh session.",
+      "expected_output": "The identify run persists no roster, because no candidate is actionable. It records the refusals as one line marked status: closed in the working notes, keeping refusals there as the decision framework asks, and routes any new refusal pattern to context/lessons.md. The later bare invocation finds no active candidate roster (a closed record is not one), so it does not resume; it confirms scope with the user as a bare invocation does.",
+      "files": [],
+      "expectations": [
+        "The identify run does NOT persist a candidate roster when every candidate is refused",
+        "The refusals are recorded as a closed record (status: closed), not dropped",
+        "The later bare invocation does NOT resume from the closed record",
+        "The later bare invocation asks the user to confirm scope"
+      ]
+    }
+  ]
+}

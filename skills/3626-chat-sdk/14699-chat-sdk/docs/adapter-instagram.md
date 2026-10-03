@@ -1,0 +1,213 @@
+> Source: https://chat-sdk.dev/adapters/official/instagram.md
+
+---
+title: Instagram
+description: Instagram Direct Messages adapter using Meta's Instagram Messaging API.
+tagline: Build Instagram DM bots with media, quick replies, reactions, and story replies.
+package: @chat-adapter/instagram
+---
+
+# Instagram
+
+
+  Building for Facebook Messenger? Use the [Messenger adapter](/adapters/official/messenger) instead. It connects through the Messenger Platform API and uses a Facebook Page access token.
+
+
+## Install
+
+
+## Quick start
+
+
+  The adapter auto-detects `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_VERIFY_TOKEN`, `INSTAGRAM_ACCOUNT_ID`, and the optional `INSTAGRAM_API_VERSION` from the environment.
+
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createInstagramAdapter } from "@chat-adapter/instagram";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    instagram: createInstagramAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post("Hello from Instagram!");
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+```typescript title="app/api/webhooks/instagram/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function GET(request: Request) {
+  return bot.webhooks.instagram(request);
+}
+
+export async function POST(request: Request) {
+  return bot.webhooks.instagram(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+
+  This adapter uses **Instagram API with Instagram Login** and
+  `graph.instagram.com`. It does not require a Facebook Page. The connected
+  Instagram account must be a public professional Business or Creator account;
+  personal and private accounts cannot use the Messaging API.
+
+
+### 1. Create a Meta app
+
+1. Open the [Meta App Dashboard](https://developers.facebook.com/apps) and
+   click **Create App**.
+2. For the use case, select **Other**, then click **Next**.
+3. Select the **Business** app type, then click **Next**.
+4. Enter the app name and contact email and finish creating the app. Connecting
+   a verified business is required before publishing, but can be completed
+   later under **App settings > Basic**.
+5. In the new app dashboard, find the **Instagram** product and click **Set
+   up**.
+
+Meta automatically adds **API setup with Instagram login**. Do not select
+**API setup with Facebook login** for this adapter, because that setup uses
+Facebook or Page tokens and `graph.facebook.com`.
+
+### 2. Get credentials
+
+Generate an access token for the account the bot will use:
+
+1. In the left menu, open **Instagram > API setup with Instagram login**.
+2. Under **Generate access tokens**, click **Add account** and sign in to
+   the public Instagram professional account the bot will use.
+3. Once the account appears, click **Generate token**, sign in again, and copy
+   the token to `INSTAGRAM_ACCESS_TOKEN`.
+
+Tokens generated in the App Dashboard are long-lived and valid for 60 days.
+They are suitable for development and for accounts you own or manage. Refresh
+or rotate the token before it expires.
+
+For an app that connects other businesses' accounts, configure **Instagram
+business login** and request these scopes in the login flow:
+
+* `instagram_business_basic`
+* `instagram_business_manage_messages`
+
+Business Login returns a one-hour token. Exchange it server-side for a
+60-day token through `https://graph.instagram.com/access_token`.
+
+Next, find the Instagram professional account ID. It is not the app ID or the
+app-scoped user ID. Query the professional account associated with the token:
+
+```bash
+curl "https://graph.instagram.com/v26.0/me?fields=user_id,username&access_token=$INSTAGRAM_ACCESS_TOKEN"
+```
+
+Copy the returned `data[0].user_id` value to `INSTAGRAM_ACCOUNT_ID`.
+
+Set the remaining secrets:
+
+* In **App settings > Basic**, copy the Meta app's **App Secret** to
+  `INSTAGRAM_APP_SECRET`. Meta uses this secret to sign webhook requests.
+* Choose your own random string for `INSTAGRAM_VERIFY_TOKEN`. This value is
+  only shared with Meta during webhook verification.
+
+### 3. Configure webhooks
+
+Deploy the GET and POST route shown above to a public HTTPS URL first, then:
+
+1. Return to **Instagram > API setup with Instagram login**.
+2. Under **Configure webhooks**, click **Configure**.
+3. Set **Callback URL** to
+   `https://your-domain.com/api/webhooks/instagram`.
+4. Set **Verify token** to the same value as `INSTAGRAM_VERIFY_TOKEN`, then
+   click **Save**.
+5. Click **Manage** and keep these fields enabled:
+   `messages`, `message_reactions`, `messaging_postbacks`, and
+   `messaging_seen`.
+
+Configuring the callback does not subscribe an Instagram account by itself.
+Subscribe the account represented by the access token:
+
+```bash
+curl -X POST \
+  "https://graph.instagram.com/v26.0/me/subscribed_apps?subscribed_fields=messages,message_reactions,messaging_postbacks,messaging_seen&access_token=$INSTAGRAM_ACCESS_TOKEN"
+```
+
+To confirm the `messages` webhook works, send the professional account a DM
+from another Instagram account.
+
+### 4. Prepare for production
+
+Standard Access works for professional accounts you own or have added to the
+App Dashboard. To connect accounts you do not own, complete Business
+Verification and App Review for Advanced Access to
+`instagram_business_basic` and `instagram_business_manage_messages`.
+Request the **Human Agent** feature only if real support agents will use the
+seven-day response window.
+
+See Meta's current
+[app creation guide](https://developers.facebook.com/docs/instagram-platform/create-an-instagram-app),
+[Business Login guide](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/business-login/),
+and [webhook subscription guide](https://developers.facebook.com/docs/instagram-platform/webhooks/)
+for dashboard changes and production review requirements.
+
+## Configuration
+
+
+### Environment variables
+
+| Variable                 | Required | Description                                               |
+| ------------------------ | -------- | --------------------------------------------------------- |
+| `INSTAGRAM_ACCESS_TOKEN` | Yes      | Instagram access token for the Messaging API              |
+| `INSTAGRAM_APP_SECRET`   | Yes      | Meta app secret used to verify webhook signatures         |
+| `INSTAGRAM_VERIFY_TOKEN` | Yes      | Your chosen secret for the webhook verification handshake |
+| `INSTAGRAM_ACCOUNT_ID`   | Yes      | Instagram professional account ID                         |
+| `INSTAGRAM_API_VERSION`  | No       | Graph API version override. Defaults to `v26.0`           |
+
+## Webhooks
+
+The route handles two kinds of request from Meta:
+
+* GET verification handshake: Meta sends a `hub.verify_token` challenge that must match `INSTAGRAM_VERIFY_TOKEN`.
+* POST event delivery: incoming messages, quick-reply taps, reactions, and postbacks, signed with `X-Hub-Signature-256` and verified against `INSTAGRAM_APP_SECRET`.
+
+## Supported messaging
+
+* Send and receive Instagram direct messages.
+* Send images, video, audio, and files using binary data or publicly accessible HTTPS URLs.
+* Render supported card buttons as Instagram quick replies. Quick-reply taps are delivered to action handlers.
+* Send typing indicators while work is in progress.
+* Receive reaction events through `onReaction`.
+* Receive replies to Instagram stories as direct messages. The original webhook remains available on `message.raw` when story-specific context is needed.
+
+
+  Instagram's standard messaging window lasts 24 hours after the user's most recent message. `sendHumanAgentMessage` uses the `HUMAN_AGENT` tag for human-support replies within seven days, but Meta does not allow it for automated messages and may require approval.
+
+
+## Thread IDs
+
+```
+instagram:{accountId}:{userId}
+```
+
+Example: `instagram:17841400000000000:1234567890`.
+
+`accountId` is the bot's Instagram professional account ID. `userId` is the user's ID as Meta sends it in the webhook's `sender.id`.
+
+## Limitations
+
+Instagram does not expose message editing, so streamed responses are buffered and sent as one message when the stream completes.
+
+## Feature support
+
+

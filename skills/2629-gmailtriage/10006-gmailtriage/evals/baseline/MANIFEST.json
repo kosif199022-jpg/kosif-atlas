@@ -1,0 +1,139 @@
+{
+  "$comment": "Invented corpus shaped after real runs; no synthetic confirmation is evidence of Gmail execution. Current pending receipts are replayed exactly; historical receipts retain their original bytes.",
+  "label": "invented-run-shape",
+  "command": "node scripts/gmailtriage.js propose --threads evals/baseline/threads.json --labels evals/baseline/labels.json --rules evals/baseline/rules-none.json --min-count 2 --show-withheld 20 --out $OUT/candidates.json > $OUT/propose.txt && node scripts/gmailtriage.js propose --threads evals/baseline/threads.json --labels evals/baseline/labels.json --rules evals/baseline/rules.json --min-count 2 --show-claimed 20 > $OUT/propose-covered.txt && node scripts/gmailtriage.js labels --rules evals/baseline/rules.json --labels evals/baseline/labels.json > $OUT/labels.txt && node evals/baseline/prepare-inbox.mjs evals/baseline/threads.json > $OUT/inbox-input.json && node scripts/gmailtriage.js plan --threads $OUT/inbox-input.json --rules evals/baseline/rules.json --preview 8 --out $OUT/plan.json > $OUT/plan.txt && rm $OUT/inbox-input.json && node scripts/gmailtriage.js apply --plan $OUT/plan.json --receipt $OUT/pending-receipt.json --at 2026-08-05T12:00:00Z > $OUT/apply.txt && node scripts/gmailtriage.js subdivide --threads evals/baseline/filed.json --labels evals/baseline/filed-labels.json --parent Recruiting --out $OUT/subdivide-candidates.json > $OUT/subdivide.txt && node scripts/gmailtriage.js labels --rules evals/baseline/rules-recruiting.json --labels evals/baseline/filed-labels.json > $OUT/retro-labels.txt && node scripts/gmailtriage.js plan --threads evals/baseline/filed.json --labels evals/baseline/filed-labels.json --rules evals/baseline/rules-recruiting.json --scope \"label:Recruiting\" --preview 13 --out $OUT/retro-plan.json > $OUT/retro-plan.txt && node scripts/gmailtriage.js apply --plan $OUT/retro-plan.json --receipt $OUT/retro-pending-receipt.json --at 2026-08-07T12:00:00Z > $OUT/retro-apply.txt && node scripts/gmailtriage.js plan --threads evals/baseline/filed-after.json --labels evals/baseline/filed-labels.json --rules evals/baseline/rules-recruiting.json --scope \"label:Recruiting\" > $OUT/retro-converged.txt && node scripts/gmailtriage.js audit --labels evals/baseline/mailbox-before-labels.json --rules evals/baseline/mailbox-before-rules.json --threads evals/baseline/mailbox-before.json > $OUT/audit-before.txt || true && node scripts/gmailtriage.js audit --labels evals/baseline/mailbox-after-labels.json --rules evals/baseline/mailbox-after-rules.json --threads evals/baseline/mailbox-after.json > $OUT/audit-after.txt && node scripts/gmailtriage.js merge --from Reciepts --to Receipts --threads evals/baseline/mailbox-before.json --labels evals/baseline/mailbox-before-labels.json --receipt $OUT/merge-pending-receipt.json --at 2026-08-07T12:00:00Z > $OUT/merge.txt && node scripts/gmailtriage.js ingest --inbox evals/baseline/raw-inbox.json --nolabel evals/baseline/raw-nolabel.json --promos evals/baseline/raw-promos.json --updates evals/baseline/raw-updates.json --labels evals/baseline/raw-labels.json --out-threads $OUT/ingested-threads.json --out-labels $OUT/ingested-labels.json > $OUT/ingest.txt && node evals/baseline/normalize-receipts.mjs $OUT",
+  "artifacts": [
+    {
+      "path": "apply.txt",
+      "bytes": 5940,
+      "sha256": "88c07a01050f252c9aa95e152bb634f255e58e3323f9ad97fe52f0402f80ab9b"
+    },
+    {
+      "path": "audit-after.txt",
+      "bytes": 2859,
+      "sha256": "6afe416c7ec64a9e8d1feec1f87ae6476a278f48e441f17dc598e2f023f0eed2"
+    },
+    {
+      "path": "audit-before.txt",
+      "bytes": 5374,
+      "sha256": "aa96cf73c8eb1baa51f7deab3871ab6aebc1c866596b6d38e2735de476506668"
+    },
+    {
+      "path": "candidates.json",
+      "bytes": 12736,
+      "sha256": "0460e0328e2fbe273e7c19e8144588d3674e9f1ad0050cd060c098923d631538"
+    },
+    {
+      "path": "ingest.txt",
+      "bytes": 571,
+      "sha256": "1b40e14d13953c2f90587335200bfe48527883e1105636cc719095946c23e37d"
+    },
+    {
+      "path": "ingested-labels.json",
+      "bytes": 2746,
+      "sha256": "7d0b1ac7672f30ffb1bde09246914782179ddaa5b7210cfb930c147d75b5a66e"
+    },
+    {
+      "path": "ingested-threads.json",
+      "bytes": 5341,
+      "sha256": "14c7fe8863f86f5633c8d239c34f8a796bdae2ed29fe749434b5056f8b635b07"
+    },
+    {
+      "path": "labels.txt",
+      "bytes": 200,
+      "sha256": "f16c410912c5e3747c46e7f24a7dfb29ba4ef388faa5388442160baeb232d4d1"
+    },
+    {
+      "path": "merge-pending-receipt.json",
+      "bytes": 2104,
+      "sha256": "9a65ace7fab3c55991e8748078f35c5de53a371c7d3c861fdc7a021a97c16881"
+    },
+    {
+      "path": "merge.txt",
+      "bytes": 907,
+      "sha256": "b40300a3aae2e5f51c4a4b015703ff4b8c87be9f01ac2dedf4581ea0f844e42b"
+    },
+    {
+      "path": "plan.json",
+      "bytes": 30002,
+      "sha256": "80d64b75bd1d210db2d9ce92a3c51e2b41401d7dc542477f2a2291153c3b765f"
+    },
+    {
+      "path": "plan.txt",
+      "bytes": 5469,
+      "sha256": "b4c4c4fac6bd7a4418bc42b6ff959efb9180754b22a864870cbb9dba68057dbe"
+    },
+    {
+      "path": "propose-covered.txt",
+      "bytes": 2796,
+      "sha256": "1bf68348ad74e0af82bc15781f6ab912fc6a89034e3555210c9a49ecafa004c8"
+    },
+    {
+      "path": "propose.txt",
+      "bytes": 5865,
+      "sha256": "08918550e5f475f332b5ca0cb64108d34c2d7b3e394f66be527514ce6b172827"
+    },
+    {
+      "path": "pending-receipt.json",
+      "bytes": 52027,
+      "sha256": "6c5cf1185dd92fb9e11723831a2b26ee3680ea7b2b9b076bd023f83d441d344f"
+    },
+    {
+      "path": "retro-apply.txt",
+      "bytes": 1476,
+      "sha256": "2218582054defbd5bae7f2ba1a474966b4502fd10e7aba8595404d264d795ae8"
+    },
+    {
+      "path": "retro-converged.txt",
+      "bytes": 469,
+      "sha256": "fb484059d3fb7d69212d2f0c0eaf351a35eb0dc7030efde7e0c53fb041a7d4e3"
+    },
+    {
+      "path": "retro-labels.txt",
+      "bytes": 200,
+      "sha256": "f4abfacc373cb064efdfdf656111d33c997599797a639c8bcbeceafdae15eefb"
+    },
+    {
+      "path": "retro-plan.json",
+      "bytes": 6778,
+      "sha256": "ec8c97bc2567a6cd06641cdd73ece28782c0e9fedce61ed0154b993d222fabe2"
+    },
+    {
+      "path": "retro-plan.txt",
+      "bytes": 3224,
+      "sha256": "02ab4468633abd8f591839a2a8fd255a9d861d18a4806296118e25ab4dde5fba"
+    },
+    {
+      "path": "retro-pending-receipt.json",
+      "bytes": 7595,
+      "sha256": "a7b4a381ad560274b9aa2b5c2e684443744ed02e3ccbe6ff09038f8b058df7ac"
+    },
+    {
+      "path": "subdivide-candidates.json",
+      "bytes": 1714,
+      "sha256": "4c71a29f1fc1c316ed71707c8398835f1a1178af7c62aaa54e6f1cd896d006b6"
+    },
+    {
+      "path": "subdivide.txt",
+      "bytes": 2209,
+      "sha256": "9da65d17f96aff4017266840f4ddaeecc11b49069af8804074e2d19d8afc6398"
+    }
+  ],
+  "legacyReceipts": [
+    {
+      "path": "merge-receipt.json",
+      "bytes": 739,
+      "sha256": "b666fdcff4748d8a157aeab2e01ec0839096714ffe6bcf5a0ef064c66e1d0efc"
+    },
+    {
+      "path": "receipt.json",
+      "bytes": 21415,
+      "sha256": "ca1c3eb61a24723a0177ccf9eb2e7c12f9be6ab07c8b5cf4f5b6688e5bafccc1"
+    },
+    {
+      "path": "retro-receipt.json",
+      "bytes": 4608,
+      "sha256": "afee7b8bb4ffacba4f82a7febc2c1831c1198da3215f10a790e6e24278b3e901"
+    }
+  ]
+}

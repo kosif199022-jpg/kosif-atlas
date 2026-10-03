@@ -1,0 +1,215 @@
+> Source: https://chat-sdk.dev/adapters/community/baileys.md
+
+---
+title: Baileys (WhatsApp)
+description: Community WhatsApp adapter for Chat SDK using Baileys, the unofficial WhatsApp Web API. Self-hosted over WebSocket, with QR or pairing-code auth, multi-account support, and WhatsApp-specific extensions.
+tagline: WhatsApp adapter for Chat SDK using Baileys (the unofficial WhatsApp Web API). Self-hosted, WebSocket-based, with native quoted replies, read receipts, polls, and locations.
+package: chat-adapter-baileys
+---
+
+# Baileys (WhatsApp)
+
+
+  This adapter uses Baileys, an unofficial third-party WhatsApp Web API. It is not an official WhatsApp or Meta API and may break when WhatsApp changes its internal protocols. WhatsApp may also suspend or ban numbers or accounts that use unofficial automation. Use it at your own risk, and evaluate your compliance requirements before using it in production.
+
+
+## Install
+
+
+To render the QR code in the terminal during development, also install `qrcode`:
+
+
+## Quick start
+
+Prepare the auth state, create the adapter and the `Chat` instance, register handlers, call `bot.initialize()`, and then call `whatsapp.connect()`. Register handlers before connecting, because messages can arrive as soon as `connect()` is called.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { useMultiFileAuthState } from "baileys";
+import { createBaileysAdapter } from "chat-adapter-baileys";
+
+const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
+
+const whatsapp = createBaileysAdapter({
+  auth: { state, saveCreds },
+  userName: "my-bot",
+  onQR: async (qr) => {
+    const QRCode = await import("qrcode");
+    console.log(await QRCode.toString(qr, { type: "terminal" }));
+  },
+});
+
+const bot = new Chat({
+  userName: "my-bot",
+  adapters: { whatsapp },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`Hello ${message.author.userName}!`);
+  await thread.subscribe();
+});
+
+bot.onSubscribedMessage(async (thread, message) => {
+  if (message.author.isMe) {
+    return;
+  }
+  await thread.post(`You said: ${message.text}`);
+});
+
+bot.onNewMessage(/.+/, async (thread, message) => {
+  if (!thread.isDM || message.author.isMe) {
+    return;
+  }
+  await thread.post(`DM received: ${message.text}`);
+});
+
+await bot.initialize();
+await whatsapp.connect();
+```
+
+## Authentication
+
+Pass the Baileys auth state and its `saveCreds` callback as `auth`. With `useMultiFileAuthState("./auth_info")`, credentials are saved to `./auth_info` on first login, and later startups reuse the saved session without a new login.
+
+### QR code
+
+Set `onQR` to receive a QR string whenever a new QR code is available, then render it however you like and scan it from WhatsApp. The quick start prints it to the terminal with `qrcode`.
+
+### Pairing code
+
+Set `phoneNumber` (E.164 format, without the `+`) and `onPairingCode` instead of `onQR`. The adapter calls `onPairingCode` with an 8-digit code, which you enter in WhatsApp under **Linked Devices**.
+
+## Configuration
+
+```typescript
+createBaileysAdapter({
+  // Unique name for this adapter, used as the thread ID prefix. No ":" allowed.
+  adapterName: "baileys",
+
+  // Required. Your Baileys auth state + credential-save callback.
+  auth: { state, saveCreds },
+
+  // Display name for the bot in Chat SDK logs.
+  userName: "my-bot",
+
+  // Override the WhatsApp Web protocol version. Fetched automatically if omitted.
+  version: [2, 3000, 1015901307],
+
+  // Called with a QR string when a new QR is available.
+  onQR: async (qr) => {
+    /* render however you like */
+  },
+
+  // Phone number for pairing-code auth (E.164, no "+"). Use instead of onQR.
+  phoneNumber: "12345678901",
+
+  // Called with the 8-digit pairing code. User enters it in WhatsApp -> Linked Devices.
+  onPairingCode: (code) => {
+    /* ... */
+  },
+
+  // Advanced: extra options passed directly to Baileys' makeWASocket().
+  socketOptions: {},
+});
+```
+
+## Transport
+
+The adapter receives messages over a WebSocket opened by `connect()` instead of HTTP webhooks, so `handleWebhook()` returns `501`. It reconnects automatically after unexpected disconnects, but not after a logout or an explicit `disconnect()`.
+
+## Multi-account support
+
+Run one adapter instance per WhatsApp account. Give each a unique `adapterName` to avoid thread ID collisions:
+
+```typescript title="lib/bot.ts" lineNumbers
+const { state: stateMain, saveCreds: saveMain } =
+  await useMultiFileAuthState("./auth_main");
+const { state: stateSales, saveCreds: saveSales } =
+  await useMultiFileAuthState("./auth_sales");
+
+const waMain = createBaileysAdapter({
+  adapterName: "baileys-main",
+  auth: { state: stateMain, saveCreds: saveMain },
+});
+
+const waSales = createBaileysAdapter({
+  adapterName: "baileys-sales",
+  auth: { state: stateSales, saveCreds: saveSales },
+});
+
+const bot = new Chat({
+  userName: "my-bot",
+  adapters: { whatsappMain: waMain, whatsappSales: waSales },
+  state: createMemoryState(),
+});
+
+await bot.initialize();
+await waMain.connect();
+await waSales.connect();
+```
+
+All handlers receive messages from both accounts. The thread ID prefix (`baileys-main:` or `baileys-sales:`) tells you which account a message came from.
+
+## WhatsApp extensions
+
+`BaileysAdapter` exposes extra methods for WhatsApp features that have no Chat SDK equivalent. When other adapters are also registered, check the platform with `isBaileysAdapter()`:
+
+```typescript
+import { isBaileysAdapter } from "chat-adapter-baileys";
+
+bot.onSubscribedMessage(async (thread, message) => {
+  const adapter = thread.adapter;
+
+  if (isBaileysAdapter(adapter)) {
+    await adapter.markRead({
+      threadId: thread.id,
+      messageIds: [message.id],
+      participant: thread.isDM ? undefined : message.author.userId,
+    });
+    return;
+  }
+
+  await thread.post("Read receipts are not supported on this platform.");
+});
+```
+
+Use `requireBaileysAdapter()` when the handler must run on WhatsApp:
+
+```typescript
+import { requireBaileysAdapter } from "chat-adapter-baileys";
+
+bot.onSubscribedMessage(async (thread, message) => {
+  const wa = requireBaileysAdapter(thread);
+  await wa.reply(message, "Got it!");
+});
+```
+
+| Method                                                                            | Description                                                                   |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `whatsapp.reply(message, text)`                                                   | Send a quoted reply (native WhatsApp reply bubble)                            |
+| `whatsapp.markRead({ threadId, messageIds, participant? })`                       | Send read receipts (blue double-ticks). Pass `participant` for group messages |
+| `whatsapp.setPresence("available" \| "unavailable")`                              | Set the bot's global online/offline status                                    |
+| `whatsapp.sendLocation({ threadId, latitude, longitude, name?, address? })`       | Send a native location pin                                                    |
+| `whatsapp.sendPoll({ threadId, question, options, selectableCount?, metadata? })` | Send a WhatsApp poll                                                          |
+| `whatsapp.fetchGroupParticipants(threadId)`                                       | List group members with admin roles                                           |
+
+The positional forms of `markRead`, `sendLocation`, and `sendPoll` still work but are deprecated.
+
+## Message history
+
+`fetchMessages()` and `fetchChannelMessages()` return empty arrays because WhatsApp has no REST history API. If you need history, persist `messages.upsert` events yourself.
+
+## Attachments
+
+Incoming attachments include a lazy `fetchData()` that downloads the binary content on demand.
+
+## Limitations
+
+* Cards are sent as a plain-text fallback, because WhatsApp has no native card format.
+* Buttons and other rich interactivity aren't implemented. The adapter stays within ordinary WhatsApp chat behavior.
+
+## Feature support
+
+

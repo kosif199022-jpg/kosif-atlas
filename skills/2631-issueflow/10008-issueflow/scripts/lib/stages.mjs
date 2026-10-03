@@ -1,0 +1,143 @@
+/**
+ * The two stages, declared once.
+ *
+ * Everything else reads this: the state machine, the gate, the dispatch-prompt
+ * renderer and the run board. A stage that is not here does not exist, and a
+ * stage here without a model, an agent type, an artifact and a brief is a hole
+ * the corpus baseline goes red on — because a state machine missing a stage
+ * still renders as a complete-looking board.
+ *
+ * Two stages, not four. Until 0.7.0 investigate and design were separate
+ * dispatches, and so were implement and test. Measured across five real runs,
+ * the model time of a stage was three to fourteen minutes and the gate between
+ * two stages was four to fifty-six — so every stage boundary cost more than
+ * the stage. The plan is one document now (root cause through work items), and
+ * the change is one dispatch that owes its own two-sided proof. What the
+ * separate test stage used to check by being a second pair of eyes, `accept`
+ * now checks mechanically: the evidence must hold a red run before the green.
+ */
+
+/** Where a stage's answer has to land before the gate will look at it. */
+const ARTIFACT = (name) => `${name}.md`;
+
+export const STAGES = [
+  {
+    id: 'investigate',
+    title: 'Investigate',
+    model: 'opus',
+    agent: 'general-purpose',
+    artifact: ARTIFACT('investigate'),
+    /** What the subagent is asked to produce. Rendered into the brief verbatim. */
+    asks: [
+      'Reproduce or locate the behaviour the issue describes. Name the files and',
+      'functions responsible, with `path:line` references a reader can click.',
+      'State the root cause in one sentence.',
+      'State explicitly whether the issue as written asks for the right fix, and',
+      'if it does not, say what the reporter probably wants instead.',
+      'List what you could NOT determine. An unknown named is worth more than a',
+      'guess presented as a finding.',
+      'Then plan the change. Name the approach chosen AND at least one approach',
+      'rejected, with the reason — a plan with no rejected alternative is a first',
+      'idea wearing a design doc.',
+      'List every file that will be touched and what happens to it.',
+      'Treat that Files section as the scope allowlist: name anything explicitly',
+      'out of scope, and give a rough changed-line budget for the whole change.',
+      'State how the change will be proven: the specific behaviour a test must',
+      'assert, phrased so a reader can tell it maps to the issue.',
+      'ONE pull request is the default, even when the issue bundles several',
+      'independent fixes — those are one pull request with one commit each, and',
+      'you say so under Approach. Write a `## Work items` heading ONLY when the',
+      'whole change is too large to review as one (more than about five hundred',
+      'changed lines, or a shared layer other layers build on that a reviewer',
+      'must read alone). Then the first line under the heading is',
+      '`Why split: <the size or the layer, in numbers>`, and the items follow in',
+      'landing order, one per line as `- <slug>: <what lands in this layer>`,',
+      'each reviewable and mergeable ALONE. Every item costs its own pull',
+      'request and its own review loop of up to four rounds.',
+    ],
+    /** Sections the artifact must contain, checked on accept. */
+    requires: ['Root cause', 'Evidence', 'Unknowns', 'Approach', 'Rejected', 'Files', 'Proof'],
+    forbids:
+      'Do not change a single file, and do not write the implementation. This stage reads, ' +
+      'reports and plans; an investigation that edited the codebase has destroyed the evidence ' +
+      'it was sent to gather, and a plan containing the finished diff is a change nobody got ' +
+      'to review before it existed.',
+  },
+  {
+    id: 'implement',
+    title: 'Implement',
+    model: 'opus',
+    agent: 'general-purpose',
+    artifact: ARTIFACT('implement'),
+    asks: [
+      'Make the change described in the approved plan, and nothing else.',
+      'Treat the approved Files section as a scope allowlist. Before editing,',
+      'check every intended path against it; if the fix needs a new path or',
+      'would materially exceed the plan\'s rough line budget, stop and report it',
+      'under Deviations instead of widening the job silently.',
+      'Match the surrounding code: its naming, its comment density, its idiom.',
+      'Write the test the plan named as its proof, in the place this repo already',
+      'keeps its tests.',
+      'Prove the test is two-sided: show it FAILING against the unfixed behaviour',
+      '(revert, stub, or assert the old value) before showing it pass. A test that',
+      'was never seen red proves the suite runs, not that the issue is fixed.',
+      'A load or import error is NOT a red run. A file that fails to compile fails',
+      'as one unit and proves nothing about any assertion inside it. Construct a',
+      'pre-fix state the test file still loads against — a shim, a stub, an old',
+      'value asserted — and watch each new assertion fail on its own claim. An',
+      'assertion that passes against the pre-fix code is a coincidental green:',
+      'report it, do not count it.',
+      'Run the named targeted tests first. If they fail, fix only that failure and',
+      'rerun the targeted command; do not launch the full suite while the targeted',
+      'proof is red. Once the targeted proof is green, run the full suite exactly',
+      'once, then write the artifact immediately.',
+      'Run the suite. Save the real, unedited command output to the evidence file',
+      "named in the brief — the red run first, then the green — including the runner's",
+      'own pass/fail summary lines, and add a line recording the exit code after each.',
+      'The gate reads every runner summary in that file in order and requires the LAST',
+      'one to be green: if a broader run fails on something pre-existing (a missing',
+      'system library, a known-red test), record it earlier in the file and end with',
+      'the green targeted run that proves your change. The file is append-only: never',
+      'edit, reorder or annotate output already captured in it — a gate refusal is',
+      'answered by running again and appending, not by rewriting what ran before.',
+      'Commit on the branch named in the brief. Stage explicit paths — never',
+      '`git add -A` or `git add .`; another session may hold uncommitted work in',
+      'this tree. Leave the tree clean: the pull request is opened from the commits.',
+      'Report what you changed as a table of `file | what changed`, name anything',
+      'in the plan you did NOT do with the reason, and report the test command you',
+      'ran and its exit code.',
+    ],
+    requires: ['Changed', 'Deviations', 'Command', 'Two-sided', 'Result'],
+    forbids:
+      'Do not go beyond the approved plan. A better idea found mid-implementation goes ' +
+      'back to the plan gate; it does not get built because it was noticed. Never report a ' +
+      'pass you did not watch happen. If the suite could not run, say so and stop — an unrun ' +
+      'suite reported as green is the failure this whole skill is built to prevent.',
+  },
+];
+
+export const STAGE_IDS = STAGES.map((s) => s.id);
+
+export const stage = (id) => STAGES.find((s) => s.id === id) ?? null;
+
+/** The stage before `id`, or null if it is the first. */
+export function previousStage(id) {
+  const i = STAGE_IDS.indexOf(id);
+  return i > 0 ? STAGES[i - 1] : null;
+}
+
+/**
+ * Stages that run once for the whole issue, vs once per work item.
+ *
+ * Investigation is about the issue, so a split cannot duplicate it —
+ * decomposing an issue does not mean re-deciding what it is. Implementation
+ * is about a change, so each work item gets its own.
+ */
+export const SHARED_STAGES = ['investigate'];
+export const PER_ITEM_STAGES = ['implement'];
+
+/** The stage that owns the plan — the one the red team attacks and the one `split` reads. */
+export const PLAN_STAGE = 'investigate';
+
+/** The evidence file the implement stage must fill. Named here so the gate and the brief agree. */
+export const EVIDENCE_FILE = 'test-output.txt';

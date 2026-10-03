@@ -1,0 +1,20 @@
+{
+  "name": "audit-report",
+  "version": "0.1.0",
+  "description": "Render audit findings as a designed, paginated A4 PDF report with a cover page, severity donut and category bar charts, colored severity chips, evidence-backed strengths, prioritized recommendations, and copy-ready GitHub issue blocks.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/audit-report",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "pdf-report",
+    "security-audit",
+    "charts",
+    "github-issues",
+    "reporting",
+    "reporting"
+  ]
+}

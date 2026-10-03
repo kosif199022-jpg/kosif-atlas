@@ -1,0 +1,247 @@
+> Source: https://chat-sdk.dev/adapters/official/notion.md
+
+---
+title: Notion
+description: Respond to comments on Notion pages and discussion threads.
+tagline: Join Notion page and block comment discussions through webhooks and the Comments API, with Post+Edit streaming.
+package: @chat-adapter/notion
+---
+
+# Notion
+
+
+## Install
+
+
+## Quick start
+
+
+  The adapter auto-detects credentials from `NOTION_TOKEN`, `NOTION_VERIFICATION_TOKEN`, and optional `NOTION_BOT_USERNAME` / `NOTION_VERSION` / `NOTION_MENTION_MODE` / `NOTION_KEYWORDS`.
+
+  For managed credentials, see [Vercel Connect](#vercel-connect).
+
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createNotionAdapter } from "@chat-adapter/notion";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const bot = new Chat({
+  userName: "my-bot",
+  adapters: {
+    notion: createNotionAdapter(),
+  },
+  state: createRedisState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from Notion!");
+});
+```
+
+```typescript title="app/api/webhooks/notion/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.notion(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+The adapter targets a single workspace through an [access-token connection](https://developers.notion.com/docs/getting-started).
+
+### 1. Create the connection
+
+1. Open the [Developer Portal](https://app.notion.com/developers/connections) and click **New connection**.
+2. Enter a connection name, choose **Access token** as the authentication method, and select the workspace the connection is installable in. Only one workspace is supported, and the connection is installed automatically. Click **Create connection**.
+3. On the connection page, copy the **Access token** and set it as `NOTION_TOKEN`.
+
+### 2. Set capabilities
+
+1. Under **Capabilities** then **Comment capabilities**, enable **Read comments** and **Insert comments**.
+2. Under **Capabilities** then **Content capabilities**, leave **Read content**, **Update content**, and **Insert content** as they are. **Read content** is required for [`message.subject`](/docs/subject) page metadata.
+3. Under **Capabilities** then **User capabilities**, leave **Read user information including email addresses** as it is. The adapter uses it for author names and mention resolution.
+
+### 3. Choose content access
+
+On the **Content access** tab, choose which pages and databases the connection can access. The connection is available, and webhooks fire, only for those pages and databases.
+
+Capability or access errors, typically HTTP 403, usually mean a comment capability is missing or the page or database was not enabled under **Content access**.
+
+## Authentication
+
+### Vercel Connect
+
+Use [Vercel Connect](/docs/vercel-connect) for the outbound Notion access token:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createNotionAdapter } from "@chat-adapter/notion";
+import { connectNotionAdapter } from "@vercel/connect/chat";
+
+const notion = createNotionAdapter({
+  ...connectNotionAdapter("notion/acme-notion"),
+  verificationToken: process.env.NOTION_VERIFICATION_TOKEN,
+});
+```
+
+
+  Connect does not forward Notion webhooks. Configure the subscription directly
+  in Notion and retain `NOTION_VERIFICATION_TOKEN` for native HMAC verification.
+  `NOTION_TOKEN` is not needed when using `connectNotionAdapter`.
+
+
+### Access token
+
+Set `NOTION_TOKEN` to the access token you copied in [Platform setup](#platform-setup), or pass it as `token`.
+
+## Configuration
+
+
+`token` and `verificationToken` are required at runtime, from the environment or config.
+
+### Environment variables
+
+| Variable                    | Required                         | Description                                                                           |
+| --------------------------- | -------------------------------- | ------------------------------------------------------------------------------------- |
+| `NOTION_TOKEN`              | Yes, unless using Vercel Connect | Connection access token (Bearer token).                                               |
+| `NOTION_VERIFICATION_TOKEN` | Yes                              | HMAC key from the webhook verification handshake.                                     |
+| `NOTION_BOT_USERNAME`       | No                               | Bot display name override (default `notion-bot`).                                     |
+| `NOTION_MENTION_MODE`       | No                               | `mention` \| `all-comments` \| `keyword` (default `mention`).                         |
+| `NOTION_KEYWORDS`           | No                               | Comma-separated keywords when `NOTION_MENTION_MODE=keyword`.                          |
+| `NOTION_VERSION`            | No                               | Override the `Notion-Version` header (default pinned in [API version](#api-version)). |
+
+## Webhooks
+
+You create subscriptions on the connection's **Webhooks** tab, not through the API.
+
+1. Deploy your app so `https://your-domain.com/api/webhooks/notion` is publicly reachable.
+2. On the connection page, open the **Webhooks** tab and click **Create a subscription**.
+3. Set the **Webhook URL**, leave the default **API version** as it is, and under **Events** deselect every category except **Comment**. This selects **Comment created**, **Comment deleted**, and **Comment updated**. The adapter requires **Comment created**; the base adapter acknowledges and ignores deleted and updated events.
+4. Notion sends a one-time POST containing `verification_token`. The adapter logs it at warn level and returns `200`.
+5. Paste that token into Notion's UI and click **Verify**.
+6. Set the same value as `NOTION_VERIFICATION_TOKEN` (or pass `verificationToken` in config), then restart so signed deliveries can be verified.
+
+After verification, the adapter checks every delivery with HMAC-SHA256 over the raw body against `X-Notion-Signature` (`sha256=<hex>`).
+
+Event-ID deduplication is best-effort: in memory, plus state-backed when a Chat state adapter is configured. It does not substitute for Notion's delivery semantics across cold starts unless the state adapter is durable.
+
+
+  Notion locks the webhook URL after verification and does not let you change it in place. To point at a new endpoint, delete the subscription and create a new one, then repeat the verification-token flow and update `NOTION_VERIFICATION_TOKEN`. Choose a stable production URL before verifying.
+
+
+## Mention detection
+
+| Mode                  | Behavior                                                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"mention"` (default) | `isMention` when the comment plain text contains `@userName` or `@botUserId`. Notion connection bots are not @-mentionable in the composer, so users type the `@` token manually.                      |
+| `"all-comments"`      | Every non-bot comment on connected pages is treated as a mention, which suits dedicated Q\&A pages.                                                                                                    |
+| `"keyword"`           | `isMention` when the comment matches any configured `keywords` (case-insensitive, word-boundary). Comments without a keyword are left undetermined, so Chat SDK still matches `@userName` in the text. |
+
+```typescript
+createNotionAdapter({
+  userName: "docs-bot",
+  // default mentionMode: "mention" → triggers on "@docs-bot" or "@<bot-user-id>"
+});
+```
+
+```typescript
+createNotionAdapter({
+  mentionMode: "keyword",
+  keywords: ["@docs-bot", "hey bot"],
+});
+```
+
+## Streaming and rate limits
+
+Notion allows a connection to update its own comments, so the adapter uses Post+Edit streaming: it posts the first chunk, then `PATCH`es the same comment as tokens arrive.
+
+Notion's average rate limit is about 3 requests per second per connection, plus shared workspace limits. The adapter:
+
+* Throttles streaming edits with a default minimum interval of 1500ms (`streamingEditIntervalMs`)
+* Always flushes a final edit
+* Applies a shared limiter to all API calls and honors `Retry-After` on HTTP 429
+
+Override the interval per stream with `updateIntervalMs` on the stream options.
+
+
+  Notion limits rich-text spans to about 2000 characters each. The adapter splits long posts into sequential comments to stay under the limit. Streaming edits a single comment in place, so an unusually long streamed response can still approach this ceiling.
+
+
+## Message history
+
+`fetchMessages` uses Notion's list-comments API (`GET /v1/comments?block_id={pageId}`), paginated ascending, then filters client-side to the requested `discussion_id`. The adapter assumes list-comments returns oldest first, because Notion does not document the order. With the SDK default `direction: "backward"`, you get the newest page of matching discussion comments from that assumed order.
+
+
+  List-comments returns only unresolved discussions. Once a discussion is resolved in Notion, its comments disappear from history fetches.
+
+
+## Message subject
+
+`await message.subject` resolves the parent Notion page (`GET /v1/pages/{pageId}`) on first access and caches the result.
+
+
+  Requires **Capabilities** then **Content capabilities** then **Read content**. Without it, `message.subject` returns `null`, typically after a 403 from the Pages API. Comment posting still works with only the comment capabilities.
+
+
+| Field    | Value                                                                 |
+| -------- | --------------------------------------------------------------------- |
+| `type`   | `"page"`                                                              |
+| `id`     | Page UUID                                                             |
+| `title`  | Page title property (plain text)                                      |
+| `url`    | Notion page URL                                                       |
+| `status` | `"archived"` when the page is archived or in trash; otherwise omitted |
+| `author` | Page `created_by` when present                                        |
+| `raw`    | Full page API response                                                |
+
+The subject is the Notion page object from the Pages API (title, properties, URL, and the full payload on `raw`), not the page's block children or body content (`GET /v1/blocks/.../children`). See [Message Subject](/docs/subject).
+
+## Cards and files
+
+Notion has no native card UI. JSX cards render as markdown through `fallbackText` or flattened content, the same pattern as Linear and GitHub. Interactive buttons and `callbackUrl` are unsupported.
+
+Outbound files use Notion's File Uploads API and attach up to 3 files as native comment attachments:
+
+* Binary uploads use `single_part`, up to Notion's single-part limit of about 20 MiB.
+* Public URLs use `external_url` and are polled until `uploaded` before attaching. By default the adapter rechecks immediately, then after 5s and 10s; configure this with `externalUrlPollDelaysMs`.
+* Files beyond the first 3, uploads still pending after the poll window, and other upload failures fall back to markdown links in the comment body. Edits link files in markdown only.
+
+## API version
+
+Every request sends:
+
+```http
+Notion-Version: 2026-03-11
+```
+
+That pin is exported as `DEFAULT_NOTION_VERSION` from `@chat-adapter/notion`. Override it with `notionVersion` or `NOTION_VERSION` only if you accept the risk of breakage when Notion's versioned API diverges.
+
+## Thread model
+
+One Notion page is one Chat SDK channel, and each discussion is a thread.
+
+| Surface                             | Thread ID                                                                                           | Outbound behavior                                                   |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Page comment surface (channel root) | `notion:{pageId}`                                                                                   | Creates a page-level comment, starting a new page-level discussion. |
+| Existing discussion                 | `notion:{pageId}:{discussionId}`                                                                    | Replies in that discussion.                                         |
+| Whole-block discussion (outbound)   | `notion:{pageId}:block:{blockId}`, from `encodeThreadId({ pageId, blockId })` or the adapter helper | Starts a discussion on an entire block via `parent.block_id`.       |
+
+Inbound `comment.created` events always include a `discussion_id`. The adapter resolves the containing page, including for block-parent comments, and dispatches on `notion:{pageId}:{discussionId}` so replies stay threaded.
+
+
+  You can start page-level and whole-block discussions through the API. You cannot start selected-text-range (inline highlight) discussions through the public Comments API; those must already exist in Notion.
+
+
+Use `getPageUrl` to build deep links:
+
+```typescript
+const notion = bot.getAdapter("notion");
+const url = notion.getPageUrl(thread.id); // includes ?d={discussionId} when present
+```
+
+## Feature support
+
+

@@ -1,0 +1,1038 @@
+> Source: https://chat-sdk.dev/adapters/official/slack.md
+
+---
+title: Slack
+description: Slack adapter with single-workspace and multi-workspace OAuth support.
+tagline: Build bots for Slack workspaces with full support for threads, reactions, Agent Sessions, native streaming, scheduled messages, modals, and slash commands.
+package: @chat-adapter/slack
+---
+
+# Slack
+
+
+## Install
+
+
+## Quick start
+
+
+  The adapter auto-detects `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` from the environment.
+
+  For managed credentials and webhook verification, see [Vercel Connect](#vercel-connect).
+
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from Slack!");
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/slack/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.slack(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+### Slack app manifest
+
+Create the app from a manifest at [api.slack.com/apps](https://api.slack.com/apps). Replace `your-domain.com` in both `request_url` fields with the host that serves your webhook route:
+
+```yaml title="manifest.yaml"
+display_information:
+  name: My Bot
+  description: A bot built with chat-sdk
+
+features:
+  agent_view:
+    agent_description: A bot built with Chat SDK
+  bot_user:
+    display_name: My Bot
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - assistant:write
+      - channels:history
+      - channels:read
+      - chat:write
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
+      - reactions:read
+      - reactions:write
+      - users:read
+
+settings:
+  event_subscriptions:
+    request_url: https://your-domain.com/api/webhooks/slack
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+      - member_joined_channel
+      - app_home_opened
+      - app_context_changed
+      - agent_session_stopped
+      - agent_session_title_changed
+  interactivity:
+    is_enabled: true
+    request_url: https://your-domain.com/api/webhooks/slack
+```
+
+To expose sender email addresses on incoming messages (`message.author.email`), also add the `users:read.email` scope. Without it the field is `undefined`.
+
+### Copy credentials
+
+After creating the app, copy these values into your environment:
+
+* **Signing Secret** → `SLACK_SIGNING_SECRET`
+* **Client ID** → `SLACK_CLIENT_ID` (multi-workspace only)
+* **Client Secret** → `SLACK_CLIENT_SECRET` (multi-workspace only)
+* **Bot User OAuth Token** → `SLACK_BOT_TOKEN` (single-workspace only)
+
+## Authentication
+
+### Vercel Connect
+
+Use [Vercel Connect](https://vercel.com/docs/connect) to source the Slack bot token at runtime instead of storing one. The `connectSlackAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires both a `botToken` resolver and a `webhookVerifier` for Connect trigger-forwarded webhooks:
+
+```typescript
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { connectSlackAdapter } from "@vercel/connect/chat";
+
+createSlackAdapter({
+  ...connectSlackAdapter("slack/acme-slack"),
+});
+```
+
+This is equivalent to passing a `botToken` resolver that calls `getToken` and a `webhookVerifier` that validates the Vercel OIDC token Connect attaches. Omit `signingSecret` / `SLACK_SIGNING_SECRET` when using it.
+
+### Single-workspace mode
+
+For an app installed in one workspace, the adapter reads `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` from the environment:
+
+```typescript title="lib/bot.ts" lineNumbers
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter(),
+  },
+});
+```
+
+#### Token rotation
+
+`botToken` accepts a function that returns a string or `Promise<string>`. The adapter calls the resolver for every API call, so it works with [Slack token rotation](https://docs.slack.dev/authentication/using-token-rotation/) (12-hour TTL) or lazy fetch from a secret manager:
+
+```typescript
+createSlackAdapter({
+  botToken: async () => await secrets.get("slack-bot-token"),
+});
+```
+
+If the resolver is expensive, cache the token inside the resolver.
+
+### Multi-workspace OAuth
+
+For apps installed across multiple Slack workspaces, omit `botToken` and provide OAuth credentials. The adapter resolves tokens dynamically from your state adapter using the `team_id` (or `enterprise_id` for Enterprise Grid org-wide installs):
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const slackAdapter = createSlackAdapter({
+  clientId: process.env.SLACK_CLIENT_ID!,
+  clientSecret: process.env.SLACK_CLIENT_SECRET!,
+});
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { slack: slackAdapter },
+  state: createRedisState(),
+});
+```
+
+When you pass any auth-related option, such as `clientId`, the adapter stops reading the other auth fields from environment variables, so one deployment can't mix auth modes by accident.
+
+#### OAuth callback
+
+Point your Slack OAuth redirect URL to a route that calls `handleOAuthCallback`:
+
+```typescript title="app/api/slack/oauth/route.ts" lineNumbers
+import { slackAdapter } from "@/lib/bot";
+
+export async function GET(request: Request) {
+  const { teamId } = await slackAdapter.handleOAuthCallback(request, {
+    redirectUri: process.env.SLACK_REDIRECT_URI,
+  });
+  return new Response(`Installed for team ${teamId}!`);
+}
+```
+
+For Enterprise Grid org-wide installs (`is_enterprise_install`), Slack returns no `team` and the installation is keyed by the enterprise ID instead. The returned `teamId` is always the storage key, so it round-trips with `getInstallation` and `deleteInstallation` for both install types; the result also includes `enterpriseId` and `isEnterpriseInstall`.
+
+The adapter handles the other Enterprise Grid mechanics automatically: API calls during event handling pass the event's `team_id` explicitly (required for workspace-scoped methods on org-wide tokens), `context_team_id` from away-hosted shared channels is echoed back as `client_context_team_id`, retried event deliveries are deduplicated by `event_id`, and user caches are scoped per installation.
+
+#### Using the adapter outside webhooks
+
+During webhook handling, the adapter resolves tokens automatically. Outside that context (cron jobs, background workers), use `getInstallation` and `withBotToken`:
+
+```typescript
+const install = await slackAdapter.getInstallation(teamId);
+if (!install) throw new Error("Workspace not installed");
+
+await slackAdapter.withBotToken(
+  install.botToken,
+  async () => {
+    const thread = bot.thread("slack:C12345:1234567890.123456");
+    await thread.post("Hello from a cron job!");
+  },
+  { installationId: teamId }
+);
+```
+
+`withBotToken` uses `AsyncLocalStorage`, so concurrent calls with different tokens stay isolated. In multi-workspace deployments, pass `installationId` so per-user caches are scoped to that installation and don't bleed across tenants. `installationId` is the key the installation was stored under: the `team_id`, or the `enterprise_id` for org-wide installs.
+
+#### Token encryption
+
+Pass a base64-encoded 32-byte key as `encryptionKey` to encrypt bot tokens at rest using AES-256-GCM:
+
+```bash
+openssl rand -base64 32
+```
+
+When `encryptionKey` is set, `setInstallation()` encrypts the token before storing and `getInstallation()` decrypts transparently.
+
+#### External installation provider
+
+For deployments that manage Slack tokens in an external system, such as Vercel Connect, pass an `installationProvider`:
+
+```typescript
+createSlackAdapter({
+  clientId: process.env.SLACK_CLIENT_ID!,
+  clientSecret: process.env.SLACK_CLIENT_SECRET!,
+  installationProvider: {
+    getInstallation: async (installationId, isEnterpriseInstall) => {
+      return await myTokenStore.lookup(installationId, isEnterpriseInstall);
+    },
+  },
+});
+```
+
+The provider is read-only. `setInstallation`, `deleteInstallation`, and `handleOAuthCallback` still write to the internal state adapter.
+
+## Configuration
+
+
+Webhook mode requires `signingSecret` or a `webhookVerifier`. Socket mode requires `appToken`.
+
+### Environment variables
+
+| Variable                         | Required                                                         | Description                                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `SLACK_BOT_TOKEN`                | Single-workspace mode                                            | Bot User OAuth Token (`xoxb-...`).                                                                                     |
+| `SLACK_SIGNING_SECRET`           | Webhook mode, unless you use `webhookVerifier` or Vercel Connect | Signing secret for webhook verification.                                                                               |
+| `SLACK_APP_TOKEN`                | Socket mode                                                      | App-level token (`xapp-...`).                                                                                          |
+| `SLACK_CLIENT_ID`                | Multi-workspace OAuth                                            | App client ID.                                                                                                         |
+| `SLACK_CLIENT_SECRET`            | Multi-workspace OAuth                                            | App client secret.                                                                                                     |
+| `SLACK_ENCRYPTION_KEY`           | No                                                               | Base64-encoded 32-byte key for [token encryption](#token-encryption).                                                  |
+| `SLACK_SOCKET_FORWARDING_SECRET` | No                                                               | Secret that authenticates forwarded [socket mode](#socket-mode-on-serverless-vercel) events. Falls back to `appToken`. |
+| `SLACK_API_URL`                  | No                                                               | Slack Web API base URL override, used when `apiUrl` isn't set.                                                         |
+
+If you pass `botToken`, `clientId`, `clientSecret`, `installationProvider`, `signingSecret`, or `webhookVerifier` in code, the adapter doesn't read `SLACK_BOT_TOKEN`, `SLACK_CLIENT_ID`, or `SLACK_CLIENT_SECRET` from the environment. Passing `webhookVerifier` also stops it from reading `SLACK_SIGNING_SECRET`.
+
+## Custom webhook verification
+
+Pass `webhookVerifier` to replace the built-in HMAC check, for example when a proxy or signing layer ahead of your handler already verifies requests:
+
+```typescript
+createSlackAdapter({
+  webhookVerifier: async (request, body) => {
+    if (!(await myProxy.verify(request))) {
+      throw new Error("invalid");
+    }
+    return true;
+  },
+});
+```
+
+If both `signingSecret` and `webhookVerifier` are set, `webhookVerifier` wins. When you use `webhookVerifier`, replay and timestamp protection are your responsibility.
+
+## Agents
+
+These features support AI agents on Slack: the Agent messaging experience (`agent_view`), Agent Sessions, suggested prompts, native streaming, and feedback buttons.
+
+### Agent messaging experience
+
+Slack's Agent messaging experience (`agent_view` manifest mode) supersedes the older `assistant_view`. New Slack apps can only use `agent_view`. Enable it on the adapter:
+
+```typescript
+const slack = createSlackAdapter({ agentView: true });
+```
+
+Slack deprecated `assistant_view` on August 20, 2026 and will retire it in
+February 2027. Chat SDK keeps the legacy path available when `agentView` is
+false, but new and migrated apps should use Agent messaging now.
+
+With `agentView: true`:
+
+* `onAppHomeOpened` is the DM-open signal (Slack no longer signals DM-open via `assistant_thread_started` under `agent_view`), and it fires for either tab. Branch on `event.tab` (`"home"` vs `"messages"`) if you also publish a Home view.
+* `onAppContextChanged` reports the user's active view (see [Handling active-view context](/docs/handling-events#handling-active-view-context-agent-messaging)).
+* `getAppContext(message)` returns the folded active-view context on a DM message.
+* `setSuggestedPrompts(channelId, undefined, prompts)` may omit the thread reference, which places the prompts at the top of the agent conversation. A `suggestedPrompts` config entry is applied automatically on every Messages-tab open.
+* DM messages are threaded per Slack's model (each user message is a thread root). Threads returned by `openDM()` keep working: when the conversation-scoped thread is subscribed, incoming top-level DM messages route to it, so `onSubscribedMessage` and per-thread state behave as before.
+* New sessions are titled from the first line of the root message by default. Set `sessionTitle: false` to disable this, or pass a resolver to customize it.
+
+
+  Because bot replies are threaded under each user message, channel-level history (`channel.messages`, `conversations.history`) only returns the user's side of a DM conversation. If you build AI conversation history for DMs, use [user history](/docs/history) instead of channel history. User history records both roles across thread IDs; with channel history, the model never sees its own previous replies.
+
+
+Add the event subscription and scope to your manifest:
+
+```yaml
+oauth_config:
+  scopes:
+    bot:
+      - assistant:write
+      - chat:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_home_opened
+      - app_context_changed
+      - agent_session_stopped
+      - agent_session_title_changed
+```
+
+### Agent Sessions API
+
+With `agentView: true`, `startTyping()` transitions the session to
+`processing`. Slack shows its standard Working indicator and a native stop
+button. Chat SDK returns the session to `active` after posts and streams; use
+`setSessionStatus()` directly for `suspended` or `closed` states.
+
+```typescript
+await thread.startTyping();
+
+const result = await agent.stream({
+  prompt: message.text,
+  abortSignal: thread.signal,
+});
+await thread.post(result.fullStream);
+```
+
+Always pass `thread.signal` to model APIs. When the user clicks Slack's stop
+button, Chat SDK aborts that signal locally and through the configured shared
+state adapter, stops rendering the stream, and transitions the session out of
+`processing`.
+
+```typescript
+bot.onAgentSessionStopped(async (event) => {
+  await releaseExternalResources(event.threadId);
+});
+
+bot.onAgentSessionTitleChanged(async (event) => {
+  await syncTitle(event.threadId, event.title);
+});
+```
+
+The `SlackAdapter` exposes:
+
+| Method                                                      | Description                                                                              |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `setSessionStatus(channelId, threadTs, status)`             | Set `processing`, `active`, `suspended`, or `closed`                                     |
+| `setAssistantTitle(channelId, threadTs, title)`             | Rename the agent session                                                                 |
+| `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions                                                                  |
+| `publishHomeView(userId, view)`                             | Publish a Home tab view                                                                  |
+| `startTyping(threadId, status?)`                            | Set the agent session to `processing`, or render a custom status label in the loading UX |
+
+`setAssistantStatus` and `setAssistantTitle` remain compatibility methods:
+under `agentView`, clearing status and changing titles use `agents.sessions.*`.
+Custom status text uses the legacy `assistant.threads.setStatus` compatibility
+bridge. `setAssistantStatus` sends its `loadingMessages` argument, falls back to
+the adapter's `loadingMessages` config, and otherwise uses the custom status as
+the loading message. Under legacy `assistant_view`, these methods call
+`assistant.threads.*` directly.
+
+Custom labels and native session state are different paths. Use `startTyping()`
+without a custom status when you need native processing state and initiator
+attribution. The legacy endpoint cannot receive `initiator_user_id`, and an
+existing native processing indicator can take precedence over custom labels.
+Do not rely on custom labels alone to provide native stop-button behavior.
+
+Customize automatic titles with `sessionTitle`:
+
+```typescript
+const slack = createSlackAdapter({
+  agentView: true,
+  sessionTitle: ({ text }) => text.split("\n", 1)[0]?.slice(0, 80) ?? null,
+});
+```
+
+### Legacy Slack Assistants API
+
+The adapter supports Slack's [Assistants API](https://api.slack.com/docs/apps/ai). Register handlers on the `Chat` instance:
+
+```typescript
+bot.onAssistantThreadStarted(async (event) => {
+  const slack = bot.getAdapter("slack");
+  await slack.setSuggestedPrompts(event.channelId, event.threadTs, [
+    { title: "Summarize", message: "Summarize this channel" },
+    { title: "Draft", message: "Help me draft a message" },
+  ]);
+});
+
+bot.onAssistantContextChanged(async (event) => {
+  // User navigated to a different channel
+});
+```
+
+Instead of wiring the handler yourself, you can configure prompts on the adapter. It applies them whenever an assistant or agent thread opens (`assistant_thread_started` in legacy mode, or a Messages-tab open with [`agentView`](#agent-messaging-experience) enabled):
+
+```typescript
+const slack = createSlackAdapter({
+  suggestedPrompts: {
+    title: "Welcome! What can I do for you?",
+    prompts: [
+      { title: "Summarize", message: "Summarize this channel" },
+      { title: "Draft", message: "Help me draft a message" },
+    ],
+  },
+  // Rotating status strings shown while the bot is thinking
+  loadingMessages: ["Thinking...", "Digging through the archives..."],
+});
+```
+
+`suggestedPrompts` also accepts an async resolver, called per thread-open with the thread context (`channelId`, `userId`, `threadTs` in legacy mode, active-view `entities` under `agentView`). Return `null` to skip a thread. Slack shows at most 4 prompts.
+
+```typescript
+const slack = createSlackAdapter({
+  agentView: true,
+  suggestedPrompts: async ({ userId, entities }) => ({
+    prompts: entities?.some((e) => e.kind === "channel")
+      ? [{ title: "Summarize", message: "Summarize the channel I'm viewing" }]
+      : [{ title: "Catch me up", message: "What did I miss today?" }],
+  }),
+});
+```
+
+`loadingMessages` becomes the default for `startTyping(threadId)` and `setAssistantStatus(...)` in legacy `assistant_view` when no explicit status/messages are passed.
+
+The `SlackAdapter` exposes:
+
+| Method                                                      | Description                                               |
+| ----------------------------------------------------------- | --------------------------------------------------------- |
+| `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions in the thread                     |
+| `setAssistantStatus(channelId, threadTs, status)`           | Show a thinking/status indicator                          |
+| `setAssistantTitle(channelId, threadTs, title)`             | Set the thread title (shown in History)                   |
+| `publishHomeView(userId, view)`                             | Publish a Home tab view for a user                        |
+| `startTyping(threadId, status)`                             | Show a custom loading status (requires `assistant:write`) |
+
+Add these scopes/events to your manifest:
+
+```yaml
+oauth_config:
+  scopes:
+    bot:
+      - assistant:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - assistant_thread_started
+      - assistant_thread_context_changed
+```
+
+When streaming in an assistant thread, attach Block Kit elements to the final message via `StreamingPlan`'s `endWith` option:
+
+```typescript
+import { StreamingPlan } from "chat";
+
+await thread.post(
+  new StreamingPlan(textStream, {
+    endWith: [
+      {
+        type: "actions",
+        elements: [
+          { type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" },
+        ],
+      },
+    ],
+  })
+);
+```
+
+### Native streaming
+
+Streamed posts (`thread.post(asyncIterable)`) use Slack's native streaming API (`chat.startStream` / `chat.appendStream` / `chat.stopStream`) whenever the thread has streaming context: any DM thread, or a channel thread where the recipient user/team is known (derived automatically from the incoming message). Structured `task_update` / `plan_update` chunks render as native task cards, and plain text renders token-by-token with safe incremental markdown.
+
+Threads without streaming context fall back to post-and-edit (`chat.update` deltas) automatically. If the workspace rejects the first native call, for example on Slack deployments without the streaming methods such as GovSlack, the adapter falls back to post-and-edit mid-stream without losing content, and skips the native attempt on subsequent streams when the error is permanent (e.g. `unknown_method`). To skip native streaming entirely:
+
+```typescript
+const slack = createSlackAdapter({ nativeStreaming: false });
+```
+
+Slack expires a native stream after roughly five minutes. A reply that streams longer than that is finalized and continued in a new message: once a segment is four minutes old (`streamSegmentMaxAgeMs`, default `240000`; `Infinity` disables rotation), the adapter rotates at the next paragraph break, or after at most 30 more seconds if none arrives. Across the boundary an open code fence is closed and reopened, a table that continues gets its header repeated, the plan title and any task cards still in progress are replayed so later updates land on them, and with `agentView` the session stays in `processing`. The finalized message keeps its task cards in their last state, and a list split across the boundary restarts its numbering. The `SentMessage` returned by `thread.post()` refers to the last message of the reply. If Slack expires a segment during a long idle gap anyway, the adapter continues in a new message with any text Slack had not confirmed rather than failing the reply.
+
+### Feedback buttons
+
+Slack's agent UX guidance recommends native thumbs up/down feedback on agent replies (a `context_actions` block with a `feedback_buttons` element). Configure `feedbackButtons` and the adapter appends them to every streamed reply when the stream finishes:
+
+```typescript
+const slack = createSlackAdapter({
+  feedbackButtons: true, // or customize:
+  // feedbackButtons: {
+  //   actionId: "ai_feedback",
+  //   positiveLabel: "Helpful", positiveValue: "up",
+  //   negativeLabel: "Not helpful", negativeValue: "down",
+  // },
+});
+
+bot.onAction("message_feedback", async (event) => {
+  await recordFeedback(event.threadId, event.messageId, event.value); // "positive" | "negative"
+});
+```
+
+Clicks dispatch through the regular action flow with the configured `actionId` (default `"message_feedback"`). For non-streamed messages, build the same block with the exported `buildFeedbackButtonsBlock(options?)` helper and attach it via raw blocks. Feedback buttons are skipped when a stream falls back to post-and-edit.
+
+## Socket mode
+
+For environments behind firewalls that can't expose public HTTP endpoints, use [Slack Socket Mode](https://api.slack.com/apis/socket-mode):
+
+```typescript
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter({
+      mode: "socket",
+      appToken: process.env.SLACK_APP_TOKEN!,
+      botToken: process.env.SLACK_BOT_TOKEN!,
+    }),
+  },
+});
+```
+
+Events that arrive over the socket, or are forwarded from a socket listener, resolve tokens the same way the webhook path does: from `botToken` in single-workspace mode, or from stored installations by `team_id` (or `enterprise_id` for Enterprise Grid org-wide installs). A socket-mode adapter can't run the OAuth install flow itself, though. `createSlackAdapter` throws if you pass `clientId` or `clientSecret` with `mode: "socket"`.
+
+### Socket mode on serverless (Vercel)
+
+Socket mode requires a persistent WebSocket. On serverless platforms, a cron job starts a transient socket listener that acks events and forwards them as HTTP requests to your existing webhook endpoint:
+
+```typescript title="app/api/slack/socket-mode/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export const maxDuration = 800;
+
+export async function GET(request: Request) {
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  await bot.initialize();
+  const slack = bot.getAdapter("slack");
+  const webhookUrl = `https://${process.env.VERCEL_URL}/api/webhooks/slack`;
+
+  return slack.startSocketModeListener(
+    { waitUntil: (task: Promise<unknown>) => after(() => task) },
+    600_000,
+    undefined,
+    webhookUrl
+  );
+}
+```
+
+```json title="vercel.json"
+{
+  "crons": [
+    { "path": "/api/slack/socket-mode", "schedule": "*/9 * * * *" }
+  ]
+}
+```
+
+Forwarded events are authenticated using `socketForwardingSecret` (defaults to `SLACK_SOCKET_FORWARDING_SECRET`, falling back to `appToken`).
+
+## Tables and charts
+
+Card [`Table`](/docs/cards#table) elements render as Slack [data table blocks](https://docs.slack.dev/reference/block-kit/blocks/data-table-block), which are paginated and sortable and accept optional `caption` and `pageSize` props. Tables that exceed Slack's limits (100 data rows, 20 columns, 10,000 characters across all cells) fall back to ASCII text, and header-only tables render as a plain table block.
+
+Card [`Chart`](/docs/cards#chart) elements render as Slack [data visualization blocks](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block) with pie, bar, area, and line chart support:
+
+```tsx
+await thread.post(
+  <Card title="Usage report">
+    <Chart
+      title="Daily Active Users"
+      chart={{
+        type: "line",
+        categories: ["Mon", "Tue", "Wed"],
+        series: [
+          {
+            name: "Web",
+            data: [
+              { label: "Mon", value: 120 },
+              { label: "Tue", value: 135 },
+              { label: "Wed", value: 128 },
+            ],
+          },
+        ],
+      }}
+    />
+  </Card>
+);
+```
+
+Charts that violate Slack's constraints (50-character title, 12 segments/series, 20 categories, 20-character labels, one data point per category, at most 2 charts per message) fall back to a text rendering of the data instead of being rejected by the Slack API.
+
+## Inbound attachments
+
+Incoming file attachments expose a lazy `fetchData()`. Downloads go through a guarded fetcher that limits responses to 25 MB, times out after 30 seconds, and, with the default transport, refuses private and internal addresses (including after redirects). The bot token is sent only to trusted Slack origins and never follows a redirect to another host. Set `fileTransport` to route downloads through a proxy, or override `createFileTransport()` in a subclass. A custom transport takes over the destination-address policy, so see [Egress proxies](#egress-proxies) for what it must enforce.
+
+## Egress proxies
+
+Configure each transport your deployment uses. `webClientOptions.agent` covers Slack Web API calls (including OAuth and all upload phases) and the HTTP/WebSocket connections for both persistent and transient Socket Mode. `fetch` covers `response_url` updates and Socket Mode forwarding to your application's webhook. `fileTransport` covers lazy `fetchData()` and rehydrated attachments.
+
+For Node.js, install `https-proxy-agent` and `undici` in your application. This example assumes a controlled proxy that rejects internal destination addresses and DNS rebinding, including when it resolves CONNECT destinations. A custom file transport replaces the default DNS-pinned transport, which is the only place resolved addresses are checked against the private-range blocklist. Local DNS checks alone cannot enforce the address a remote proxy actually uses, so that policy has to live in the proxy.
+
+```ts
+import { request } from "node:https";
+import {
+  type AttachmentTransport,
+  createSlackAdapter,
+} from "@chat-adapter/slack";
+import { HttpsProxyAgent } from "https-proxy-agent";
+import { ProxyAgent } from "undici";
+
+const proxyUrl = process.env.HTTPS_PROXY!;
+const agent = new HttpsProxyAgent(proxyUrl);
+const dispatcher = new ProxyAgent(proxyUrl);
+
+// Node's native fetch accepts an Undici dispatcher. Keep the standard fetch
+// input/output types so Request, Response, and streaming bodies retain parity.
+const proxyFetch: typeof globalThis.fetch = (input, init) => {
+  const options: RequestInit = { ...init };
+  // Add Node's dispatcher extension separately from the standard fetch options.
+  Object.assign(options, { dispatcher });
+  return globalThis.fetch(input, options);
+};
+
+const fileTransport: AttachmentTransport = (url, signal, headers) =>
+  new Promise((resolve, reject) => {
+    // Return each raw response; the downloader handles redirects and strips
+    // Slack credentials on untrusted hops.
+    const req = request(url, { agent, signal, headers }, resolve);
+    req.on("error", reject);
+    req.end();
+  });
+
+const slack = createSlackAdapter({
+  webClientOptions: { agent },
+  fetch: proxyFetch,
+  fileTransport,
+});
+```
+
+The downloader still validates each URL, limits redirects, sends credentials only to trusted Slack origins, rejects HTML login pages, and limits decoded bodies to 25 MB. The 30-second deadline is enforced by the downloader for both the wait for response headers and the body read, so it holds even if the transport ignores the signal. The transport should still honor the signal so the underlying connection is released promptly. The transport must not follow redirects itself. Existing `createFileTransport()` subclass overrides take precedence over `fileTransport`.
+
+Socket Mode receives `agent`, `tls`, and `apiUrl`, but only `agent` reaches the WebSocket itself; `tls` and `apiUrl` apply to its HTTP calls. The Slack SDK opens the WebSocket with the agent alone, so a custom CA or other TLS settings for that connection must be configured on the agent. App-token authentication, headers, and retry options remain SDK defaults, since Web API headers are not Socket Mode headers. Configure routing/bypass in your fetch implementation if the forwarded webhook uses an internal application URL. The adapter does not close caller-owned agents or dispatchers; close them when your application shuts down.
+
+Standalone `@chat-adapter/slack/api` functions have their own `options.fetch` parameter and do not inherit adapter configuration. Application callbacks, token resolvers, installation providers, and state adapters also own their network configuration. Proxy authentication, CA trust, WebSocket support, and destination policy must be configured for your deployment.
+
+## Direct API client
+
+Access the underlying [WebClient](https://github.com/slackapi/node-slack-sdk/tree/main/packages/web-api) from `@slack/web-api` via `.webClient`:
+
+```typescript
+const slack = bot.getAdapter("slack").webClient;
+await slack.pins.add({
+  channel: "C123ABC",
+  timestamp: "1234567890.123456",
+});
+```
+
+Single-workspace mode (with a static `botToken` or synchronous resolver) returns a client anywhere. Multi-workspace mode requires webhook-handler context or an explicit `withBotToken` wrapper, and calling `.webClient` outside either throws.
+
+> The previous `.client` getter still works as a deprecated alias for `.webClient`.
+
+## Low-level APIs
+
+Use the low-level Slack subpaths when your app already owns routing, state, sessions, or workflow execution and only needs the Slack-specific primitives.
+
+| Subpath                       | Use for                                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `@chat-adapter/slack/webhook` | Request verification, body parsing, Events API payloads, slash commands, interactions, and continuation data |
+| `@chat-adapter/slack/format`  | Slack mrkdwn tokens, text objects, dates, links, mentions, and simple mrkdwn to Markdown conversion          |
+| `@chat-adapter/slack/api`     | Fetch-based Slack Web API calls, thread replies, views, and files without `@slack/web-api`                   |
+| `@chat-adapter/slack/blocks`  | Runtime-free conversion from simple card objects and input requests to Slack Block Kit                       |
+
+
+  These subpaths are for custom runtimes. If you want Chat SDK to handle webhook routing, state, subscriptions, and platform normalization, use `createSlackAdapter` from `@chat-adapter/slack`.
+
+
+### Webhooks
+
+[Slack signs incoming HTTP requests](https://docs.slack.dev/authentication/verifying-requests-from-slack/) with `x-slack-signature` and `x-slack-request-timestamp`. `verifySlackRequest` reads the request body, verifies the signature with your signing secret, and returns the raw body so you can parse it once.
+
+```typescript title="app/api/slack/route.ts" lineNumbers
+import {
+  parseSlackWebhookBody,
+  verifySlackRequest,
+} from "@chat-adapter/slack/webhook";
+import { postSlackMessage } from "@chat-adapter/slack/api";
+
+export async function POST(request: Request) {
+  const body = await verifySlackRequest(request, {
+    signingSecret: process.env.SLACK_SIGNING_SECRET!,
+  });
+
+  const payload = parseSlackWebhookBody(body, {
+    contentType: request.headers.get("content-type"),
+    headers: request.headers,
+  });
+
+  if (payload.kind === "url_verification") {
+    return Response.json({ challenge: payload.challenge });
+  }
+
+  if (payload.kind === "app_mention") {
+    await postSlackMessage({
+      channel: payload.continuation.channelId,
+      markdownText: `received: ${payload.text}`,
+      threadTs: payload.continuation.threadTs,
+      token: process.env.SLACK_BOT_TOKEN!,
+    });
+  }
+
+  return new Response(null, { status: 200 });
+}
+```
+
+[Slack slash commands](https://docs.slack.dev/interactivity/implementing-slash-commands/) and interactions should be acknowledged quickly. Slack documents a 3000 ms acknowledgement window for slash commands, so do slow work in your queue or workflow runtime after returning a 2xx response.
+
+If you do not need direct access to the verified raw body, `readSlackWebhook` combines verification and parsing:
+
+```typescript
+import { readSlackWebhook } from "@chat-adapter/slack/webhook";
+
+const payload = await readSlackWebhook(request, {
+  signingSecret: process.env.SLACK_SIGNING_SECRET!,
+});
+```
+
+If your framework already buffered the request body, use `verifySlackSignature` with the raw body and headers, then pass that same body to `parseSlackWebhookBody`.
+
+#### Payloads
+
+`parseSlackWebhookBody` returns typed payloads:
+
+| Kind               | Slack surface                                          |
+| ------------------ | ------------------------------------------------------ |
+| `url_verification` | Events API URL verification                            |
+| `app_mention`      | App mention events                                     |
+| `direct_message`   | Direct message events                                  |
+| `slash_command`    | Slash command form posts                               |
+| `block_actions`    | Button, select, and Block Kit action payloads          |
+| `block_suggestion` | External select suggestion payloads                    |
+| `view_submission`  | Modal submissions                                      |
+| `view_closed`      | Modal close events                                     |
+| `unsupported`      | Valid Slack payloads not normalized by this helper yet |
+
+Message-like payloads include `continuation`, which contains provider-native reply context:
+
+```typescript
+type SlackContinuation = {
+  channelId: string;
+  enterpriseId?: string;
+  teamId?: string;
+  threadTs: string;
+};
+```
+
+This is not a Chat SDK `Thread`. It is the durable Slack data you need to reply later with `@chat-adapter/slack/api`.
+
+App mention and direct message payloads also include typed `files` parsed from Slack file objects. Each file keeps the raw Slack object plus common fields like `id`, `name`, `mimeType`, `size`, `url`, and `downloadUrl`.
+
+Interaction payloads expose convenience fields from Slack's raw payload:
+
+* `block_actions` includes `actions`, `messageBlocks`, `messagePromptBlock`, `messagePromptText`, `messageTs`, `triggerId`, `responseUrl`, `user`, and `continuation`
+* `view_submission` includes `callbackId`, `privateMetadata`, `values`, `responseUrls`, and `user`
+
+### Formatting
+
+Slack uses mrkdwn and special tokens for mentions, channels, dates, and links. The format subpath gives you small helpers for those strings.
+
+The helper surface includes `escapeSlackText`, `unescapeSlackText`, `createSlackPlainText`, `createSlackMrkdwn`, `formatSlackUser`, `formatSlackChannel`, `formatSlackUserGroup`, `formatSlackSpecialMention`, `formatSlackLink`, `formatSlackDate`, and simple mrkdwn to Markdown normalization.
+
+```typescript title="format.ts" lineNumbers
+import {
+  createSlackMrkdwn,
+  formatSlackDate,
+  formatSlackLink,
+  formatSlackUser,
+  slackMrkdwnToMarkdown,
+} from "@chat-adapter/slack/format";
+
+const text = createSlackMrkdwn(
+  `${formatSlackUser("U123")} approved ${formatSlackLink("https://example.com", "the deploy")}`
+);
+
+const when = formatSlackDate(
+  new Date("2026-05-27T12:00:00Z"),
+  "{date_short_pretty} at {time}",
+  "May 27 at 12:00"
+);
+
+const markdown = slackMrkdwnToMarkdown("hello <@U123|jane>, see <https://example.com|this>");
+```
+
+`linkBareSlackMentions` only links Slack user IDs like `@U123`. It does not resolve display names, because Slack mentions are ID-based.
+
+### Web API
+
+The API subpath calls [Slack Web API](https://docs.slack.dev/apis/web-api/) methods with `fetch`. It does not import `@slack/web-api`.
+
+```typescript title="slack.ts" lineNumbers
+import {
+  postSlackMessage,
+  sendSlackResponseUrl,
+  updateSlackMessage,
+} from "@chat-adapter/slack/api";
+
+const posted = await postSlackMessage({
+  channel: "C123",
+  markdownText: "**hello**",
+  token: process.env.SLACK_BOT_TOKEN!,
+});
+
+await updateSlackMessage({
+  channel: "C123",
+  text: "updated",
+  token: process.env.SLACK_BOT_TOKEN!,
+  ts: posted.id,
+});
+
+await sendSlackResponseUrl("https://hooks.slack.com/actions/T/1/abc", {
+  replaceOriginal: true,
+  text: "done",
+});
+```
+
+Use `callSlackApi` when you need a Slack method that does not have a helper yet:
+
+```typescript
+import { callSlackApi } from "@chat-adapter/slack/api";
+
+const result = await callSlackApi(
+  "reactions.add",
+  { channel: "C123", name: "white_check_mark", timestamp: "1710000000.000001" },
+  { token: process.env.SLACK_BOT_TOKEN! }
+);
+```
+
+`markdownText` maps to the `markdown_text` field on [`chat.postMessage`](https://docs.slack.dev/reference/methods/chat.postMessage/) and cannot be combined with `text` or `blocks`. Use `text` with `blocks` when you need fallback text.
+
+The subpath also includes `postSlackEphemeral`, `deleteSlackMessage`, `resolveSlackBotToken`, `encodeSlackApiBody`, and `assertSlackOk`.
+
+Use `fetchSlackThreadReplies` when a custom runtime needs to refresh a thread with [`conversations.replies`](https://docs.slack.dev/reference/methods/conversations.replies/):
+
+```typescript
+import { fetchSlackThreadReplies } from "@chat-adapter/slack/api";
+
+const replies = await fetchSlackThreadReplies({
+  channel: payload.continuation.channelId,
+  limit: 50,
+  token: process.env.SLACK_BOT_TOKEN!,
+  ts: payload.continuation.threadTs,
+});
+```
+
+Use `openSlackView` to open a modal from an interaction `trigger_id`:
+
+```typescript
+import { openSlackView } from "@chat-adapter/slack/api";
+
+await openSlackView({
+  token: process.env.SLACK_BOT_TOKEN!,
+  triggerId: payload.triggerId,
+  view: {
+    type: "modal",
+    title: { type: "plain_text", text: "Answer" },
+    blocks: [],
+  },
+});
+```
+
+#### Files
+
+[Slack's current external upload flow](https://docs.slack.dev/changelog/2024-04-a-better-way-to-upload-files-is-here-to-stay) uses `files.getUploadURLExternal`, then uploads bytes to the returned URL, then calls `files.completeUploadExternal`.
+
+```typescript
+import { uploadSlackFiles } from "@chat-adapter/slack/api";
+
+await uploadSlackFiles(
+  [{ data: new Uint8Array([1, 2, 3]), filename: "report.txt" }],
+  {
+    channelId: "C123",
+    initialComment: "report attached",
+    token: process.env.SLACK_BOT_TOKEN!,
+  }
+);
+```
+
+Use `fetchSlackFile` for private Slack file URLs that require bearer token authorization.
+
+### Blocks
+
+The blocks subpath converts simple card objects into Slack Block Kit without importing the full `chat` JSX runtime.
+
+It exports `cardToSlackBlocks`, `cardToBlockKit`, `cardToSlackFallbackText`, `cardToFallbackText`, and `convertSlackEmojiPlaceholders`.
+
+```typescript title="blocks.ts" lineNumbers
+import {
+  cardToSlackBlocks,
+  cardToSlackFallbackText,
+} from "@chat-adapter/slack/blocks";
+import { postSlackMessage } from "@chat-adapter/slack/api";
+
+const card = {
+  children: [
+    { content: "deploy v2.4.1?", type: "text" },
+    {
+      children: [
+        { id: "approve", label: "Approve", style: "primary", type: "button" },
+        { id: "deny", label: "Deny", style: "danger", type: "button" },
+      ],
+      type: "actions",
+    },
+  ],
+  title: "Deployment",
+  type: "card",
+} as const;
+
+await postSlackMessage({
+  blocks: cardToSlackBlocks(card),
+  channel: "C123",
+  text: cardToSlackFallbackText(card),
+  token: process.env.SLACK_BOT_TOKEN!,
+});
+```
+
+Use the full Chat SDK card JSX when you want cross-platform rendering. Use `@chat-adapter/slack/blocks` when you are building a Slack-only runtime and want Block Kit output directly.
+
+Card children support the same element types as the cross-platform card model, including `table` (rendered as a paginated, sortable [data table block](https://docs.slack.dev/reference/block-kit/blocks/data-table-block) with optional `caption` and `pageSize`) and `chart` (rendered as a [data visualization block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block)):
+
+```typescript
+const report = {
+  children: [
+    {
+      caption: "Quarterly scores",
+      headers: ["Name", "Score"],
+      pageSize: 10,
+      rows: [["Alice", "98"], ["Bob", "87"]],
+      type: "table",
+    },
+    {
+      chart: {
+        segments: [
+          { label: "Web", value: 45 },
+          { label: "Mobile", value: 35 },
+        ],
+        type: "pie",
+      },
+      title: "Traffic by Platform",
+      type: "chart",
+    },
+  ],
+  title: "Usage Report",
+  type: "card",
+} as const;
+```
+
+Tables and charts that exceed Slack limits (100 data rows / 20 columns / 10,000 characters for tables; 12 segments or series, 20 categories, 20-character labels, 50-character titles, and 2 charts per message for charts) fall back to a text rendering instead of being rejected by the Slack API.
+
+The blocks subpath also includes small input request helpers for Slack-only runtimes:
+
+```typescript
+import {
+  inputRequestToSlackBlocks,
+  parseSlackInputResponse,
+} from "@chat-adapter/slack/blocks";
+import { postSlackMessage } from "@chat-adapter/slack/api";
+
+await postSlackMessage({
+  blocks: inputRequestToSlackBlocks({
+    options: [
+      { id: "approve", label: "Approve", style: "primary" },
+      { id: "deny", label: "Deny", style: "danger" },
+    ],
+    prompt: "Approve deploy?",
+    requestId: "deploy-1",
+  }),
+  channel: "C123",
+  text: "Approve deploy?",
+  token: process.env.SLACK_BOT_TOKEN!,
+});
+
+if (payload.kind === "block_actions") {
+  const action = payload.actions[0];
+  const response = action ? parseSlackInputResponse(action) : null;
+}
+```
+
+Set `display: "radio"` for radio buttons, or `display: "select"` for a static select menu. Set `allowFreeform: true` to add a "Type your answer" button next to the provided options.
+
+For freeform answers, use `buildSlackFreeformView` with `openSlackView`, then read the submitted value from `payload.values` with `parseSlackFreeformValue`.
+
+### Import boundaries
+
+The low-level Slack subpaths are designed to avoid the full runtime import graph:
+
+* no `chat` import
+* no `@chat-adapter/shared` import
+* no `@slack/web-api` import
+* no `@slack/socket-mode` import
+
+The package still installs the full Slack adapter dependencies. The subpaths keep your source and bundle imports clean, but they are not a package-size split.
+
+## Feature support
+
+
+## Resources
+
+* [How to build an AI agent for Slack with Chat SDK and AI SDK](https://vercel.com/kb/guide/how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk?utm_source=chat-sdk_site\&utm_medium=docs\&utm_campaign=adapter-slack\&utm_content=how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk): Build a Slack AI agent using Chat SDK, AI SDK's ToolLoopAgent, and Vercel AI Gateway. Covers project setup, tool definitions, streaming responses, deployment to Vercel, and scaling tool selection with toolpick.
+* [How to build a Slack bot that manages files in Vercel Blob](https://vercel.com/kb/guide/slack-bot-vercel-blob?utm_source=chat-sdk_site\&utm_medium=docs\&utm_campaign=adapter-slack\&utm_content=slack-bot-vercel-blob): Build a Slack bot that lists, reads, uploads, and deletes files in Vercel Blob through tool calls. Uses Chat SDK, AI SDK's ToolLoopAgent, and Files SDK's `createFileTools` factory with approval-gated write tools and a read-only mode.
+* [How to build a Slack bot with Next.js and Redis](https://vercel.com/kb/guide/how-to-build-a-slack-bot-with-next-js-and-redis?utm_source=chat-sdk_site\&utm_medium=docs\&utm_campaign=adapter-slack\&utm_content=how-to-build-a-slack-bot-with-next-js-and-redis): Walks through building a Slack bot with Next.js, covering project setup, Slack app configuration, event handling, interactive features, and deployment.
+
+See all guides and templates on the [resources](/resources?utm_source=chat-sdk_site\&utm_medium=docs\&utm_campaign=adapter-slack\&utm_content=resources) page.

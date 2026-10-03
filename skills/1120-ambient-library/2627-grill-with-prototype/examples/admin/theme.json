@@ -1,0 +1,4 @@
+{ "brand": "#1f4fd8", "brand_ink": "#ffffff", "accent": "#0ea5a4", "bg": "#f4f6fa", "surface": "#ffffff", "surface_2": "#eef1f7", "ink": "#0f172a", "ink_2": "#334155", "muted": "#64748b", "rule": "#e2e8f0",
+  "radius": "10px", "radius_sm": "6px", "density": "compact", "hue": 220,
+  "font": "'IBM Plex Sans', system-ui, sans-serif", "heading_font": "'IBM Plex Sans', system-ui, sans-serif",
+  "font_url": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" }

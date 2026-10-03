@@ -1,0 +1,373 @@
+import {
+  existsSync,
+  readFileSync,
+  statSync,
+  watch as fsWatch,
+  type FSWatcher,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { parseLines } from "../../flightplan/scripts/lib/flightlog";
+import type { FlightlogEntry } from "../../flightplan/scripts/lib/flightlog";
+import { aggregateFleet } from "./fleet";
+import type { DeckSourceKind } from "./graph-source";
+import { nextCursor, readRangeChunks, splitCompleteLines } from "./tail";
+import {
+  attachCodexUsage,
+  createCodexSource,
+  type CodexSource,
+} from "./codex-usage";
+import { attributeUsage } from "./usage-attribute";
+import {
+  createTranscriptSource,
+  repoRootOf,
+  type TranscriptSource,
+} from "./usage-source";
+import type { AgentUsage, UsageRollup } from "./usage-types";
+
+const SNAPSHOT_DEBOUNCE_MS = 250;
+const POLL_MS = 2_000;
+const HEARTBEAT_MS = 25_000;
+
+export type FleetSnapshot = {
+  rows: ReturnType<typeof aggregateFleet>;
+  entryCount: number;
+  logPresent: boolean;
+  /** Plan-wide token rollup. Always present; all-zero when no transcript was found. */
+  usage: UsageRollup;
+  /** Judge prose not yet sent on this stream, keyed by `rationaleKey`. Absent when none is new. */
+  rationales?: Record<string, string>;
+};
+
+export type Debouncer = {
+  schedule: () => void;
+  cancel: () => void;
+};
+
+/** Spelled identically in the dashboard's `modules/fleet.js`, which has no import path to this file. */
+function rationaleKey(score: { task: string; attempt: number; ts: string }) {
+  return `${score.task}|${score.attempt}|${score.ts}`;
+}
+
+/** What one stream has already told its browser. Both fields are updated in place. */
+export type FrameMemory = {
+  /** Rationale text by `rationaleKey`, as last sent. */
+  rationales: Map<string, string>;
+  /** The last snapshot sent, rationales excluded. */
+  snapshot: string;
+};
+
+export function newFrameMemory(): FrameMemory {
+  return { rationales: new Map(), snapshot: "" };
+}
+
+/**
+ * Rationales were 85% of a frame — 19 judge essays copied onto the 88 rows that
+ * share them — so rows never carry the prose, and each essay travels once per
+ * stream, again only if its text changes. Returns undefined when the browser
+ * already holds everything this frame would say.
+ */
+export function nextFleetFrame(
+  entries: FlightlogEntry[],
+  logPresent: boolean,
+  agents: AgentUsage[],
+  memory: FrameMemory,
+): string | undefined {
+  const attributed = attributeUsage(aggregateFleet(entries), agents);
+  const rationales: Record<string, string> = {};
+  const rows = attributed.rows.map((row) => {
+    if (row.score?.rationale === undefined) return row;
+    const { rationale, ...score } = row.score;
+    const key = rationaleKey(score);
+    if (memory.rationales.get(key) !== rationale) {
+      memory.rationales.set(key, rationale);
+      rationales[key] = rationale;
+    }
+    return { ...row, score };
+  });
+  const payload: FleetSnapshot = {
+    rows,
+    entryCount: entries.length,
+    logPresent,
+    usage: attributed.rollup,
+  };
+  // Compared without the rationales, or the frame after one that carried them
+  // always differs and an unchanged snapshot goes out twice.
+  const snapshot = JSON.stringify(payload);
+  const fresh = Object.keys(rationales).length > 0;
+  if (snapshot === memory.snapshot && !fresh) return undefined;
+  memory.snapshot = snapshot;
+  return `event: fleet\ndata: ${JSON.stringify(fresh ? { ...payload, rationales } : payload)}\n\n`;
+}
+
+/** Always a frame: a fresh memory has sent nothing, and a shared one only drops rationales. */
+export function formatFleetFrame(
+  entries: FlightlogEntry[],
+  logPresent: boolean,
+  agents: AgentUsage[],
+  memory = newFrameMemory(),
+): string {
+  memory.snapshot = "";
+  return nextFleetFrame(entries, logPresent, agents, memory)!;
+}
+
+export function decodeLogChunk(
+  decoder: TextDecoder,
+  bytes: Uint8Array,
+  heldPartial: string,
+): { entries: FlightlogEntry[]; partial: string } {
+  const text = heldPartial + decoder.decode(bytes, { stream: true });
+  const { complete, partial } = splitCompleteLines(text);
+  return { entries: parseLines(complete), partial };
+}
+
+export function createDebouncer(
+  callback: () => void,
+  delay: number,
+): Debouncer {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return {
+    schedule() {
+      if (timer !== null) return;
+      timer = setTimeout(() => {
+        timer = null;
+        callback();
+      }, delay);
+    },
+    cancel() {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+    },
+  };
+}
+
+function readRunId(planDir: string): string | undefined {
+  try {
+    return readFileSync(join(planDir, "run.id"), "utf8").trim() || undefined;
+  } catch {
+    // A missing or unreadable id means the graph run has not started.
+    return undefined;
+  }
+}
+
+export function eventsHandler(
+  request: Request,
+  logPath: string,
+  planDir: string,
+  options?: {
+    projectsRoot?: string;
+    repoRoot?: string;
+    deckSource?: DeckSourceKind;
+    source?: TranscriptSource;
+    codexRoot?: string;
+    codexSource?: CodexSource;
+  },
+): Response {
+  let fileWatcher: FSWatcher | null = null;
+  let directoryWatcher: FSWatcher | null = null;
+  let poll: ReturnType<typeof setInterval> | null = null;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let closed = false;
+  let cursor = 0;
+  let inode: number | null = null;
+  let heldPartial = "";
+  let entries: FlightlogEntry[] = [];
+  let logPresent = false;
+  const decoder = new TextDecoder();
+  let cleanupStream = (): void => {};
+  // Created once per stream, never per snapshot: its cursors are what make each
+  // re-read incremental. Two open tabs get two sources with independent cursors.
+  const repoRoot = options?.repoRoot || repoRootOf(planDir);
+  const usageSource =
+    options?.source ??
+    createTranscriptSource(
+      planDir,
+      options?.projectsRoot,
+      repoRoot ?? undefined,
+    );
+  // The codex side is optional in the same way: a plan with no external engine gets
+  // an empty list, and the join then attaches nothing.
+  const codexSource =
+    options?.codexSource ?? createCodexSource(options?.codexRoot);
+
+  // The identities the flightlog still reports running. A driver blocked on the codex
+  // CLI writes nothing while it waits, so its own last transcript line lands before the
+  // rollout it is waiting on opens and cannot bound it — see attachCodexUsage. Derived
+  // from the same aggregate the frame renders, so "in flight" means one thing here.
+  function openIdentities(): Set<string> {
+    const open = new Set<string>();
+    for (const row of aggregateFleet(entries)) {
+      if (row.status === "in-flight") open.add(row.identity);
+    }
+    return open;
+  }
+
+  function readAgents(): AgentUsage[] {
+    try {
+      // run.id lives beside graph.json; the log lives one level below in .flightlog/.
+      const graph = options?.deckSource === "graph";
+      const runId = graph ? readRunId(planDir) : undefined;
+      if (graph && runId === undefined) return [];
+      const agents = usageSource.read(runId);
+      if (repoRoot === null) return agents;
+      // Wrapped separately: a codex tree that cannot be read must cost the Claude
+      // figures nothing, so its failure falls back to the un-attached agents.
+      try {
+        return attachCodexUsage(agents, codexSource.read(), repoRoot, {
+          openIdentities: openIdentities(),
+        });
+      } catch {
+        return agents;
+      }
+    } catch {
+      // A broken token panel must not take the fleet panel down with it.
+      return [];
+    }
+  }
+
+  const stream = new ReadableStream<string>({
+    start(controller) {
+      let initializing = true;
+      const enqueue = (frame: string): void => {
+        if (closed) return;
+        try {
+          controller.enqueue(frame);
+        } catch {
+          cleanup();
+        }
+      };
+      const memory = newFrameMemory();
+      const emitSnapshot = (): void => {
+        // Affordable only because `read()` is incremental: an unchanged transcript
+        // costs one `stat` and zero bytes read.
+        const frame = nextFleetFrame(entries, logPresent, readAgents(), memory);
+        if (frame !== undefined) enqueue(frame);
+      };
+      const debounce = createDebouncer(emitSnapshot, SNAPSHOT_DEBOUNCE_MS);
+
+      function cleanup(): void {
+        if (closed) return;
+        closed = true;
+        fileWatcher?.close();
+        directoryWatcher?.close();
+        fileWatcher = null;
+        directoryWatcher = null;
+        if (poll !== null) clearInterval(poll);
+        if (heartbeat !== null) clearInterval(heartbeat);
+        poll = null;
+        heartbeat = null;
+        debounce.cancel();
+        entries = [];
+        request.signal.removeEventListener("abort", cleanup);
+      }
+      cleanupStream = cleanup;
+
+      const attachFileWatcher = (): void => {
+        fileWatcher?.close();
+        fileWatcher = null;
+        if (!existsSync(logPath)) return;
+        try {
+          fileWatcher = fsWatch(logPath, checkFile);
+        } catch {
+          // The poll remains active when a platform cannot watch this file.
+        }
+      };
+
+      const attachDirectoryWatcher = (): void => {
+        if (directoryWatcher !== null) return;
+        try {
+          directoryWatcher = fsWatch(dirname(logPath), checkFile);
+        } catch {
+          // The poll retries after the flightlog directory appears.
+        }
+      };
+
+      function resetTail(): void {
+        cursor = 0;
+        heldPartial = "";
+        entries = [];
+        decoder.decode();
+      }
+
+      function checkFile(): void {
+        if (closed) return;
+        attachDirectoryWatcher();
+
+        if (!existsSync(logPath)) {
+          if (logPresent) {
+            logPresent = false;
+            inode = null;
+            resetTail();
+            fileWatcher?.close();
+            fileWatcher = null;
+            if (!initializing) debounce.schedule();
+          }
+          return;
+        }
+
+        try {
+          const stat = statSync(logPath);
+          const replaced = inode !== null && stat.ino !== inode;
+          const next = nextCursor(cursor, stat.size);
+          const reset = replaced || next.reset;
+          if (reset) {
+            resetTail();
+            attachFileWatcher();
+          }
+
+          const wasPresent = logPresent;
+          logPresent = true;
+          inode = stat.ino;
+          const from = reset ? 0 : next.from;
+          const grew = stat.size > from;
+          if (grew) {
+            // A flightlog is small, but `from` is 0 on every reset and cold pass.
+            //
+            // The cursor moves per chunk, like the two usage readers: entries are
+            // appended as each chunk decodes, so leaving it until the loop ends
+            // means a read that dies partway re-ingests what already landed.
+            let consumed = from;
+            for (const chunk of readRangeChunks(logPath, from, stat.size)) {
+              const decoded = decodeLogChunk(decoder, chunk, heldPartial);
+              entries.push(...decoded.entries);
+              heldPartial = decoded.partial;
+              consumed += chunk.length;
+              cursor = consumed;
+            }
+          }
+          if ((grew || !wasPresent || reset) && !initializing) {
+            debounce.schedule();
+          }
+
+          if (fileWatcher === null) attachFileWatcher();
+        } catch {
+          // A concurrent append or replacement is retried by the next signal.
+        }
+      }
+
+      request.signal.addEventListener("abort", cleanup, { once: true });
+      attachDirectoryWatcher();
+      checkFile();
+      emitSnapshot();
+      initializing = false;
+      // One timer doing both jobs. A transcript grows while its agent runs but the
+      // flightlog does not move until that agent ends, so scheduling snapshots off
+      // flightlog activity alone freezes every in-flight token cell for minutes.
+      poll = setInterval(() => {
+        checkFile();
+        debounce.schedule();
+      }, POLL_MS);
+      heartbeat = setInterval(() => enqueue(":heartbeat\n\n"), HEARTBEAT_MS);
+    },
+    cancel() {
+      cleanupStream();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}

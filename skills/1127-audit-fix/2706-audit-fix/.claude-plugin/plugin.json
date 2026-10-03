@@ -1,0 +1,11 @@
+{
+  "name": "audit-fix",
+  "description": "Adversarial six-lens audit (errors, omissions, oversights, blind spots, conflicts, duplications) of a plan or change, then root-cause fixes; use for \"audit this\", \"pressure test\", \"poke holes\", \"what did we miss\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

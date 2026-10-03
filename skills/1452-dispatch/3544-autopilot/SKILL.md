@@ -1,0 +1,341 @@
+---
+name: autopilot
+version: 0.5.0
+description: >-
+  Execute a flightplan task tree end-to-end with a multi-agent dev → review →
+  score quality loop.
+when_to_use: >-
+  When a docs/<slug>/tasks/ flightplan tree exists and should be executed
+  ("/autopilot", "fly the plan", "work through the tasks"). Do NOT trigger
+  when no flightplan exists on disk yet (use flightplan first), or for a
+  single task done by hand.
+argument-hint: "<slug|path> [--task <ref> --from dev|verify|judge] [--attest <file>]"
+---
+
+# Autopilot
+
+## Why this skill exists
+
+`flightplan` writes the blueprint. `autopilot` flies it.
+
+`autopilot` walks a `docs/<slug>/tasks/` tree, executing each task with a dev→review→score loop gated on that task's own machine-parseable `## Eval rubric`, and finishing on the one `Final review` task as the holistic closing gate. The output is working, reviewed code, plus an audit trail (`RUNLOG.md`) of every verdict.
+
+It is the last rung of the ladder:
+
+```
+preflight  → what you want, no solution            (INTENT.md)
+hop        → interview, plan, execute now           (in conversation)
+flightplan → multi-file blueprint to disk (PLAN.md + tasks/)
+autopilot  → execute the tree with a quality loop   ← you are here
+```
+
+## How orchestration works (read this before running)
+
+Autopilot uses the **Workflow tool**. A skill whose instructions tell the agent to call Workflow is a *sanctioned opt-in*. Invoking `/autopilot` lets you call Workflow directly, **without the user typing "workflow"**.
+
+> **OpenCode only**: there is no Workflow tool. Skip the rest of this section and follow `~/.config/opencode/skills/autopilot/references/opencode.md` instead — a hand-driven wave loop over the task tool. The path is absolute because OpenCode prints no skill base-directory banner.
+
+Use the **hybrid shape**. Scout inline first to discover the work-list. Then hand the fan-out to a Workflow script.
+
+Three hard constraints shape the design:
+
+1. **The Workflow orchestrator script has no filesystem access.** It also **cannot `import`** our scripts. Anything that reads or writes disk — running `next-ready.ts`, editing a task's `Status`, appending to the flightlog — must run inside a tool-capable **agent** in the workflow. The orchestrator JS must never do this work.
+2. **There is exactly one scoring implementation.** The rubric judge runs `score-task.ts --json --log`. The orchestrator gates on that printed verdict object. Do not duplicate the weighted-average or hard-fail arithmetic in the Workflow script.
+3. **The orchestrator can't pause for input.** On a task that can't pass, it parks the task and keeps going. Escalation to the user happens *after* the workflow returns. See Escalation below.
+
+## Resume one task at a chosen step (`--task <ref> --from <step>`)
+
+When the user names a task and a step, **do not run the flight above**. Run a single-task resume instead: one pipeline, no scout, no wave loop.
+
+```
+/autopilot <slug> --task review/01 --from verify --attest docs/<slug>/.flightlog/attested.md
+```
+
+For a task parked with its expensive work already correct in the kept worktree, use `--from` to resume below the completed steps. For Final review, use the main tree instead. When only verification remains after the four lenses and fixer, resume at the Opus/low binary gate to avoid repeating that round.
+
+`--from` takes `dev`, `verify`, or `judge`. Everything before that step is taken as already satisfied, **on the resumed attempt only** — if that attempt fails its gate, the next one runs the whole pipeline, because a red verify means the skipped work genuinely does need redoing.
+
+**Derive the step and the attempt from the trail; do not ask the user to remember them.** The flightlog records every role's start and end plus each attempt's verdict, so where the run stopped is on disk:
+
+```bash
+bun $SCRIPTS/flightlog.ts progress docs/<slug>/.flightlog/run.jsonl --task <ref>
+```
+
+It prints `resume --from <step> --attempt <n>` with the evidence that chose it. Use those values unless the user names their own. Run it with no `--task` to see every task's resume point at once, which is how you pick the ref when the user says only "resume".
+
+Two rules govern what it will and will not suggest, and both are deliberate:
+
+- **It never suggests `judge`.** Skipping the binary gate means a person performed it and signed for it — a human decision no trail can make. And the judge grounds correctness in the verifier's *raw* evidence, which lives only in the orchestrator's memory and dies with the run; the trail keeps the verifier's one-line message, not its output. So `verify` is the earliest point the trail can honestly support.
+- **It restarts at `dev` when a gate or judge rejected the work.** That is not the run dying — it is a verdict on real code, and restarting above it would take rejected work as satisfied. The output says so on a `note` line. Only a person who has since satisfied the failing items may override, with `--from verify --attest <file>`.
+
+Then scout what a single task needs and bake it into `CFG`:
+
+1. Resolve `$SCRIPTS` and `$OWN` exactly as Step 1 does, and the repo root with `git rev-parse --show-toplevel`.
+2. Resolve the task file itself — `<root>/docs/<slug>/tasks/<bucket>/<NN>-*.md` — as an absolute path, into `CFG.resumeTaskPath`. There is no scout to derive it, so the orchestrator throws on an empty one rather than letting an agent read a file that is not there.
+3. Read that file's header. Set `CFG.resumeFinalReview` from its `> **Final review**:` line.
+4. Read the task's `> **Models**:` line and write its value as the string `CFG.resumeModelsRaw`, or `null` when the line is absent.
+5. Set `CFG.resumeAttempt` to the `--attempt` the progress command printed. The numbering must keep rising: `score-task.ts --log` keys its verdict rows on ref plus attempt, and `fleet.ts` keeps the first row for a key, so reusing a number leaves the trail contradicting the run.
+6. Set `CFG.resumeTask` to the ref and `CFG.resumeFrom` to the step. Leave every other field as a normal flight would have it — `baseRef`, `planGoal`, and the engine picks all still apply, because a failed resumed attempt runs the full round.
+7. Launch flightdeck as usual, and report as Step 4 does.
+
+**Carrying what a person checked.** `--attest <file>` sets `CFG.attestationFile` to an absolute path. Write the file first, or point at one the user already wrote. It must name **which gate items** a person performed, quoting each item as the task file writes it, plus when. The verifier reads it, treats only the items it names as satisfied, and rejects any entry that is not an item of that task. It is not a blanket pass: every unnamed item is still run, and a red command still fails the attempt however the attestation is worded.
+
+`--from judge` **requires** `--attest`. It skips the binary gate entirely, so a person performed that gate and has to sign for it — without the file the judge would score correctness against no evidence at all, and the orchestrator throws at script start rather than let that run.
+
+## Step 1 — Scout inline
+
+Before touching Workflow, gather the work-list in the main conversation:
+
+1. **Resolve both scripts paths once**, from the skill's load-time *"Base directory for this skill"* banner: `<base>/../flightplan/scripts` is `$SCRIPTS` (the shared tools autopilot borrows), `<base>/scripts` is `$OWN`. Both must be absolute. `CLAUDE_PLUGIN_ROOT` is **not** reliably set in Bash — never use it for either path. `$SCRIPTS` is also what you bake into `CFG.scriptsDir` in Step 3.
+2. Resolve the plan dir **as an absolute path**. The user names a slug or a path; the tree lives at `docs/<slug>/tasks/`. Capture the real repo root with `git rev-parse --show-toplevel`, and build `tasksDir`, `planPath`, and `logFile` from it (`<root>/docs/<slug>/...`). Bake them into `CFG` in Step 3. These paths MUST be absolute — Workflow agents share no cwd. See "Why every path is absolute" in `references/orchestrator.md`.
+   Set `CFG.repoRoot` to the absolute repo root already captured by `git rev-parse --show-toplevel`.
+3. Read `docs/<slug>/PLAN.md` for the goal and the bucketing. Final review scores against "did we meet the PLAN goal", so the orchestrator needs that goal in hand as `CFG.planGoal`.
+4. Confirm there is ready work, and read the whole-tree shape at the same time:
+   ```bash
+   bun $SCRIPTS/next-ready.ts docs/<slug>/tasks --summary
+   ```
+   A non-zero exit means the tree is malformed — the printed `invalid` array names each offending task and why; run `lint-task.ts` and fix it before flying. If `counts.done === counts.total`, the tree is already done — report that and stop before Step 2. If `ready` is empty while tasks remain unfinished, reset any stale `in-progress` task to `todo` first.
+5. **Lint the whole tree before flying:**
+   ```bash
+   bun $SCRIPTS/lint-task.ts docs/<slug>/tasks
+   ```
+   The in-flight lint at `orchestrator.md` step 6 only ever sees one task file, and the flightplan Edit/Write hook only ran on files written in this repo — neither reaches a plan authored by an older flightplan or by hand. Run it here so a defect fails in the conversation instead of parking a correct task three attempts later.
+
+   **Act on a `[serial-undeclared]` advisory before flying.** Check PLAN.md and `_context/` for serial execution or lock requirements without a `> **Max parallel**:` header. Under Claude Code, lower **Max parallel** only when tasks share an **external live resource** that a worktree cannot isolate: a live device, a LaunchAgent or service that a verification reinstalls, or a local database that a migration rewrites. For that external live resource, set `> **Max parallel**: 1`. Under Claude Code, keep a shared build target uncapped because each task builds in its own worktree. When the plan will run under OpenCode, set `> **Max parallel**: 1` for a shared build target that compiles every file: the hand-driven loop still shares one working tree (see `autopilot/references/opencode.md`). When `Depends on` edges already sequence every conflict, write `unlimited` or omit the line. Read the header through the scout every wave.
+
+   **Fix a `scope-git-status` violation in the task file.** A whole-tree `git status` gate fails a correct task as soon as a sibling in the same wave leaves its own edits uncommitted; narrow the command with a `--` pathspec listing that task's own files. Do not fly a tree with violations outstanding.
+6. **Capture the base ref** for the Final review diff scope:
+   ```bash
+   git rev-parse HEAD
+   ```
+   Bake this as `CFG.baseRef`. The Final review lenses read `git diff <baseRef>..HEAD`, because the working-tree diff is empty after inter-wave commits.
+
+   **Keep `commitBetweenWaves: true` and do not ask about it.** When PLAN.md or a task says the user commits after the run, read that as a rule for the task agents, which already never commit. It does not switch off the orchestrator's inter-wave and post-loop commits, which give each wave one revertable checkpoint. The user can squash or reword the commits after `CFG.baseRef` once the run ends. Set `commitBetweenWaves: false` only when the user says so in this conversation.
+7. Decide `maxAttempts` (default **3**, per task) and `finalReviewMaxAttempts` (default **2**, the Final review round). Confirm the rest of the model policy only if the user wants to change it.
+8. Version-check whichever external CLIs Step 2 will offer — an external dev engine and the closing review round both shell out to them:
+   ```bash
+   codex --version      # needed if devEngine or reviewEngine is 'codex'
+   opencode --version   # needed if devEngine or reviewEngine is 'opencode'
+   ```
+   If a selected engine is not installed, tell the user before flying. Only that engine's step needs it; the per-task Claude work still runs.
+9. Probe whether live panes are available: `HERDR_ENV=1` **and** relay's `relay.ts` resolves. Probe on every flight, not only an external-dev one — the closing review lens can run live even when Claude writes every task. Resolve `relay.ts` as relay's own live locator does: the repo-sibling path first, then the newest relay version's `skills/relay/scripts/relay.ts` under `~/.claude/plugins/cache` or `~/.codex/plugins/cache`. Capture the absolute path as `CFG.relayPath`, or `''` when it is not found.
+
+## Step 2 — Confirm the flight with the user
+
+**Ask in two `AskUserQuestion` calls.** The first carries three independent choices: dev engine, cross-vendor reviewer, final-review lens model. The second carries the ones that depend on those answers — the codex dev model, the codex review model, and live panes when the env allows — and is skipped entirely when none applies. Do not silently default.
+
+The split is not cosmetic. Neither codex-model question is worth asking until the first call has said whether codex took that role at all, and the live-panes question offers a dev-delegate option only when the dev engine turned out external. Folding them into one call would ask every dependent question blind, and would also breach `AskUserQuestion`'s four-question cap.
+
+- **Dev engine** (`CFG.devEngine`) — Choose **Claude** (default; Opus/low, then Opus/high on the last Claude rung), **Codex** (`'codex'`, via `codex-run.ts`), or **OpenCode** (`'opencode'`, via `opencode-run.ts`). With Codex or OpenCode, an Opus/low driver writes the external CLI's instruction file. Keep the Claude judge in a separate call.
+- **Cross-vendor reviewer** (`CFG.reviewEngine`) — **Codex** (default) or **OpenCode** — the external bug/correctness lens in the closing Final review.
+- **Final-review lens model** (`CFG.reviewLensModel`) — **Opus** (default) or **Fable** (`'fable'`) — the model for the three Claude quality lenses (reuse / leanness / efficiency) in the closing Final review. Both run the lenses at high effort. This choice affects **only** those three lenses. Keep the fixer and rubric judge on their per-role model choices, including task header overrides. **Fable is Anthropic's most capable model tier and is priced above Opus** ($10/$50 per MTok vs Opus's $4/$20) — pick it for maximum lens quality on a hard review, not to save cost. Never describe it to the user as the cheaper option.
+- **Codex dev model** (`CFG.codexDevModel`) — **Relay config** (default), **gpt-5.6-sol**, or **gpt-6-astra** — ask **only when the dev engine resolved to codex**. This is the model that writes each task.
+- **Codex review model** (`CFG.codexReviewModel`) — **Relay config** (default), **gpt-6-astra**, or **gpt-5.6-sol** — ask **only when the cross-vendor reviewer resolved to codex**, which is the default, so a default flight does get asked. This is the model that reviews the branch diff.
+
+  **Relay config** leaves the field empty. Both the headless wrapper and a relay live pane then read `models.codex.delegate` / `models.codex.review` from `~/.config/q-lab/cc-plugins/relay/config.json`. When that entry is unset, they fall back to `codex-run.ts`'s default: sol writes, astra reviews. Before asking, read that file and put the model it resolves to in the option label, so the user sees what "Relay config" means. Any other pick is written to the field and beats relay's config for this flight only. The wrapper defaults differ on purpose: the cheap model writes, the strong one reviews. A reviewer weaker than the author rubber-stamps its own blind spots. Offering astra for dev costs real money at a higher rate; never present it as the cheaper pick.
+- **Live panes** (`CFG.liveDevEngine`, `CFG.liveReviewEngine`) — only when `HERDR_ENV=1` + `relay.ts` resolved, ask this in the second call, `multiSelect`: which steps run in a visible herdr live pane via relay, defaulting to neither (headless). Offer the **dev delegate** option only when the chosen dev engine is external — a Claude dev step has no delegate to make live. Always offer the **closing cross-vendor review** option; the review lens is external on every flight. Each picked step sets its own flag.
+
+The picks set `CFG.devEngine`, `CFG.reviewEngine`, `CFG.codexDevModel`, `CFG.codexReviewModel`, `CFG.reviewLensModel`, `CFG.liveDevEngine`, and `CFG.liveReviewEngine` in Step 3. Whichever external engines get chosen, their `--version` check from Step 1 becomes load-bearing. If a picked engine is unreachable, say so before flying. Offer to fall back: Claude for the dev engine, the other CLI for the reviewer.
+
+When the user picks live, leave `CFG.liveCollectRounds` at its default `3`, and lower it only when a fast fail matters more than finishing a slow task. Both live steps pass `--dangerous`; `references/orchestrator.md` carries the reasoning for that and for the collect rounds.
+
+If the live-pane env is not fulfilled, omit the live-panes question from the second call. Set `CFG.liveDevEngine = false`, `CFG.liveReviewEngine = false`, and `CFG.relayPath = ''`. The same fallback applies when the user is not in herdr, when `relay.ts` did not resolve, or when the user picks neither step. In every one of these cases, every external step runs through the headless wrappers. The three Claude quality lenses always stay headless — they are Claude agents, with no external CLI to put in a pane.
+
+Then show the user a one-screen brief. State the slug and how many tasks there are. State that non-final tasks run in isolated worktrees at `<repo-parent>/.<repo-name>-autopilot/<slug>/<bucket>-<NN>`. State the per-role model map and any task whose `> **Models**:` header overrides it. State the chosen dev engine, cross-vendor reviewer, and final-review lens model. State each codex model whose role resolved to codex. State the two caps (`maxAttempts` and `finalReviewMaxAttempts`) and the model policy. State the plan's `Max parallel` when it is declared. State that each wave is committed before the next one starts. State that capped tasks will be parked and escalated, not silently skipped. State that Final review ends with the chosen external CLI review. This step **sends the branch diff to an external service** — OpenAI for codex, the configured opencode provider for opencode.
+
+State that the user's latest message is relayed verbatim to every agent in the run, framed as the only user voice and ranked above that agent's task. An imperative meant for you, such as "stop and fix plan", therefore reaches every dev and verifier as an order: in one run all eight refused their task and parked it with no work done. When the latest message is such an imperative, ask the user to send a plain go-ahead first.
+
+This is real compute, real edits, and an external code review. Get an explicit go from the user before calling Workflow.
+
+## Launch flightdeck after confirmation
+
+After the user confirms the flight, launch flightdeck once:
+
+```bash
+bun "$OWN"/flightdeck.ts --plan "<the absolute plan dir resolved during scout>"
+```
+
+Pass the plan directory, not the tasks directory. The daemon expects the parent and reads the tasks tree and flightlog beneath it.
+
+The command spawns the server detached, waits for readiness itself, prints the URL, and exits — add no wait, poll, or health check around it. Tell the user the URL so they can reopen flightdeck later.
+
+If the command exits non-zero, note that the monitor is unavailable and fly anyway. A broken monitor must never block a run.
+
+## Step 3 — Call Workflow with the wave-loop orchestrator
+
+Bake `references/orchestrator.md`, the canonical script, with `$OWN/bake-orchestrator.ts`. Its `CFG` block is the authoritative field list. Pipe every scouted value in as one JSON object keyed by `CFG` field name, with JSON types (`true`, `3`, `null`, strings):
+
+```bash
+bun "$OWN"/bake-orchestrator.ts <<'EOF'
+{ "slug": "my-plan", "repoRoot": "/abs/repo", "tasksDir": "/abs/repo/docs/my-plan/tasks", ... }
+EOF
+```
+
+The script requires `slug`, `repoRoot`, `tasksDir`, `planPath`, `logFile`, `planGoal`, `scriptsDir`, and `baseRef`. It rejects a relative path and any key the `CFG` block does not carry. It derives `planDir` from `planPath`, so a plan nested deeper than `docs/<slug>/` — a waypoints leg — keeps its own Status edits out of the worktree leak check. Omit a field you did not scout, and it keeps the block's default. It writes `<plan dir>/.flightlog/orchestrator.js`, drops the `.flightlog/` self-ignore, and prints that absolute path. On a non-zero exit, fix the reported field and re-run.
+
+Then call `Workflow({ scriptPath: <the printed path> })`. No `args` needed. Do not rely on the Workflow `args` global.
+
+**Drain a running flight with `touch <plan dir>/.flightlog/drain`.** While the file exists, the orchestrator dispatches no new task, lets in-flight tasks finish and land, runs the post-loop commit, and returns the undispatched refs in `drained`. Delete the file before the next run; at Step 1, if it already exists, ask the user before removing it.
+
+**Use `scriptPath` here, not an inline `script`.** The Workflow tool's own guidance says to pass the script inline and not Write it first. That guidance assumes a script you author. This one is ~1,500 lines of generated source, and transcribing it inline is unreliable. Do not move the baked file: `scriptPath` accepts only a path the tool returned or a file inside the working directory, so a `/tmp` path fails with `scriptPath must be a script path this tool returned, or a file you can already read`. The plan dir sits inside the repo, and the worktree leak check excludes it.
+
+**`CFG.devEngine` and `CFG.reviewEngine` are independent axes.** `devEngine` controls who writes non-final tasks. `reviewEngine` controls the external bug/correctness lens in the closing Final review. The full external-engine behavior, the opencode model fields, and failure handling live in `references/orchestrator.md`.
+
+Run the orchestrator's **wave loop** with a fresh `next-ready.ts --summary` scout every wave to discover tasks unblocked by Status changes. When PLAN.md declares `> **Max parallel**:`, execute ready tasks **in parallel** at most `maxParallel` at a time. Hold each `Max parallel` slot for the whole pipeline, including land and drift re-verify. Run each non-final task's whole pipeline (dev, verify, judge) in its own git worktree at `<repo-parent>/.<repo-name>-autopilot/<slug>/<bucket>-<NN>`. Run the Final review task (`> **Final review**: true`) in the main tree. For each non-final task, follow this retry pipeline:
+
+```
+create worktree
+   │
+   ▼
+Dev (Opus/low; Opus/high on the last Claude rung) ─ implements + edits Status, logs a note
+   │
+   ▼
+Binary gate (Opus/low) ─ INDEPENDENTLY re-runs the task's ## Verification commands
+   │                      + checks ## Acceptance criteria before scoring
+   ├─ fail → loop back to Dev with the failure output
+   ▼ pass
+Rubric judge (Opus/medium) ─ scores each ## Eval rubric dimension, runs score-task --json --log
+   │
+   ▼
+Score gate ─ consumes score-task.ts --json verdict
+   ├─ fail → loop back to Dev with the judge's rationale
+   ▼ pass
+land (main-tree lock)
+   ├─ conflict → the land agent (Opus/low) rebases, resolves in the worktree, lands again → re-verify
+   │             unresolved → park + escalate (never costs an attempt)
+   ├─ failed re-verify → unland, rebase worktree → next Dev attempt
+   ├─ leak → abort run
+   ▼ clean (drift re-verify passed when required)
+done → mark-done.ts: Status: done + tick ## Acceptance criteria / ## Verification boxes
+   │      in ONE transition, then reread and confirm a bare `Status: done`
+   ├─ not confirmed → infrastructure failure: escalate, then remove worktree
+   ▼ confirmed
+remove worktree
+   ├─ removal unconfirmed → completed + cleanupFailures
+   ▼ removed
+completed   (next wave's next-ready will see it)
+
+[between waves, wave > 1] atomic-commit (inline git) ─ commits the completed wave
+[post-loop]              final atomic-commit ─ commits Final review's changes
+```
+
+On a **clean** land, merge the result into the main tree. On a **conflict**, the land agent keeps the main-tree lock, rebases the worktree, resolves the markers there, and lands again; a resolved land always gets the separate re-verify below. A conflict never counts against `maxAttempts`, and one the agent cannot resolve parks the task at once. When a dev or verifier reports a **plan defect**, park the task at once with that reason. On **drift** because something else landed since the task started, re-run the task's Verification in the main tree as `reverify:<ref>#<attempt>`, whose failure undoes the land and rebases the worktree as a failed attempt that supersedes the judge's passing score. On a **leak** because the main tree changed outside a land, abort the run with every task stopped before its next slot, attempt, or land, no further commits or end sweep, and no changes reverted.
+
+After a leak abort, report the leaked paths, the kept `worktrees` (preserved for inspection because they hold unlanded work), and any `cleanupFailures`. The main-tree lock, the `--op` replay ids, and the null-result retries around `worktree.ts` live in `references/orchestrator.md`.
+
+### Scout result and termination rules
+
+The scout runs `next-ready.ts --summary` and echoes its `{ready, counts, unfinished, invalid, errors}` snapshot verbatim; the script does every interpretation. **`references/orchestrator.md` owns the terminal conditions and their guards** — do not restate or re-derive them here.
+
+The `Final review` task (`> **Final review**: true`) depends transitively on every other task, so the wave loop **naturally schedules it last** — no special phase is needed. Its dev step is **not** a Claude self-review but the multi-lens fan-out below; the binary gate, rubric judge, and score gate are unchanged, grading that round against the Final review task's own `## Eval rubric`.
+
+### The closing multi-lens review round
+
+For Final review's "dev" step, fan out independent record-only reviewers. Then use one fixer (default Opus/medium, subject to the task's `fix` override) to apply fixes. Re-run verification after the fixes:
+
+- `<reviewEngine>`: codex/opencode CLI bug and correctness review.
+- `reuse`: duplicated logic, missed existing helpers, copy-paste that wants one. On the abstraction axis, the only lens that may ask for more code — `leanness` is its counterweight.
+- `leanness`: over-engineering only — what to delete. Tags each finding `delete:` / `stdlib:` / `native:` / `yagni:` / `shrink:` on one line, and closes with `net: -N lines possible.`
+- `efficiency`: redundant work, N+1s, recomputation, avoidable allocation/IO.
+
+The fan-out happens at the orchestrator level. See `references/orchestrator.md` for the full rationale, failure handling, and exact prompts.
+
+## Step 4 — Report
+
+After the workflow returns:
+
+1. Run the flightlog report to render the audit trail. (`$SCRIPTS` is the path you resolved in Step 1.)
+   ```bash
+   bun $SCRIPTS/flightlog.ts report docs/<slug>/.flightlog/run.jsonl
+   ```
+   This writes `docs/<slug>/.flightlog/RUNLOG.md`: every attempt and verdict, each linked to its agent label for drill-down.
+2. Tell the user: tasks completed, tasks escalated and why, and where `RUNLOG.md` lives. If everything passed, including Final review, say so plainly and point at what to verify or ship.
+3. **Report `needsHuman` separately from `escalations`.** It lists `{ task, criteria }` for every `(human)` gate item that passed without a machine check and without an attestation. Those tasks are genuinely `done` — nothing is parked and nothing needs resetting — so print them as a closing checklist of what the user still owes, quoting each criterion. Say plainly that `mark-done.ts` ticked those boxes like any other, so the task file alone no longer shows the check is outstanding.
+
+The rest of this document is reference material.
+
+## Model policy
+
+Tune the default choices in the orchestrator's `MODEL` table. Keep dev and judge in separate agent calls so scoring uses independent context.
+
+| Role | Model / effort | Why |
+|---|---|---|
+| **Dev** | opus / low | Implement the task cheaply; the task's gate and judge catch what low effort misses. |
+| **Dev — last Claude rung** | opus / high, or the task's dev choice with effort +1 | Spend verification effort after earlier attempts fail. |
+| **Dev — external driver** | opus / low | Turn the task file into the external CLI's instruction file, then drive the CLI. Writing that file is judgment: a weaker driver paraphrased a rule out of it. |
+| **Binary gate and drift re-verify** | opus / low | Check acceptance criteria and command output before scoring. |
+| **Rubric judge** | opus / medium | Score the rubric against the gate's evidence. |
+| **Commit (inter-wave + post-loop)** | opus / low | Group changes and write the commit message. |
+| **Final review — cross-vendor lens** | sonnet / low | Drive the external CLI that performs the review. |
+| **Final review — quality lenses** | `CFG.reviewLensModel` (default opus) / high | Hunt reuse, leanness, and efficiency issues with independent context. |
+| **Final review — fixer** | opus / medium | Apply findings the high-effort lenses already found. |
+| **Scout / park** | sonnet / low | Read readiness, or park a task, repairing a malformed Status line. |
+| **Mark-done / worktree calls** | haiku / low | Relay the result of `mark-done.ts` or `worktree.ts`; a structured failure retries on opus. |
+| **Structured retry** | opus / medium | Recover a failed structured call with a complete model and effort choice. |
+
+A task's `> **Models**:` header overrides dev, verify, judge, and fix for that task.
+
+On the last Claude dev rung, run opus/high. When the task's Models header names `dev`, raise that choice one step on the same model instead, leaving `max` at `max` and omitted effort omitted.
+
+## Grounding the score
+
+The **correctness** dimension must be grounded in **real verification**, not the judge's vibe. The binary gate agent actually runs the task's `## Verification` commands and checks its `## Acceptance criteria`; its pass/fail result and raw output go to the rubric judge, which scores correctness against *that evidence*. The gate must pass before the judge runs at all, so a high correctness score can never sit on top of a failed verification.
+
+**Two carve-outs, both declared by a person, never decided by an agent.** A gate item tagged `(human)` in the task file is skipped by the verifier, reported as pending, and surfaced at the end of the run — the plan's author declared that no command can perform it, and `lint-task.ts` refuses a gate section whose items are *all* tagged, so the verifier always keeps real work. A `--from judge` resume replaces the verifier's evidence with a signed attestation file, and the judge is told to treat every item that file does not name as unverified. An agent may never widen either carve-out: a verifier that finds an item hard to run must let it fail, because an item nobody can check is a plan defect.
+
+## Escalation — park & continue, then resume
+
+A task escalates for one of two reasons: it exhausted its cap (`maxAttempts`, or `finalReviewMaxAttempts` for the Final review), or an infrastructure failure stopped it from being judged at all. Either way:
+
+1. The orchestrator **parks** the task at `Status: blocked`, records an escalation, and **keeps flying** the other independent tasks. Dependents of a parked task never become ready, so they wait.
+2. The workflow returns `{ slug, completed: [...], escalations: [{ task, attempt, infrastructure, parked, reason }] }`. The `reason` already embeds the last verdict — the judge's rationale, the binary gate's output, the infrastructure cause, or the scout error.
+3. **You** (the main agent) surface each escalation with its `reason`. In an active cockpit session, hand the stick back via `needs_your_call` + `cockpit wait`; otherwise use `AskUserQuestion`.
+4. After the user unblocks a task, **resume**. Run `flightlog.ts progress --task <ref>` first — it names which of these two the trail supports:
+   - **Re-enter at a step** — When the work before that step is already correct in the kept worktree, use `--task <ref> --from verify|judge`. Leave `Status` at `blocked` for the resume to mark `done`. For Final review, resume in the main tree. See "Resume one task at a chosen step" above.
+   - **Re-run the whole task** — reset its `Status` to `todo` and re-run autopilot. Completed tasks stay `done`, so `next-ready` only re-offers the unblocked work. Use this when what failed is the work itself.
+
+A parked non-final task keeps its unlanded work in its worktree, and the escalation's `reason` names that path; inspect or hand-fix the task there. A `--from verify|judge` resume runs in that worktree and halts naming the path if it is gone. A `--from dev` resume reuses the worktree when it exists, because it may hold unlanded work from a failed drift re-verify. Final review always resumes in the main tree.
+
+### Worktree cleanup
+
+The orchestrator sweeps `<repo-parent>/.<repo-name>-autopilot/<slug>/` at run start and end, keeping live and still-`blocked` tasks' worktrees and skipping the end sweep after a leak abort or a scout failure; `references/orchestrator.md` carries the rules. Your part:
+
+- Report `worktrees` (kept, returned as-is) and `cleanupFailures` separately. A cleanup failure is a landed task whose removal could not be confirmed: the task still counts as completed, the run is not clean, and the user deletes that path.
+- After a clean run, confirm `git worktree list` shows no path under `.<repo-name>-autopilot/<slug>/`.
+- To discard a kept worktree by hand, run `git worktree remove --force <path>`, then `git worktree prune`.
+
+**Read the two flags before you report.** `infrastructure: true` means nothing was judged — say that verification did not run or returned no verdict, not that the work was rejected. `parked: false` means the park itself failed, so the file still reads `in-progress` and `next-ready` will not re-offer it; tell the user to reset that Status by hand before resuming.
+
+**A `(divergence)` escalation is not a park.** It means a task passed, was confirmed `done`, and then something rewrote its file back to unfinished — a parallel task running `git checkout`/`git restore`, or a hand edit. Do not just reset and re-run: find what rolled the file back first, or the next run loses the same work again. The `reason` names the affected refs, and their code changes are often already committed, so check that before deciding whether to restore each `Status` to `done` or reset it to `todo`.
+
+Crash recovery note: an interrupted run can leave task files at `Status: in-progress`. `next-ready` only offers `todo`. Reset stale `in-progress` tasks to `todo` before re-running autopilot.
+
+How the orchestrator decides to park — the quality-vs-infrastructure split, the reread that confirms each status transition, and the guards around a schema'd `agent()` — lives in `references/orchestrator.md`.
+
+## The flightlog (audit trail)
+
+Everything lands in `docs/<slug>/.flightlog/`. It is **gitignored** via a self-ignore (`.flightlog/.gitignore` containing `*`). This directory is created automatically on first write; no user setup is needed.
+
+- **Score verdicts** — the rubric-judge agent runs `score-task.ts <taskfile> <scores.json> --log docs/<slug>/.flightlog/run.jsonl --attempt N --agent <its-label> --rationale-file <its-rationale.md>`. Deterministic, guaranteed each cycle. The rationale file is why a *passing* verdict keeps its evidence — without it the trail records a weighted number and nothing that justifies it.
+- **Narrative** — Dev / judge / final-review agents run `flightlog.ts log <run.jsonl> --task <ref> --role <role> --attempt N --agent <label> --message "..."` to record what they did.
+- **Review findings** — the Final review lenses write their raw findings to `.flightlog/review/attempt-N/<lens>.md` (`<reviewEngine>` / reuse / leanness / efficiency). These persist as the artifact behind each closing-round verdict.
+- **Report** — `flightlog.ts report <run.jsonl>` renders `RUNLOG.md`, grouped by task in chronological order. A verdict that carries a rationale folds it into a collapsed `<details>` block under its line.
+
+Each entry records an `agentLabel` so a suspicious verdict can be traced back to that agent's raw `agent-<id>.jsonl` in the harness transcript.
+
+## Bundled scripts
+
+You run these yourself, all in the sibling `skills/flightplan/scripts/` directory (`$SCRIPTS`):
+
+- `next-ready.ts <tasks-dir> [--json | --summary]` — the scout of Step 1 and of every wave. **`--summary` is what the orchestrator uses**: one `{ready, counts, unfinished, invalid, errors}` object, printed even when the command exits 1, so a malformed tree still names its refs. It exits non-zero rather than return a ready set that would unlock work behind a fake `done`.
+- `lint-task.ts <tasks-dir | task-file>` — run it during scout when `next-ready` reports a malformed tree, and fix the tree before flying.
+- `flightlog.ts report <run.jsonl>` — Step 4's audit render. `flightlog.ts log` is the in-run narrative entry point.
+- `flightlog.ts progress <run.jsonl> [--task <ref>] [--json]` — where a task stopped, and the `--from` / `--attempt` a resume should use. Read it before every resume; never hand-count attempts out of the JSONL.
+
+Plus `bun "$OWN"/flightdeck.ts` for the monitor — the one file the launch step runs from autopilot's own `scripts/` directory, whose other modules are flightdeck's server, launcher, and pure derivations, each with a `.test.ts` beside it.
+
+The remaining shared tools — `score-task.ts`, `mark-done.ts`, `codex-run.ts`, `opencode-run.ts` — are called only from inside the workflow. `references/orchestrator.md` carries their signatures and contracts.
+
+## Additional resources
+
+- `references/orchestrator.md` — the canonical Workflow script (wave loop, per-task retry pipeline, inline score gate, agent prompts and schemas). Bake it with `scripts/bake-orchestrator.ts`. Do not write one from scratch.

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Game Audio Procedural"
+  short_description: "Synthesize original game music and SFX in code"
+  default_prompt:
+    "Use $game-audio-procedural to create this game's music and sound effects, following saved GameGen preferences when
+    the project has them."

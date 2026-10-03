@@ -1,0 +1,244 @@
+> Source: https://chat-sdk.dev/adapters/official/twilio.md
+
+---
+title: Twilio
+description: Twilio SMS, MMS, and RCS adapter for Chat SDK.
+tagline: Build SMS, MMS, and RCS bots with Twilio Messaging webhooks and the Messages API.
+package: @chat-adapter/twilio
+---
+
+# Twilio
+
+
+## Install
+
+
+## Quick start
+
+
+  The adapter auto-detects `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, and `TWILIO_MESSAGING_SERVICE_SID` from the environment.
+
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createTwilioAdapter } from "@chat-adapter/twilio";
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    twilio: createTwilioAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+```typescript title="app/api/webhooks/twilio/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.twilio(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+### 1. Get credentials
+
+1. Create or open a Twilio account.
+2. Copy the **Account SID** to `TWILIO_ACCOUNT_SID`.
+3. Copy the **Auth Token** to `TWILIO_AUTH_TOKEN`.
+4. Copy a sender phone number to `TWILIO_PHONE_NUMBER`, or copy a Messaging Service SID to `TWILIO_MESSAGING_SERVICE_SID`.
+
+### 2. Configure the Messaging webhook
+
+Set your Twilio Messaging webhook URL to:
+
+```text
+https://your-domain.com/api/webhooks/twilio
+```
+
+### 3. Set up RCS (optional)
+
+RCS uses the same webhook URL and adapter as SMS and MMS, so it needs no separate endpoint. To enable RCS rich messaging:
+
+1. Register an RCS Sender in the Twilio Console under **Messaging** then **RCS Senders**. Carrier approval typically takes 4 to 6 weeks.
+2. Add the RCS Sender and an SMS phone number to a Messaging Service so Twilio can fall back to SMS when RCS is unavailable.
+3. Set `TWILIO_MESSAGING_SERVICE_SID` to the Messaging Service SID, which starts with `MG`.
+4. Point the Messaging Service webhook to the same URL as your SMS webhook. The adapter handles both channels.
+
+See [RCS](#rcs) for how the adapter behaves once RCS is enabled.
+
+## Configuration
+
+
+### Environment variables
+
+| Variable                       | Required            | Description                                                                                                                         |
+| ------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `TWILIO_ACCOUNT_SID`           | Yes                 | Twilio Account SID                                                                                                                  |
+| `TWILIO_AUTH_TOKEN`            | Yes                 | Auth Token for API calls and webhook signature verification                                                                         |
+| `TWILIO_PHONE_NUMBER`          | For `openDM`        | Default sender phone number. `openDM` uses the first of this, `TWILIO_MESSAGING_SERVICE_SID`, or `TWILIO_RCS_SENDER_ID` that is set |
+| `TWILIO_MESSAGING_SERVICE_SID` | For `openDM` or RCS | Default Messaging Service SID. Required for RCS                                                                                     |
+| `TWILIO_RCS_SENDER_ID`         | No                  | Direct RCS sender address for `openDM`, such as `rcs:MyBrand`                                                                       |
+
+## Webhooks
+
+Twilio sends Messaging webhooks as form-encoded requests and signs them with the `X-Twilio-Signature` header. The adapter validates the exact public URL plus the submitted form parameters before dispatching an inbound message.
+
+If your framework rewrites the request URL before it reaches the adapter, pass `webhookUrl` with the public URL configured in Twilio:
+
+```typescript title="lib/bot.ts" lineNumbers
+createTwilioAdapter({
+  webhookUrl: "https://your-domain.com/api/webhooks/twilio",
+});
+```
+
+## RCS
+
+When the sender is RCS-capable (an `MG…` Messaging Service or an `rcs:` address), the adapter:
+
+* Sends cards as Twilio Content API templates (rich cards with buttons) over RCS.
+* Includes an SMS text fallback in every template so non-RCS recipients get a usable message.
+* Routes inbound taps of buttons rendered by Chat SDK to `onAction` handlers.
+
+Inbound RCS messages are keyed to the Messaging Service (or configured RCS sender), so replies go back out over RCS. Plain SMS threads keep their phone-number thread IDs even when the number belongs to a Messaging Service, and `openDM` prefers `phoneNumber` over `messagingServiceSid` and `rcsSenderId`, so enabling RCS does not change the thread IDs of existing conversations.
+
+Button taps from templates that Chat SDK did not send (for example Studio flows or pre-created WhatsApp templates) are not turned into actions. When they carry a message body, they arrive as regular messages, matching the adapter's behavior before RCS support.
+
+Content templates are created on demand and reused by a stable name derived from the card's content, so identical cards share one template across restarts. Cards that embed changing values (timestamps, order IDs, user names) produce a new template per unique body, and Twilio keeps Content resources until you delete them. For high-volume use, keep card bodies stable or pre-create templates.
+
+### Sending rich cards
+
+```typescript title="send-card.ts" lineNumbers
+import { Actions, Button, Card, CardText } from "chat";
+
+await thread.post({
+  card: Card({
+    title: "Deploy v1.2.3",
+    children: [
+      CardText("Ready to deploy to production?"),
+      Actions([
+        Button({ id: "approve", label: "Approve", value: "v1.2.3" }),
+        Button({ id: "reject", label: "Reject" }),
+      ]),
+    ],
+  }),
+});
+```
+
+Over RCS, this renders as a rich card with tappable buttons. Over SMS, it falls back to plain text.
+
+### Handling button taps
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAction(async (action) => {
+  if (action.actionId === "approve") {
+    await action.thread.post(`Approved: ${action.value}`);
+  }
+});
+```
+
+## Media
+
+Inbound MMS media is exposed as message attachments. Twilio media URLs are not treated as public files, so each attachment includes `fetchData()` and `fetchMetadata` for authenticated downloads and queue rehydration.
+
+Outbound media supports attachments that already have a public `url`. Chat SDK cannot upload arbitrary binary files to Twilio for you because the Messages API expects each `MediaUrl` to be reachable by Twilio.
+
+```typescript title="send-photo.ts" lineNumbers
+await thread.post({
+  markdown: "photo attached",
+  attachments: [
+    {
+      type: "image",
+      url: "https://example.com/photo.jpg",
+    },
+  ],
+});
+```
+
+## Messaging services
+
+When a thread sender starts with `MG`, outbound messages use `MessagingServiceSid` instead of `From`:
+
+```typescript title="send-with-service.ts" lineNumbers
+const threadId = twilio.encodeThreadId({
+  sender: "MGXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  recipient: "+15555550100",
+});
+
+await bot.adapters.twilio.postMessage(threadId, "hello");
+```
+
+## Low-level helpers
+
+The package includes runtime-light subpaths for apps that only need Twilio primitives:
+
+```typescript title="twilio-primitives.ts" lineNumbers
+import { sendTwilioMessage } from "@chat-adapter/twilio/api";
+import { truncateTwilioText } from "@chat-adapter/twilio/format";
+import { gatherSpeechTwilioResponse } from "@chat-adapter/twilio/voice";
+import { readTwilioWebhook } from "@chat-adapter/twilio/webhook";
+```
+
+These subpaths do not import the full Chat SDK adapter or the `twilio` npm package.
+
+## Voice helpers
+
+The SMS/MMS adapter does not route Twilio voice calls. Instead, the package exposes voice primitives for apps that own their voice route and want reusable TwiML or call-update helpers:
+
+```typescript title="app/api/webhooks/twilio/voice/route.ts" lineNumbers
+import {
+  gatherSpeechTwilioResponse,
+  parseTwilioVoiceCall,
+} from "@chat-adapter/twilio/voice";
+import { verifyTwilioRequest } from "@chat-adapter/twilio/webhook";
+
+export async function POST(request: Request): Promise<Response> {
+  const verified = await verifyTwilioRequest(request);
+  const call = parseTwilioVoiceCall(verified.params);
+
+  if (!call) {
+    return new Response("Invalid voice webhook", { status: 400 });
+  }
+
+  return gatherSpeechTwilioResponse({
+    actionUrl: "https://your-domain.com/api/webhooks/twilio/voice/result",
+    prompt: "How can I help?",
+  });
+}
+```
+
+Custom voice routes should verify the Twilio signature and apply your own caller allow-list before returning TwiML.
+
+For live calls, `updateTwilioCall()` in `@chat-adapter/twilio/api` can post replacement TwiML or redirect the call to another URL.
+
+## Thread IDs
+
+```
+twilio:{sender}:{recipient}
+```
+
+Example: `twilio:%2B15555550123:%2B15555550100`.
+
+`sender` is the bot's phone number, Messaging Service SID (`MG…`), or RCS sender address, and `recipient` is the user's address. Both segments are URI-encoded.
+
+## Limitations
+
+* Twilio does not support message edits, reactions, modals, or typing indicators for SMS.
+* Cards render as rich RCS content only when the sender is a Messaging Service (`MG…`) or RCS address; otherwise they fall back to plain text.
+* RCS read receipts (`EventType=READ`) are parsed and logged but not surfaced to Chat SDK handlers, because no delivery API exists today.
+* `fetchMessages` uses the Messages API and is best for phone-number based threads. Messaging Service history can be less precise because inbound webhooks identify the receiving phone number, not only the Messaging Service SID.
+
+## Feature support
+
+

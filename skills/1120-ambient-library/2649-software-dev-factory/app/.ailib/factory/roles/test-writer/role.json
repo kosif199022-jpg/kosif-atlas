@@ -1,0 +1,75 @@
+{
+  "name": "test-writer",
+  "version": "1.0.0",
+  "eligibility": {
+    "triggers": [
+      "controller enters the red stage for a packet whose baseline suite is green",
+      "a packet's accepted plan names a public seam that has no failing test yet"
+    ],
+    "antiTriggers": [
+      "implementation code is requested or a Green proof is in progress",
+      "the packet already has an accepted Red proof",
+      "the failure under study is a diagnosis of an existing bug, not a new packet"
+    ]
+  },
+  "io": {
+    "inputs": [
+      { "name": "packet", "type": "PacketPlan packet { id, allowedPaths, criteria, parent_intent }" },
+      { "name": "baseSha", "type": "git sha (40 hex)" },
+      { "name": "testCommand", "type": "string (repository-native test command)" }
+    ],
+    "outputs": [
+      { "name": "testPathPrefixes", "type": "string[] (RedProofInput.testPathPrefixes)" },
+      { "name": "junitXml", "type": "string (RedProofInput.junitXml)" },
+      { "name": "assertionFailureTypes", "type": "string[] (RedProofInput.assertionFailureTypes, junit failure types observed)" },
+      { "name": "attestedCause", "type": "string (RedProofInput.attestedCause, class A/B intended failure)" }
+    ]
+  },
+  "allowed": {
+    "tools": ["read", "grep", "list", "edit", "run_tests"],
+    "paths": ["tests/**"],
+    "sideEffects": ["tests/**"]
+  },
+  "authorityExclusions": ["git_write", "github_write", "approval", "policy_change", "merge", "release", "deploy", "controller_state"],
+  "procedure": [
+    "Discover the repository's test command and conventions; do not invent a runner.",
+    "Pick the public seam the packet exposes; write one test per slice against observable state, not internals.",
+    "Choose expected values from an independent source of truth (spec literal, worked example), never from the code under test.",
+    "On a greenfield seam, guard the loader: check existsSync(modulePath) and wrap the dynamic import() in try/catch, normalizing absence into an observable value the assertion rejects; unguarded, the file fails to collect with ERR_MODULE_NOT_FOUND and red.failed-by-assertion rejects the proof (L-011). The normalized value must carry the failure (String(error), the missing export's name), never a fixed sentinel: the guard outlives Red, and at Green it would turn a real top-level error into a string-equality mismatch (OI-53).",
+    "Run the test pre-change and record the assertion failure and its attested cause.",
+    "Confirm the rest of the affected suite is still green; emit the Red proof inputs."
+  ],
+  "completion": [
+    "red.test-only-tree-committed, red.executed-pre-change, red.failed-by-assertion, red.affected-suite-baseline-green predicates pass (evaluateRedProof)",
+    "no file outside tests/** changed"
+  ],
+  "evidence": [
+    "test file paths and sha256",
+    "junit XML of the pre-change run",
+    "attestation of intended failure class"
+  ],
+  "failure": {
+    "handoff": "If the seam cannot be tested without an implementation change, stop and return the seam gap to the controller as a plan finding; do not write production code."
+  },
+  "provenance": {
+    "derived": true,
+    "sources": [
+      { "repository": "https://github.com/mattpocock/skills", "revision": "0ab1b63a410a03d3627979a109c8695de27af954", "license": "MIT", "licenseFile": "upstream/matt/LICENSE", "path": "skills/engineering/tdd/SKILL.md", "upstreamDigest": "cb01f66bebfaa25fa1f88e6b7e769cd9fd9f35b1120b8563749820738814c927" },
+      { "repository": "https://github.com/addyosmani/agent-skills", "revision": "df1edb2e05487d0aa6d93c747141e0aed1187f25", "license": "MIT", "licenseFile": "upstream/addy/LICENSE", "path": "skills/test-driven-development/SKILL.md", "upstreamDigest": "440fb3c9b76f4f1b0b564dfbaec19d370beab0167a3e2ab048ce59c5a865ecef" },
+      { "repository": "https://github.com/helderberto/agent-skills", "revision": "6f94e940f79d478782683ce81f2c9f83acad6e56", "license": "MIT", "licenseFile": "upstream/helder/LICENSE", "path": "skills/tdd/SKILL.md", "upstreamDigest": "f4a547a5e13b101c0c90c703d531f2cb21c9900c5caa36045a11c49dc2ff02b2" }
+    ]
+  },
+  "patterns": {
+    "adopted": [
+      "tests at public seams; vertical slices as tracer bullets (Matt)",
+      "anti-patterns: implementation-coupled, tautological, horizontal slicing (Matt)",
+      "repository command discovery, state-over-interaction tests, test-double selection (Addy)",
+      "compact independent red-phase comparison (Helderberto)"
+    ],
+    "rejected": [
+      "green and refactor halves of the red-green-refactor loop (red-only role)",
+      "implementation instructions or implementation commits",
+      "refactoring inside the loop (belongs to review)"
+    ]
+  }
+}

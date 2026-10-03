@@ -1,0 +1,11 @@
+{
+  "name": "gauntlet",
+  "description": "Runs ambitious work through explicit criteria, independent critique, and evidence-based revision loops.",
+  "version": "1.0.1",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

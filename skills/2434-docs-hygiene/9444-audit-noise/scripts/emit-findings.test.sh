@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+# Self-contained tests for emit-findings.sh (no external test lib — ships with
+# the plugin; fixtures are built inline in a tmpdir).
+set -uo pipefail
+
+# Fixture git isolation: an inherited GIT_DIR/GIT_WORK_TREE/GIT_CONFIG would
+# redirect `git init` / `git config` into the caller's repository.
+unset GIT_DIR GIT_WORK_TREE GIT_CONFIG
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EMIT="$SCRIPT_DIR/emit-findings.sh"
+DETECT="$SCRIPT_DIR/detect.sh"
+TEST_TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_TMPDIR"' EXIT
+
+FAILED=0
+CASE_NUM=0
+
+pass() {
+  CASE_NUM=$((CASE_NUM + 1))
+  printf 'PASS: %s\n' "$1"
+}
+fail() {
+  CASE_NUM=$((CASE_NUM + 1))
+  FAILED=$((FAILED + 1))
+  printf 'FAIL: %s\n  expected: %s\n  actual:   %s\n' "$1" "$2" "$3" >&2
+}
+assert_exit() {
+  if [[ "$2" == "$3" ]]; then pass "$1"; else fail "$1" "exit $2" "exit $3"; fi
+}
+assert_contains() {
+  case "$2" in
+  *"$3"*) pass "$1" ;;
+  *) fail "$1" "contains: $3" "$2" ;;
+  esac
+}
+assert_not_contains() {
+  case "$2" in
+  *"$3"*) fail "$1" "absent: $3" "present" ;;
+  *) pass "$1" ;;
+  esac
+}
+
+# write_block <out> <file> <tier> <shape> <line> <excerpt> [marker] writes one
+# detect.sh block, the writer's only input shape. A 7th argument adds the
+# `Finding marker:` field, which the writer prefers over its own whole-line
+# scan; omitting it exercises the fallback.
+write_block() {
+  {
+    printf 'File: %s\n' "$2"
+    printf 'Finding tier: %s\nFinding shape: %s\nFinding line: %s\n' "$3" "$4" "$5"
+    printf 'Finding excerpt: %s\n' "$6"
+    [[ -n "${7:-}" ]] && printf 'Finding marker: %s\n' "$7"
+    printf -- '---\n'
+  } >"$1"
+}
+
+# --- Fixture repo ---------------------------------------------------------------------
+
+REPO="$TEST_TMPDIR/repo"
+mkdir -p "$REPO"
+(
+  cd "$REPO" || exit 1
+  git init -q .
+  git config user.email t@example.com
+  git config user.name Test
+  git checkout -q -b test-branch
+)
+
+TARGET="$REPO/doc.md"
+cat >"$TARGET" <<'EOF'
+---
+description: "Fixture doc. Use when: 'sweep the fixture corpus'."
+---
+
+# Fixture
+
+Do not use markdown in your response.
+
+Never run 'sweep the fixture corpus' against an unreviewed corpus.
+
+Report the pipe | character carefully.
+EOF
+
+# run_emit <args...>: the writer, run from inside the fixture repo so its branch
+# and repo-root resolution have something to read. The subshell keeps the cd out
+# of the suite's own cwd.
+run_emit() {
+  (cd "$REPO" && bash "$EMIT" "$@")
+}
+
+# --- Usage / refusal paths ------------------------------------------------------------
+
+bash "$EMIT" >/dev/null 2>&1
+assert_exit "no args exits 2" 2 "$?"
+
+bash "$EMIT" --from /nonexistent --out "$TEST_TMPDIR/x.md" >/dev/null 2>&1
+assert_exit "missing --from file exits 2" 2 "$?"
+
+NOTSCAN="$TEST_TMPDIR/notscan.txt"
+printf 'this is not detector output\n' >"$NOTSCAN"
+run_emit --from "$NOTSCAN" --out "$TEST_TMPDIR/y.md" >/dev/null 2>&1
+assert_exit "input with no detect blocks exits 3" 3 "$?"
+
+BLOCKS="$TEST_TMPDIR/blocks.txt"
+write_block "$BLOCKS" "$TARGET" 2 negation 7 'Do not use markdown in your response.'
+run_emit --from "$BLOCKS" --out "$TEST_TMPDIR/z.md" --branch '' >/dev/null 2>&1
+assert_exit "empty --branch value exits 2" 2 "$?"
+
+run_emit --from "$BLOCKS" --out "$TEST_TMPDIR/z.md" --declined-carveout notanint >/dev/null 2>&1
+assert_exit "non-integer --declined-carveout exits 2" 2 "$?"
+
+# --- Happy path: a real detect.sh run through the writer -------------------------------
+
+DETOUT="$TEST_TMPDIR/detout.txt"
+(cd "$REPO" && bash "$DETECT" doc.md) >"$DETOUT"
+OUT1="$TEST_TMPDIR/out/findings.md"
+run_emit --from "$DETOUT" --out "$OUT1" >/dev/null
+body="$(cat "$OUT1")"
+
+assert_contains "declares the consumed type" "$body" "type: review-findings"
+assert_contains "carries the current branch" "$body" "branch: test-branch"
+assert_contains "leads the Finding cell with the qualified rule id" "$body" \
+  "docs-hygiene/audit-noise/rule-negation-without-positive"
+assert_contains "tier is looked up as IMPORTANT" "$body" "| IMPORTANT | high |"
+assert_contains "Surface(s) names the producer" "$body" "docs-hygiene:audit-noise"
+assert_contains "Location is repo-relative" "$body" "| doc.md:7 |"
+assert_not_contains "Location is never absolute" "$body" "$REPO/doc.md"
+assert_contains "carries the fired prohibition in the run own values" "$body" 'prohibition="do not"'
+
+# The quoted-trigger fence: line 9 quotes a phrase from the file's description.
+assert_not_contains "a row quoting a trigger phrase never reaches the relay" "$body" "doc.md:9"
+assert_contains "and its decline is counted, never silent" "$body" \
+  "reason=quoted-trigger-phrase (body-scope fence)"
+
+# --- Body-scope fence is recomputed, not trusted from the caller -----------------------
+
+FORGED="$TEST_TMPDIR/forged.txt"
+write_block "$FORGED" "$TARGET" 2 negation 2 'forged frontmatter row'
+OUT2="$TEST_TMPDIR/out/forged.md"
+run_emit --from "$FORGED" --out "$OUT2" >/dev/null
+forged_body="$(cat "$OUT2")"
+assert_not_contains "a forged frontmatter row is refused by the writer fence" "$forged_body" "doc.md:2"
+assert_contains "and counted as a frontmatter decline" "$forged_body" "reason=frontmatter (body-scope fence)"
+
+# --- Only the crosswalk-carrying shape is emitted --------------------------------------
+
+OTHER="$TEST_TMPDIR/other.txt"
+write_block "$OTHER" "$TARGET" 1 citation 7 'a citation row'
+OUT3="$TEST_TMPDIR/out/other.md"
+run_emit --from "$OTHER" --out "$OUT3" >/dev/null
+other_body="$(cat "$OUT3")"
+assert_contains "a shape with no crosswalk row is declined" "$other_body" \
+  "citation count=1 reason=no-severity-crosswalk-row"
+assert_contains "zero emittable findings still writes the file" "$other_body" "## Findings"
+assert_contains "and says the rule returned no result" "$other_body" \
+  "Returned no result: [docs-hygiene/audit-noise/rule-negation-without-positive]"
+
+# --- Out-of-repo fence -----------------------------------------------------------------
+
+OUTSIDE="$TEST_TMPDIR/outside.md"
+cat >"$OUTSIDE" <<'EOF'
+# Outside the repo
+
+Do not use markdown in your response.
+EOF
+OOR="$TEST_TMPDIR/oor.txt"
+write_block "$OOR" "$OUTSIDE" 2 negation 3 'Do not use markdown in your response.'
+OUT4="$TEST_TMPDIR/out/oor.md"
+run_emit --from "$OOR" --out "$OUT4" >/dev/null
+oor_body="$(cat "$OUT4")"
+assert_contains "a path outside the repo root is declined" "$oor_body" "reason=outside-repo-root"
+
+# --- Non-overwrite naming --------------------------------------------------------------
+
+run_emit --from "$DETOUT" --out "$OUT1" >/dev/null
+if [[ -f "${OUT1%.md}-2.md" ]]; then
+  pass "a colliding --out takes the -2 suffix rather than clobbering"
+else
+  fail "a colliding --out takes the -2 suffix rather than clobbering" "${OUT1%.md}-2.md exists" "absent"
+fi
+
+# --- Out-of-repo fence: a traversing path is fail-closed --------------------------------
+
+# The prefix test is lexical, so `/repo/../x.md` starts with `/repo/` while
+# resolving outside it. A `..` segment must decline rather than emit a row whose
+# Location traverses out of the working tree.
+TRAVERSE="$TEST_TMPDIR/traverse.txt"
+write_block "$TRAVERSE" "$REPO/../outside.md" 2 negation 3 'Do not use markdown.'
+OUT6="$TEST_TMPDIR/out/traverse.md"
+run_emit --from "$TRAVERSE" --out "$OUT6" >/dev/null
+trav_body="$(cat "$OUT6")"
+assert_not_contains "a traversing path never reaches the relay" "$trav_body" ".."
+assert_contains "and is declined as out-of-repo" "$trav_body" "reason=outside-repo-root"
+
+# --- branch: quoting for YAML-implicit-typed names --------------------------------------
+
+# Git accepts `true`, `null` and `123` as branch names. Left plain, a consumer
+# reads them back as a boolean/null/number and the relay's exact-string match
+# never admits the file.
+for bad_branch in true null 123 2026-08-23 no; do
+  OUTB="$TEST_TMPDIR/out/branch-$bad_branch.md"
+  run_emit --from "$DETOUT" --out "$OUTB" --branch "$bad_branch" >/dev/null
+  assert_contains "YAML-implicit branch '$bad_branch' is quoted" "$(cat "$OUTB")" "branch: \"$bad_branch\""
+done
+OUTP="$TEST_TMPDIR/out/branch-plain.md"
+run_emit --from "$DETOUT" --out "$OUTP" --branch "feature/ordinary-name" >/dev/null
+assert_contains "an ordinary branch stays an unquoted plain scalar" "$(cat "$OUTP")" "branch: feature/ordinary-name"
+
+# --- The fired marker is carried from the scanner ---------------------------------------
+
+MARKER_IN="$TEST_TMPDIR/marker.txt"
+write_block "$MARKER_IN" "$TARGET" 2 negation 7 \
+  'Never commit a secret. Do not use markdown.' 'do not'
+OUT7="$TEST_TMPDIR/out/marker.md"
+run_emit --from "$MARKER_IN" --out "$OUT7" >/dev/null
+assert_contains "the scanner-supplied marker wins over a whole-line scan" "$(cat "$OUT7")" 'prohibition="do not"'
+
+# --- Cell escaping is idempotent --------------------------------------------------------
+
+# A naive gsub double-escapes a pipe the SOURCE already escaped (`a \| b` ->
+# `a \\| b`), which GFM reads as a literal backslash plus a LIVE delimiter: the
+# row splits and the fix action misreads it. This repo writes literal `\|` in
+# its own tables, so the case is real. (Defect identified in #3180.)
+ESCTGT="$REPO/escaped-pipe.md"
+cat >"$ESCTGT" <<'EOF'
+# Escaped-pipe fixture
+
+Do not use the `a \| b` form in a cell.
+EOF
+ESCIN="$TEST_TMPDIR/esc.txt"
+write_block "$ESCIN" "$ESCTGT" 2 negation 3 'Do not use the a \| b form in a cell.'
+OUT8="$TEST_TMPDIR/out/esc.md"
+run_emit --from "$ESCIN" --out "$OUT8" >/dev/null
+esc_row="$(grep -E '^\| 1 ' "$OUT8")"
+assert_not_contains "an already-escaped pipe is not double-escaped" "$esc_row" '\\\|'
+assert_contains "and survives as a single-escaped literal" "$esc_row" '\|'
+# Count DELIMITERS the way GFM does — after removing escaped pipes, which are
+# content rather than separators. A double-escaped pipe would show up here as an
+# extra delimiter, which is the corruption being guarded against.
+esc_delims="$(printf '%s' "$esc_row" | sed 's/\\|//g' | awk -F'|' '{print NF - 1}')"
+assert_contains "so the row still parses as exactly 7 cells" "delims=$esc_delims" "delims=8"
+
+# --- Counted carve-out -----------------------------------------------------------------
+
+OUT5="$TEST_TMPDIR/out/carve.md"
+run_emit --from "$DETOUT" --out "$OUT5" --declined-carveout 3 >/dev/null
+assert_contains "a judgment-lane drop is counted, never silent" "$(cat "$OUT5")" \
+  "negation count=3 reason=judgment-lane-dismissal"
+
+# --- Final report ----------------------------------------------------------------------
+
+if [[ "$FAILED" -eq 0 ]]; then
+  printf '\nAll %d checks passed.\n' "$CASE_NUM"
+  exit 0
+fi
+printf '\n%d/%d checks failed.\n' "$FAILED" "$CASE_NUM" >&2
+exit 1

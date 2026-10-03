@@ -1,0 +1,83 @@
+{
+  "last_updated": "2025-01-24T00:00:00Z",
+  "notes": "Updated after RSIP article session with attribution and style learnings.",
+  "researcher": {
+    "recurring_issues": [
+      "Missing source attribution in initial research phase",
+      "Not requesting access to referenced source material before drafting"
+    ],
+    "successful_fixes": [
+      "Always request original source material when user references it",
+      "Build research brief around actual source data and quotes",
+      "Flag when attribution is missing as critical oversight"
+    ],
+    "avg_reflection_score": 4.4,
+    "key_learnings": [
+      "Thought leadership without proper credit is intellectual appropriation",
+      "Direct source material produces stronger, more credible articles than synthetic versions",
+      "When user says 'refer to original content' - stop and get that content first"
+    ]
+  },
+  "strategist": {
+    "recurring_issues": [],
+    "successful_fixes": [
+      "Tension/reframe structure provides strong narrative backbone",
+      "Clear thesis stated upfront maintains focus"
+    ],
+    "avg_reflection_score": 4.6,
+    "key_learnings": [
+      "Position articles as expanding/applying others' frameworks rather than claiming originality when building on source material"
+    ]
+  },
+  "writer": {
+    "recurring_issues": [
+      "Vignette openings feel like 'AI technique' that readers spot",
+      "Scene-setting apparatus can feel formulaic rather than natural"
+    ],
+    "successful_fixes": [
+      "Direct conversational openings with shared frustration/recognition",
+      "Natural voice with casual language where appropriate",
+      "Jump straight into core tension without structural scaffolding"
+    ],
+    "avg_reflection_score": 4.3,
+    "key_learnings": [
+      "User prefers visceral, dimensionalized style but applied naturally, not through templates",
+      "Conversational > vignette for openings",
+      "Show-not-tell should emerge from authentic voice, not formulaic 'picture this' scenes",
+      "Casual language ('catch their own bullshit') can strengthen authenticity when appropriate"
+    ]
+  },
+  "editor": {
+    "recurring_issues": [
+      "Attribution depth needs checking even after initial draft"
+    ],
+    "successful_fixes": [
+      "Breaking dense technical paragraphs improves scannability",
+      "Rhythm variation maintains engagement through technical content"
+    ],
+    "avg_reflection_score": 4.6,
+    "key_learnings": [
+      "Always verify proper attribution is present and prominent",
+      "Link back to source material for deeper exploration"
+    ]
+  },
+  "publisher": {
+    "recurring_issues": [],
+    "successful_fixes": [
+      "Clear headline with 'why' hook",
+      "Actionable summary with concrete data points"
+    ],
+    "avg_reflection_score": 4.8,
+    "key_learnings": [
+      "Include source links in final package for credibility and reader research"
+    ]
+  },
+  "orchestrator": {
+    "critical_lessons": [
+      "STOP WORKFLOW if user references original source material but it hasn't been accessed yet",
+      "Attribution is non-negotiable for thought leadership content",
+      "Natural conversational voice > formulaic article structures",
+      "User style preferences (visceral, show-not-tell) should inform voice, not create templates"
+    ]
+  }
+}

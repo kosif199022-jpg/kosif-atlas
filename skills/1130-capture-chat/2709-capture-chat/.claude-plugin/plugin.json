@@ -1,0 +1,11 @@
+{
+  "name": "capture-chat",
+  "description": "Exports and archives a chat conversation or session as portable markdown — conversation only, or with the artifacts the session produced; use for \"export this conversation\", \"capture this chat\", \"save this session\", \"export with artifacts\". Defaults to the cross-harness .aai session archive; redirectable to any path.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

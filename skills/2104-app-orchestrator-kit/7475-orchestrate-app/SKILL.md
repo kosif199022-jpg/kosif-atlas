@@ -1,0 +1,270 @@
+---
+name: orchestrate-app
+description: Runs the full-stack app-dev-kit dispatcher — spec-dev-kit to author a spec, html-generator-kit to prototype it, then analyzes those outputs and calls backend-dev-kit, agent-dev-kit, and frontend-orchestrator-kit only when needed — tracked against a persisted, resumable work-plan. Use when starting or resuming a whole app/domain build that may include API, AI agents, and React screens. For a frontend-only screen-task loop use /orchestrate-frontend. For a single feature use /feature-dev. Cross-kit handoff is file paths and kit-result.json envelopes, never inlined spec or prototype bodies.
+argument-hint: "[app-name or existing spec/work-plan slug]"
+disable-model-invocation: true
+allowed-tools: [Read, Glob, Grep, Write, Bash, Skill, AskUserQuestion]
+---
+
+# Orchestrate App
+
+**Entry point for**: the app-dev-kit family as a whole (spec → prototype → backend / agent / frontend)
+**Delegates to**: `spec-dev-kit:generate-spec`, `html-generator-kit:generate-html`,
+`backend-dev-kit:backend-dev`, `agent-dev-kit:agent-dev`,
+`frontend-orchestrator-kit:orchestrate-frontend`
+**State file**: `.spec/app/work-plan.md` (pointer: `.spec/app/current.json`)
+**Handoff**: `references/result-envelope.md` + `references/context-budget.md`
+
+This skill runs in the **main conversation**. It owns every `AskUserQuestion` call **of its own**.
+Delegated kits own theirs. After a callee returns, Read its `kit-result.json`.
+
+`disable-model-invocation: true` — only a human types `/orchestrate-app`. Callees stay invokable.
+
+---
+
+## Resolve KIT_DIR (do this first)
+
+`KIT_DIR` is the **plugin root** (the directory that contains `skills/`). Resolve in this order;
+use the first that exists:
+
+1. Parent of this skill folder — `{this SKILL.md directory}/../..` (Claude: if
+   `${CLAUDE_SKILL_DIR}` is set, `KIT_DIR` is `${CLAUDE_SKILL_DIR}/../..`).
+2. `app-dev-kit/app-orchestrator-kit` relative to the workspace root.
+3. `.spec/app-orchestrator-kit`.
+
+All script and reference paths are `{KIT_DIR}/skills/orchestrate-app/…`.
+
+Resolve `PULSE_SCRIPT` in this order; use the first that exists:
+
+1. `{KIT_DIR}/../frontend-orchestrator-kit/skills/orchestrate-frontend/scripts/check-pulse.mjs`
+2. `app-dev-kit/frontend-orchestrator-kit/skills/orchestrate-frontend/scripts/check-pulse.mjs` under the workspace root.
+
+Pass that path as `PULSE_SCRIPT` on every delegated skill. `WATCH` is `.spec/app/watch/current.json`. After a callee returns, run the post-return check in `agent-liveness.md` (sibling `frontend-orchestrator-kit`) before trusting the envelope. `reason: stale-agent` sets the task or track `blocked` with `blocked-reason: stale-agent`, asks once, and does not start the next task. A missing envelope whose pulse exits 3, 4, or 5 rebuilds that call once, then blocks the same way.
+
+---
+
+## Companion files (loaded on demand)
+
+| Path | When |
+|------|------|
+| `references/pipeline-flow.md` | before starting |
+| `references/context-budget.md` | before Station 1 |
+| `references/result-envelope.md` | after every delegated Skill returns |
+| `references/track-decomposition.md` | Station 2a |
+| `references/work-plan-format.md` | reading/writing `work-plan.md` |
+| `scripts/analyze-capabilities.mjs` | Station 2a |
+| `scripts/write-kit-result.mjs` | Station 6 or abort |
+| sibling `frontend-orchestrator-kit` `references/agent-liveness.md` | after every delegated Skill returns |
+
+This kit has **no agents of its own**.
+
+---
+
+## Prerequisites
+
+| Requirement | Check | If missing |
+|-------------|-------|-----------|
+| Delegated plugins installed | Skill names resolve | STOP — install the plugin |
+| `.spec/context/*.md` (new run, no approved spec) | `Glob(".spec/context/*.md")` | STOP |
+| Clean git tree before each increment spawn | `git status --porcelain` | Ask: commit, stash, or abort |
+
+Do not pre-install callee dependencies. Track order is backend → agent → frontend.
+
+---
+
+## Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `[app-name or existing spec/work-plan slug]` | Optional | Matches `slug` in `.spec/app/current.json` to resume. |
+
+```
+/orchestrate-app
+/orchestrate-app demo-app
+/orchestrate-app "a review tool for profiles"
+```
+
+---
+
+## Steps
+
+Read `references/pipeline-flow.md` and `references/context-budget.md` before starting.
+
+### Station 0 — Resume
+
+Read `.spec/app/current.json` and `.spec/app/work-plan.md`. If the argument matches `slug`:
+
+- Read YAML only (track/task id/status/paths).
+- `SPEC_PATH` = `spec-ref`. If missing or spec `status` is not `approved`, STOP.
+- If `spec.md` is newer than `updated`, or analysis would change tracks: `AskUserQuestion` —
+  **Re-derive work-plan** · **Resume as-is** · **Abort**.
+- Else jump to the first track whose `status` is not `done` or `skipped` (and, for backend/agent,
+  the first unfinished `B-*` / `A-*` task).
+- Report: `"Resuming {slug} — tracks {done}/{needed}."`
+
+Otherwise continue to Station 1.
+
+### Station 1 — Spec
+
+Read `.spec/app/current.json`. If `spec_path` exists and that spec's `status` is `approved`, set
+`SPEC_PATH` and skip to Station 2. Do not glob for a newer spec folder.
+
+If none:
+
+1. Empty `.spec/context/` → STOP without invoking generate-spec.
+2. Invoke `spec-dev-kit:generate-spec` with the slug/app name only, plus:
+
+   ```
+   WATCH:        .spec/app/watch/current.json
+   PULSE_SCRIPT: {PULSE_SCRIPT}
+   ```
+
+3. After it returns, run the post-return check in `agent-liveness.md` on the pulse in `.spec/app/watch/current.json`. Then read `.spec/app/current.json`. `spec_path` set and the envelope `approved` → `SPEC_PATH` = that path. Envelope `error` with `reason: stale-agent`, or a missing envelope whose pulse is still exit 3, 4, or 5 after one rebuild → STOP. Ask once. Else if the pointer is missing or the envelope is `aborted` / `error` → STOP.
+
+Do not Read `spec.md` body.
+
+### Station 2 — Prototype (optional)
+
+`AskUserQuestion` — generate a clickable HTML prototype? **Yes** / **Skip**.
+
+On **Yes**: invoke `html-generator-kit:generate-html` with:
+
+```
+SPEC_PATH:    {SPEC_PATH}
+PULSE:        {dirname(SPEC_PATH)}/watch/html-orchestrator.json
+PULSE_SCRIPT: {PULSE_SCRIPT}
+WATCH:        .spec/app/watch/current.json
+```
+
+After return, run the post-return check in `agent-liveness.md`, then Read `{dirname(SPEC_PATH)}/html-kit-result.json`. `approved` → `PROTOTYPE_REF` = `prototype_ref`. `error` with `reason: stale-agent`, or a missing envelope whose pulse is still exit 3, 4, or 5 after one rebuild → ask once: **Continue without prototype** or **Stop**. Do not treat a stale run as a finished prototype. Other `aborted` / `error` / missing → `PROTOTYPE_REF = ""`.
+
+On **Skip**: `PROTOTYPE_REF = ""`. Never Read prototype HTML.
+
+### Station 2a — Analyze (this skill owns this gate)
+
+```bash
+node {KIT_DIR}/skills/orchestrate-app/scripts/analyze-capabilities.mjs {SPEC_PATH} --prototype-ref "{PROTOTYPE_REF}"
+```
+
+If `{dirname(SPEC_PATH)}/artifacts/changes.json` exists, add `--changes` with that path.
+
+Exit 1 — no needed tracks — report and stop. Exit 2 — parse failure — stop.
+
+Read `work-plan.md` YAML `tracks[]` (id, needed, confidence, task counts). Present one
+`AskUserQuestion`: **Approve as-is** · **Skip a track** (human names it → `status: skipped`) ·
+**Abort**. A `confidence: low` agent track **must** be confirmed, not silently kept.
+
+### Station 3 — Backend loop
+
+Skip if track `backend` is not `needed` or is `skipped`/`done`.
+
+For each `tasks[]` with `track: backend` that is not `done`/`skipped`, in work-plan order (a 1.1
+work-plan follows the spec's delivery slices; a task's `depends-on` ids must be `done` first —
+otherwise ask once whether to build the dependency first or skip):
+
+1. Dirty tree → commit / stash / abort-task. Never spawn dirty.
+2. Set task `in-progress`. Set track `in-progress`.
+3. Invoke `backend-dev-kit:backend-dev`:
+
+   ```
+   REQUEST:        Backend-task {id} ({slug-hint}). Read UPSTREAM_SPEC.
+   UPSTREAM_SPEC:  {SPEC_PATH}
+   TASK_ID:        {id}
+   SLICE_REF:      {slice-ref, or omit on a 1.0 work-plan}
+   ENTITY_REFS:    {entity-refs}
+   API_REFS:       {api-refs}
+   STORY_REFS:     {story-refs}
+   AC_REFS:        {ac-refs}
+   PROTOTYPE_REF:  {PROTOTYPE_REF}
+   SLUG_HINT:      {slug-hint}
+   CHANGE:         remove
+   RESULT_OUT:     .spec/app/results/{id}.json
+   PULSE:          .spec/backend/{slug-hint}.context/pulse.json
+   PULSE_SCRIPT:   {PULSE_SCRIPT}
+   WATCH:          .spec/app/watch/current.json
+   ```
+
+   Pass `CHANGE=remove` only when the task `change` is `remove`. Station 4 does the same.
+
+4. Run the post-return check in `agent-liveness.md` on `.spec/backend/{slug-hint}.context/pulse.json` (the callee rewrites `WATCH` when the real slug differs). Then Read `RESULT_OUT` (fallback `.spec/backend/{slug}.kit-result.json`). Apply the outcome table in `result-envelope.md`. `reason: stale-agent` blocks this task and does not start the next one.
+5. If tasks remain: continue / pause / abort. Never auto-run the next increment.
+
+When all `B-*` tasks are `done` or `skipped`, set track `done` and `result` to the last envelope
+(or `.spec/app/results/` if mixed).
+
+### Station 4 — Agent loop
+
+Same as Station 3 for `track: agent` → `agent-dev-kit:agent-dev`.
+
+Also pass `AGENT_REF: {agent-ref}` (and `SLICE_REF`, as in Station 3), plus:
+
+```
+PULSE:         .spec/agents/{slug-hint}.context/pulse.json
+PULSE_SCRIPT:  {PULSE_SCRIPT}
+WATCH:         .spec/app/watch/current.json
+```
+
+The callee writes that watch pointer with `--station 4`. After return, run the same post-return check as Station 3 on this pulse. `reason: stale-agent` blocks this task and does not start the next one.
+
+If a task’s `embed` (from the spec, which the callee reads) is `backend-route` and
+`src/http/create-app.ts` is missing, the callee STOPs. Do not invent a second HTTP stack;
+offer to run the backend track first or skip embed.
+
+### Station 5 — Frontend
+
+Skip if track `frontend` is not `needed` or is `skipped`/`done`.
+
+Dirty tree → commit / stash / abort-track.
+
+Invoke `frontend-orchestrator-kit:orchestrate-frontend`:
+
+```
+SPEC_PATH:      {SPEC_PATH}
+PROTOTYPE_REF:  {PROTOTYPE_REF}
+SKIP_UPSTREAM:  true
+RESULT_OUT:     .spec/app/results/frontend.json
+PULSE_SCRIPT:   {PULSE_SCRIPT}
+WATCH:          .spec/app/watch/current.json
+```
+
+That kit owns its own pulse files and the post-return check. After it returns, a frontend envelope `reason: stale-agent` blocks the frontend track. Ask once. Do not mark the track `done`.
+
+Read `{dirname(SPEC_PATH)}/frontend-kit-result.json` (or `RESULT_OUT`). Apply the outcome table
+to the **frontend track** (not individual `T-*` rows — that kit owns `task-checklist.md`).
+
+### Station 6 — Report
+
+```bash
+node {KIT_DIR}/skills/orchestrate-app/scripts/write-kit-result.mjs \
+  --out {dirname(SPEC_PATH)}/app-kit-result.json \
+  --kit orchestrate-app \
+  --outcome approved \
+  --spec-path {SPEC_PATH} \
+  --prototype-ref "{PROTOTYPE_REF}" \
+  --work-plan .spec/app/work-plan.md \
+  --slug {slug} \
+  --run-dir {dirname(SPEC_PATH)}
+```
+
+Report paths and counts only:
+
+```
+✅ App pipeline run for {slug}
+Spec:       {SPEC_PATH}
+Prototype:  {PROTOTYPE_REF or "skipped"}
+Work plan:  .spec/app/work-plan.md
+Tracks:     backend {status}, agent {status}, frontend {status}
+Envelope:   {dirname(SPEC_PATH)}/app-kit-result.json
+```
+
+Remind `/create-pr` stays human-typed.
+
+---
+
+## Non-negotiables
+
+1. Never bypass a delegated kit’s gate.
+2. Progress lives in `work-plan.md` + `kit-result.json`.
+3. Paths, not blobs.
+4. One increment at a time (backend/agent). One frontend-orchestrator invocation.
+5. Automation never ships.

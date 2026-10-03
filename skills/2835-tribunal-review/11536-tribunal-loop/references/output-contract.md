@@ -1,0 +1,124 @@
+# Tribunal-loop output contract
+
+The inline arbitration (Step 3 of the `tribunal-loop` skill) returns JSON only, matching this
+schema. All numeric values must reflect actual counts from the provider inputs. The `consensus`
+field is `CONSENSUS` (reported by ≥2 providers) or `SINGLE_PROVIDER` (one provider).
+The deterministic ignored-path and deleted-path sources are attributed as
+`repository-policy`; they do not add a provider-assessment entry.
+
+```json
+{
+  "tribunal_verdict": {
+    "decision": "APPROVE|NEEDS_WORK|BLOCK",
+    "confidence": 0.92,
+    "rationale": "..."
+  },
+  "findings": [
+    {
+      "id": "T-001",
+      "consensus": "CONSENSUS|SINGLE_PROVIDER",
+      "providers": ["codex", "deepseek"],
+      "severity": "critical|high|medium|low",
+      "category": "logic|security|performance|quality|edge-case|architecture|testing",
+      "file": "src/example.ts",
+      "line": 42,
+      "title": "...",
+      "description": "...",
+      "suggestion": "...",
+      "confidence": 0.9,
+      "blocking_proof": {
+        "reachable_path": "...",
+        "material_impact": "...",
+        "caused_by_change": "..."
+      },
+      "arbiter_notes": "..."
+    }
+  ],
+  "scope_findings": [
+    {
+      "id": "S-001",
+      "path": "src/example.ts",
+      "why_out_of_scope": "...",
+      "disposition": "must-remove-before-merge|follow-up-only",
+      "conflicting_task_text": "...",
+      "smallest_acceptable_diff": "..."
+    }
+  ],
+  "provider_assessment": {
+    "codex": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
+    "gemini": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
+    "glm": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
+    "deepseek": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
+    "qwen": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
+    "grok": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
+    "claude": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"}
+  },
+  "conflicts_resolved": [],
+  "summary": "..."
+}
+```
+
+Each review-shaped provider leg read in Step 3 carries a wrapper-stamped
+`diff_stat` — `files_changed`, `insertions`, `deletions`, `base`, `base_oid`,
+`head_oid`, `truncated` — computed over the full base…HEAD range, with
+`truncated` saying whether the provider saw the whole diff. The provider output
+schema forbids the field and the wrapper strips any model-authored one, so a leg
+missing it was not produced by a runner: it counts as `failed`, not `ok`, in
+`provider_assessment` (issue #487). Error and disabled legs carry no `diff_stat`.
+`collect-review-evidence.sh` also binds `base_oid`/`head_oid` to the collection's
+own revision, so a leg stamped over a different range seals as `failed`.
+Every review-shaped leg also lists `files_examined` (repository-relative paths
+actually read); empty-findings APPROVE with no overlap against the changed paths
+is sealed `failed` (issue #518).
+
+For sealed PR delivery, this is an exact schema: unknown keys, unknown enum
+values, duplicate IDs/providers, invalid counts, provider status that differs
+from the wrapper-owned collection, and critical/high findings without all three
+`blocking_proof` strings are rejected. Each provider attributed to a finding
+must have returned a finding for that file. `findings_accepted` must equal the
+number of final findings attributed to that provider. Failed legs keep numeric counts at zero.
+Every human-facing per-leg result must include status: `ok, findings=0` for a clean leg,
+`ok, findings=N` (N = findings the leg returned) for a leg that ran and returned findings, `failed, findings=unavailable`
+for a failed leg, and `disabled` for an intentionally absent leg.
+Use the sealed manifest status when available.
+Every sealed ignored-path or deleted-path signal must be represented by a finding
+attributed to `repository-policy`. Sealed vacuous mutation signals must appear as
+`repository-policy` findings before APPROVE.
+
+Collections seal the environment APPROVE floor as
+`panel_policy: {"min_ok_legs": <1..7>, "source": "env"}` (from
+`TRIBUNAL_MIN_OK_LEGS` at collect time). Finalize enforces that sealed floor for
+`APPROVE` — never the ambient env — so a later lower `TRIBUNAL_MIN_OK_LEGS`
+cannot weaken an already-sealed gate. Manifests without `panel_policy` keep
+floor 1.
+
+`collect-review-evidence.sh finalize` retains the canonical arbitration and
+emits a proof with this shape:
+
+```json
+{
+  "schema": "tribunal-proof/v1",
+  "finalized_at": "2026-01-01T00:00:00Z",
+  "manifest_sha256": "...",
+  "pull_request": {
+    "number": 123,
+    "head_oid": "...",
+    "body_sha256": "...",
+    "diff_sha256": "..."
+  },
+  "arbitration": {
+    "path": "arbitration.json",
+    "sha256": "...",
+    "decision": "APPROVE|NEEDS_WORK|BLOCK",
+    "confidence": 0.92,
+    "critical_count": 0,
+    "high_count": 0
+  }
+}
+```
+
+The controller must retain the collection manifest digest returned by `collect`
+and the proof digest returned by `finalize`; neither digest may be accepted back
+from the model context. An identical `finalize` retry returns those same digests;
+a conflicting arbitration is rejected, and an interrupted run with only the
+identical canonical `arbitration.json` retained can finish its proof.

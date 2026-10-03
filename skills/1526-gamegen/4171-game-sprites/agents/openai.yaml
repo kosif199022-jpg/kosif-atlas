@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Sprites"
+  short_description: "GameGen: game sprites workflow"
+  default_prompt: "Use $game-sprites for this game using its saved GameGen preferences."

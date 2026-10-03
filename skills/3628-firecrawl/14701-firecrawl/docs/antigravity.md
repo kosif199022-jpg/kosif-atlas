@@ -1,0 +1,44 @@
+> Source: https://docs.firecrawl.dev/quickstarts/antigravity.md
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.firecrawl.dev/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# MCP Web Search & Scrape in Antigravity
+
+> Add Firecrawl web scraping and search to Google Antigravity
+
+Add Firecrawl's keyless Search, Scrape, and Parse tools to [Google Antigravity](https://antigravity.google/) through the hosted MCP server.
+
+## Quick setup
+
+Open Antigravity settings (`Cmd/Ctrl + ,`), search for **MCP Servers**, and add:
+
+```json theme={null}
+{
+  "mcpServers": {
+    "firecrawl": {
+      "serverUrl": "https://mcp.firecrawl.dev/v2/mcp"
+    }
+  }
+}
+```
+
+Reload the window and confirm that `firecrawl_search`, `firecrawl_scrape`, and `firecrawl_parse` are available.
+
+Keyless access has limits shared by users on the same public IP. Sign in from an interactive client with [For Humans](/mcp-server/oauth), or [add an API key](/mcp-server/keyless#add-an-api-key) for unattended use.
+
+## Try it
+
+```text theme={null}
+Use Firecrawl to search for the latest Vercel AI SDK release notes and summarize the sources.
+```
+
+```text theme={null}
+Scrape https://docs.firecrawl.dev/ai-onboarding and list the linked guides.
+```
+
+## Troubleshooting
+
+* **Server shows as failed:** confirm the hosted URL and inspect the MCP output panel.
+* **Crawl or another tool is missing:** keyless exposes exactly Search, Scrape, and Parse. Connect with OAuth or an API key for the broader tool surface.

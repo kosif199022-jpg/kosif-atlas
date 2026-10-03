@@ -1,0 +1,738 @@
+#!/usr/bin/env bun
+import { $ } from "bun";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { extname, resolve } from "node:path";
+import { writeTempPayload } from "../../../shared/scripts/temp-payload";
+import { renderSuggestion, suggestGroups } from "./typesafe-grouping";
+
+const SCRIPT_DIR = import.meta.dir;
+const DEFAULT_PROMPT_PATH = resolve(
+  SCRIPT_DIR,
+  "../references/commit-template.md",
+);
+const MAX_DIFF_LINES = 400;
+const MAX_TOTAL_DIFF_LINES = 3000;
+const MAX_UNTRACKED_INLINE_BYTES = 256 * 1024;
+/**
+ * Kept under the harness's Bash-output ceiling, so the digest lands whole in one
+ * tool result instead of being cut mid-diff. The payload file stays complete —
+ * this budget shapes the reply, not the analysis.
+ */
+const MAX_DIGEST_CHARS = 40_000;
+
+export type FileStatus = "added" | "modified" | "deleted" | "renamed";
+export type ParsedStatus = {
+  path: string;
+  oldPath?: string;
+  staged: boolean;
+  status: FileStatus;
+};
+
+type AnalyzedFile = ParsedStatus & {
+  diff: string;
+  insertions: number;
+  deletions: number;
+};
+
+type AnalysisResult = {
+  summary: FileSummary[];
+  files: AnalyzedFile[];
+  recentCommits: string[];
+  elidedFiles: number;
+};
+
+type Numstat = {
+  insertions: number;
+  deletions: number;
+};
+
+type FileSummary = ParsedStatus & Numstat;
+
+function statusFromCode(code: string): FileStatus | undefined {
+  switch (code) {
+    case "A":
+    case "?":
+      return "added";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "M":
+      return "modified";
+    default:
+      return undefined;
+  }
+}
+
+/** One `--porcelain -z` record, before the staged/unstaged split. */
+export type StatusRecord = {
+  index: string;
+  worktree: string;
+  path: string;
+  oldPath?: string;
+};
+
+/**
+ * Split `git status --porcelain -uall -z` into records.
+ *
+ * `-z` is not an optimization. Porcelain v1's human-readable form separates a
+ * rename's two paths with a literal ` -> ` and its entries with newlines, and
+ * both are legal inside a filename — `a -> b.txt` parses as a rename of `a` to
+ * `b.txt`. Under `-z` every field is NUL-terminated, a rename's source arrives
+ * as its own following field, and nothing is ever quoted or escaped.
+ */
+export function parseStatusRecords(output: string): StatusRecord[] {
+  const fields = output.split("\0");
+  const records: StatusRecord[] = [];
+
+  for (let i = 0; i < fields.length; i += 1) {
+    const field = fields[i];
+    // The stream ends with a terminator, so the final split element is empty.
+    if (field == null || field.length < 4) continue;
+
+    const index = field[0] ?? " ";
+    const worktree = field[1] ?? " ";
+    const record: StatusRecord = { index, worktree, path: field.slice(3) };
+
+    // A rename or copy on either side is followed by its source path. Consume
+    // that field here, or the next iteration reads it as a bogus entry.
+    if ("RC".includes(index) || "RC".includes(worktree)) {
+      i += 1;
+      const source = fields[i];
+      if (source) record.oldPath = source;
+    }
+
+    records.push(record);
+  }
+
+  return records;
+}
+
+/** Every changed path, one entry per staged/unstaged side. */
+export function parseStatus(output: string): ParsedStatus[] {
+  return parseStatusRecords(output).flatMap(toParsedStatus);
+}
+
+function toParsedStatus({
+  index,
+  worktree,
+  path,
+  oldPath,
+}: StatusRecord): ParsedStatus[] {
+  if (index === "?") {
+    return [{ path, oldPath, staged: false, status: "added" }];
+  }
+
+  const entries: ParsedStatus[] = [];
+  const stagedStatus = statusFromCode(index);
+  if (stagedStatus) {
+    entries.push({ path, oldPath, staged: true, status: stagedStatus });
+  }
+
+  const unstagedStatus = statusFromCode(worktree);
+  // A worktree-side "added" with an empty index side is `git add -N`
+  // (intent-to-add): a brand-new file, staged only as a placeholder with no
+  // content. It has to be reported or the analysis silently loses the file.
+  // Guarded on `!stagedStatus` so an unmerged "AA" conflict keeps its single
+  // staged entry instead of being reported twice.
+  if (unstagedStatus === "added" && !stagedStatus) {
+    return [{ path, oldPath, staged: false, status: "added" }];
+  }
+  if (unstagedStatus === "modified" || unstagedStatus === "deleted") {
+    entries.push({
+      path,
+      oldPath,
+      staged: false,
+      status: unstagedStatus,
+    });
+  }
+
+  return entries;
+}
+
+export function unquoteGitPath(rawPath: string): string {
+  if (!rawPath.startsWith('"') || !rawPath.endsWith('"')) {
+    return rawPath;
+  }
+
+  try {
+    return JSON.parse(rawPath);
+  } catch {
+    return rawPath.slice(1, -1);
+  }
+}
+
+const SKIP_DIFF_PATTERNS: RegExp[] = [
+  /\.lock$/,
+  /lock\.json$/,
+  /lock\.yaml$/,
+  /\.lockb$/,
+  /yarn\.lock$/,
+  /node_modules/,
+];
+
+export function shouldSkipDiff(path: string): boolean {
+  return SKIP_DIFF_PATTERNS.some((pattern) => pattern.test(path));
+}
+
+const BINARY_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".bmp",
+  ".ico",
+  ".webp",
+  ".avif",
+  ".svg",
+  ".mp3",
+  ".mp4",
+  ".wav",
+  ".ogg",
+  ".webm",
+  ".avi",
+  ".mov",
+  ".flac",
+  ".pdf",
+  ".zip",
+  ".tar",
+  ".gz",
+  ".bz2",
+  ".7z",
+  ".rar",
+  ".xz",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".exe",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".sqlite",
+  ".db",
+  ".lockb",
+]);
+
+export function isBinaryFile(path: string): boolean {
+  return BINARY_EXTENSIONS.has(extname(path).toLowerCase());
+}
+
+function expandHome(path: string): string {
+  if (path === "~") return homedir();
+  if (path.startsWith("~/")) return resolve(homedir(), path.slice(2));
+  return path;
+}
+
+// `any` because the argument is a JSON.parse result and the caller already
+// catches — only the string check below is load-bearing.
+function readChronicleTemplateOverride(settings: any): string | undefined {
+  const path = settings?.skills?.chronicle?.commit?.templatePath;
+  return typeof path === "string" ? path : undefined;
+}
+
+export async function resolvePromptPath(): Promise<string> {
+  try {
+    const settingsPath = resolve(homedir(), ".claude", "settings.json");
+    const settings = JSON.parse(await readFile(settingsPath, "utf-8"));
+    const override = readChronicleTemplateOverride(settings);
+    return override ? expandHome(override) : DEFAULT_PROMPT_PATH;
+  } catch {
+    return DEFAULT_PROMPT_PATH;
+  }
+}
+
+async function gitText(
+  args: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<string> {
+  return await $({ raw: args }, ...values).text();
+}
+
+function lineCount(content: string): number {
+  if (content.length === 0) return 0;
+  return content.endsWith("\n")
+    ? content.slice(0, -1).split("\n").length
+    : content.split("\n").length;
+}
+
+export function parseNumstat(output: string): Numstat {
+  const match = /^(\d+|-)\t(\d+|-)/.exec(output.trim());
+  if (!match || match[1] === "-" || match[2] === "-") {
+    return { insertions: 0, deletions: 0 };
+  }
+
+  return {
+    insertions: Number(match[1]),
+    deletions: Number(match[2]),
+  };
+}
+
+export function capDiff(
+  diff: string,
+  stats: Numstat,
+  maxLines = MAX_DIFF_LINES,
+): string {
+  const diffLines = diff.split("\n");
+  if (diffLines.length <= maxLines) return diff;
+
+  return [
+    ...diffLines.slice(0, maxLines),
+    `[diff truncated: ${maxLines} of ${diffLines.length} lines shown; +${stats.insertions}/-${stats.deletions} total]`,
+  ].join("\n");
+}
+
+function omittedDiff(
+  file: AnalyzedFile,
+  totalFiles: number,
+  maxLines: number,
+): string {
+  return `[diff omitted: changeset exceeds the ${maxLines}-line aggregate budget; +${file.insertions}/-${file.deletions} in this file — ${totalFiles} files changed]`;
+}
+
+/**
+ * Per-file capping still lets a wide changeset blow past a usable context, so
+ * trim whole diffs — largest first — until the changeset fits. Stats survive,
+ * so the reader always keeps the shape of what was dropped.
+ */
+export function applyTotalDiffBudget<T extends AnalyzedFile>(
+  files: T[],
+  maxLines = MAX_TOTAL_DIFF_LINES,
+): T[] {
+  const counts = files.map((file) => lineCount(file.diff));
+  let total = counts.reduce((sum, count) => sum + count, 0);
+  if (total <= maxLines) return files;
+
+  const biggestFirst = counts
+    .map((count, index) => ({ count, index }))
+    .sort((a, b) => b.count - a.count);
+
+  const trimmed = new Set<number>();
+  for (const { count, index } of biggestFirst) {
+    if (total <= maxLines) break;
+    trimmed.add(index);
+    total =
+      total -
+      count +
+      lineCount(omittedDiff(files[index], files.length, maxLines));
+  }
+
+  return files.map((file, index) =>
+    trimmed.has(index)
+      ? { ...file, diff: omittedDiff(file, files.length, maxLines) }
+      : file,
+  );
+}
+
+/**
+ * Lock files never contribute a readable diff, but their stats still tell the
+ * story ("deps churned"). An untracked one is wholly new, so its line count IS
+ * the insertion count; a tracked one has to come from numstat or we'd report
+ * the entire file as added.
+ */
+async function lockfileStats(entry: ParsedStatus): Promise<Numstat> {
+  if (entry.status === "added" && !entry.staged) {
+    const content = await Bun.file(entry.path)
+      .text()
+      .catch(() => "");
+    return { insertions: lineCount(content), deletions: 0 };
+  }
+
+  const numstat = entry.staged
+    ? await gitText`git diff --cached --numstat -- ${entry.path}`
+    : await gitText`git diff --numstat -- ${entry.path}`;
+
+  return parseNumstat(numstat);
+}
+
+async function readUntrackedFile(path: string): Promise<AnalyzedFile> {
+  const file = Bun.file(path);
+  const content = await file.text();
+  const insertions = lineCount(content);
+
+  if (file.size > MAX_UNTRACKED_INLINE_BYTES) {
+    return {
+      path,
+      staged: false,
+      status: "added",
+      diff: `+++ new file: ${path}\n[large file - content skipped]`,
+      insertions,
+      deletions: 0,
+    };
+  }
+
+  const stats = { insertions, deletions: 0 };
+  return {
+    path,
+    staged: false,
+    status: "added",
+    ...stats,
+    diff: capDiff(`+++ new file: ${path}\n${content}`, stats),
+  };
+}
+
+function binaryResult(entry: ParsedStatus): AnalyzedFile {
+  return {
+    ...entry,
+    diff: "[binary file - diff skipped]",
+    insertions: 0,
+    deletions: 0,
+  };
+}
+
+export async function analyzeFile(entry: ParsedStatus): Promise<AnalyzedFile> {
+  try {
+    if (
+      entry.status === "added" &&
+      !entry.staged &&
+      !shouldSkipDiff(entry.path)
+    ) {
+      if (isBinaryFile(entry.path)) {
+        return binaryResult(entry);
+      }
+
+      return { ...entry, ...(await readUntrackedFile(entry.path)) };
+    }
+
+    if (shouldSkipDiff(entry.path)) {
+      return {
+        ...entry,
+        diff: "[lock file - diff skipped]",
+        ...(await lockfileStats(entry)),
+      };
+    }
+
+    if (isBinaryFile(entry.path)) {
+      return binaryResult(entry);
+    }
+
+    const [numstatText, diff] = await Promise.all([
+      entry.staged
+        ? gitText`git diff --cached --numstat -- ${entry.path}`
+        : gitText`git diff --numstat -- ${entry.path}`,
+      entry.staged
+        ? gitText`git diff --cached -- ${entry.path}`
+        : gitText`git diff -- ${entry.path}`,
+    ]);
+    const stats = parseNumstat(numstatText);
+
+    return { ...entry, ...stats, diff: capDiff(diff, stats) };
+  } catch {
+    return {
+      ...entry,
+      diff: "[unreadable - skipped]",
+      insertions: 0,
+      deletions: 0,
+    };
+  }
+}
+
+function summarizeFile(file: AnalyzedFile): FileSummary {
+  return {
+    path: file.path,
+    oldPath: file.oldPath,
+    staged: file.staged,
+    status: file.status,
+    insertions: file.insertions,
+    deletions: file.deletions,
+  };
+}
+
+async function analyzeChanges(): Promise<AnalysisResult> {
+  const entries = parseStatus(await gitText`git status --porcelain -uall -z`);
+  const [analyzed, logOutput] = await Promise.all([
+    Promise.all(entries.map(analyzeFile)),
+    gitText`git log --oneline -10`.catch(() => ""),
+  ]);
+  const files = applyTotalDiffBudget(analyzed);
+  const elidedFiles = files.filter((file) =>
+    file.diff.startsWith("[diff omitted:"),
+  ).length;
+
+  return {
+    summary: files.map(summarizeFile),
+    files,
+    recentCommits: logOutput.trimEnd() ? logOutput.trimEnd().split("\n") : [],
+    elidedFiles,
+  };
+}
+
+function fileLine(file: FileSummary): string {
+  const where = file.staged ? "staged  " : "unstaged";
+  const name = file.oldPath ? `${file.path}  (was ${file.oldPath})` : file.path;
+  return `${file.status.padEnd(8)} ${where}  ${name}  +${file.insertions}/-${file.deletions}`;
+}
+
+function diffSection(file: AnalyzedFile): string {
+  const where = file.staged ? "staged" : "unstaged";
+  return `### ${file.path} — ${file.status}, ${where}, +${file.insertions}/-${file.deletions}\n${file.diff}\n`;
+}
+
+/**
+ * Handing the analysis back on stdout is what removes two round trips — one to
+ * read the payload the script had just written, one to read the template it had
+ * only named. Diffs go last and drop largest-first, so a budgeted digest loses
+ * diff detail rather than the parts every run needs; `payloadPath` is where the
+ * dropped detail stays reachable.
+ */
+export function renderDigest(
+  analysis: AnalysisResult,
+  template: string,
+  payloadPath: string,
+  maxChars = MAX_DIGEST_CHARS,
+): string {
+  const head = [
+    `# Changeset — ${analysis.files.length} files, ${analysis.elidedFiles} with an elided diff`,
+    `full payload: ${payloadPath}`,
+    "",
+    "## Files",
+    ...analysis.summary.map(fileLine),
+    "",
+    "## Recent commits, for style",
+    ...analysis.recentCommits,
+    "",
+    "## Commit message template",
+    template.trimEnd(),
+    "",
+    "## Diffs",
+    "",
+  ].join("\n");
+
+  const sections = analysis.files.map(diffSection);
+  const room = maxChars - head.length;
+  const biggestFirst = sections
+    .map((section, index) => ({ size: section.length, index }))
+    .sort((a, b) => b.size - a.size);
+
+  const dropped = new Set<number>();
+  let total = sections.reduce((sum, section) => sum + section.length, 0);
+  for (const { size, index } of biggestFirst) {
+    if (total <= room) break;
+    dropped.add(index);
+    total -= size;
+  }
+
+  const kept = sections
+    .filter((_, index) => !dropped.has(index))
+    .join("\n")
+    .trimEnd();
+  if (dropped.size === 0) return `${head}${kept}\n`;
+
+  const names = [...dropped].map((index) => analysis.files[index]?.path ?? "?");
+  return `${head}${kept}\n\n[${dropped.size} diff(s) held back to fit the digest: ${names.join(", ")}. Read them from the payload above if a grouping turns on them.]\n`;
+}
+
+export type MustPair = { files: [string, string]; reason: string };
+
+const LOCK_MANIFESTS: Record<string, string> = {
+  "bun.lock": "package.json",
+  "bun.lockb": "package.json",
+  "package-lock.json": "package.json",
+  "yarn.lock": "package.json",
+  "pnpm-lock.yaml": "package.json",
+  "Gemfile.lock": "Gemfile",
+  "Cargo.lock": "Cargo.toml",
+  "poetry.lock": "pyproject.toml",
+  "uv.lock": "pyproject.toml",
+  "go.sum": "go.mod",
+  "composer.lock": "composer.json",
+};
+
+/** Where the implementation of a test file would live, most likely first. */
+function implementationsOf(path: string): string[] {
+  const slash = path.lastIndexOf("/");
+  const dir = path.slice(0, slash + 1);
+  const name = path.slice(slash + 1);
+  const rails = /^(?:spec|test)\/(.+)_(?:spec|test)\.rb$/.exec(path);
+  if (rails) return [`app/${rails[1]}.rb`, `lib/${rails[1]}.rb`];
+  const patterns: [RegExp, string][] = [
+    [/^(.+)\.(?:test|spec)(\.[^.]+)$/, "$1$2"],
+    [/^(.+)_(?:test|spec)(\.[^.]+)$/, "$1$2"],
+    [/^test_(.+\.py)$/, "$1"],
+  ];
+  for (const [pattern, replacement] of patterns) {
+    if (pattern.test(name)) return [dir + name.replace(pattern, replacement)];
+  }
+  return [];
+}
+
+// Found from paths alone, so the agent spends no judgement here and it holds without a TypeSafe key.
+export function mustPairs(paths: string[]): MustPair[] {
+  const changed = new Set(paths);
+  const pairs: MustPair[] = [];
+  for (const path of changed) {
+    const impl = implementationsOf(path).find((p) => changed.has(p));
+    if (impl) {
+      pairs.push({
+        files: [path, impl],
+        reason: "test with its implementation",
+      });
+      continue;
+    }
+    const slash = path.lastIndexOf("/");
+    const manifest = LOCK_MANIFESTS[path.slice(slash + 1)];
+    const manifestPath = manifest && path.slice(0, slash + 1) + manifest;
+    if (manifestPath && changed.has(manifestPath)) {
+      pairs.push({
+        files: [path, manifestPath],
+        reason: "lock file with its manifest",
+      });
+    }
+  }
+  return pairs;
+}
+
+/** What the plan must follow, decided here so the agent only writes prose around it. */
+export function renderRules(paths: string[]): string {
+  const unique = [...new Set(paths)];
+  const lines: string[] = [];
+  if (unique.length > 5) {
+    lines.push(
+      `Split is final: ${unique.length} files, so any 2+ groups commit atomic — omit \`simple\` (unless \`exclude\` leaves 5 or fewer).`,
+    );
+  }
+  for (const pair of mustPairs(unique)) {
+    lines.push(`- ${pair.files.join(" + ")} (${pair.reason})`);
+  }
+  if (lines.length === 0) return "";
+  return ["", "## Rules the plan must follow", ...lines, ""].join("\n");
+}
+
+export type PlanVerification = {
+  ok: boolean;
+  missing: string[];
+  leftover: string[];
+  excluded: string[];
+};
+
+function normalizePath(path: string): string {
+  const unquoted = unquoteGitPath(path.trim());
+  return unquoted.startsWith("./") ? unquoted.slice(2) : unquoted;
+}
+
+/**
+ * A commit run is only trustworthy when the plan and the repository agree, so
+ * check both directions. `missing` catches a planned file the commit never
+ * picked up; `leftover` catches a changed file the plan never knew about — the
+ * failure the reporting agent cannot see, because a file that is absent from
+ * the plan is absent from its success report too.
+ */
+export function verifyPlanLanded(
+  planned: string[],
+  committed: string[],
+  remaining: string[],
+  exclude: string[] = [],
+): PlanVerification {
+  const committedPaths = new Set(committed.map(normalizePath));
+  const missing = [...new Set(planned.map(normalizePath))].filter(
+    (path) => !committedPaths.has(path),
+  );
+  const excludedPaths = new Set(exclude.map(normalizePath));
+  const left = [...new Set(remaining.map(normalizePath))];
+  const leftover = left.filter((path) => !excludedPaths.has(path));
+  const excluded = left.filter((path) => excludedPaths.has(path));
+
+  return {
+    ok: missing.length === 0 && leftover.length === 0,
+    missing,
+    leftover,
+    excluded,
+  };
+}
+
+export async function committedPathsSince(base: string): Promise<string[]> {
+  // --no-renames keeps a rename's old path in the list, matching the plan's
+  // habit of carrying both oldPath and path for one commit.
+  const output =
+    await gitText`git diff --name-only --no-renames -z ${base} HEAD`;
+
+  return output.split("\0").filter(Boolean);
+}
+
+export async function remainingPaths(): Promise<string[]> {
+  // Take every record's path whatever its code, rather than going through
+  // parseStatus: a status code the mapping does not know would drop out here
+  // too, and that silent drop is exactly what this check exists to expose.
+  return parseStatusRecords(await gitText`git status --porcelain -uall -z`).map(
+    (record) => record.path,
+  );
+}
+
+async function verifyMain(argv: string[]) {
+  const baseIndex = argv.indexOf("--base");
+  const base = baseIndex === -1 ? "" : (argv[baseIndex + 1] ?? "");
+  const separator = argv.indexOf("--");
+  const planned = separator === -1 ? [] : argv.slice(separator + 1);
+
+  if (!base || planned.length === 0) {
+    console.error(
+      "usage: analyze-changes.ts verify --base <sha> -- <planned file> ...",
+    );
+    process.exit(2);
+  }
+
+  const [committed, remaining] = await Promise.all([
+    committedPathsSince(base),
+    remainingPaths(),
+  ]);
+  const verification = verifyPlanLanded(planned, committed, remaining);
+
+  console.log(
+    JSON.stringify(
+      {
+        base,
+        plannedFiles: planned.length,
+        committedFiles: committed.length,
+        ...verification,
+      },
+      null,
+      2,
+    ),
+  );
+
+  if (!verification.ok) process.exit(3);
+}
+
+async function main() {
+  const repoRoot = (await gitText`git rev-parse --show-toplevel`).trim();
+  if (repoRoot) process.chdir(repoRoot);
+  if (process.argv[2] === "verify") return await verifyMain(process.argv);
+
+  const [analysis, promptPath] = await Promise.all([
+    analyzeChanges(),
+    resolvePromptPath(),
+  ]);
+
+  if (analysis.files.length === 0) {
+    console.log("# Changeset — nothing to commit");
+    return;
+  }
+
+  const simple = process.argv.includes("--simple");
+  const [outputPath, template, suggestion] = await Promise.all([
+    writeTempPayload("commit", "analysis", analysis),
+    readFile(promptPath, "utf-8").catch(
+      () => `[template unreadable at ${promptPath}]`,
+    ),
+    simple
+      ? { skipped: "simple mode" }
+      : suggestGroups(analysis.files, {
+          apiKey: process.env.TYPESAFE_API_KEY,
+        }),
+  ]);
+
+  console.log(
+    renderDigest(analysis, template, outputPath) +
+      renderRules(analysis.files.map((file) => file.path)) +
+      renderSuggestion(suggestion),
+  );
+}
+
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("analyze-changes error:", err.message);
+    process.exit(2);
+  });
+}

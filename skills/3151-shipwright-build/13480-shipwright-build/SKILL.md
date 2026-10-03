@@ -1,0 +1,299 @@
+---
+name: shipwright-build
+description: "Implements code from /shipwright-plan sections using TDD, code review, Conventional Commits, and feature branch workflow.\nTRIGGER when: user wants to implement a planned section, build code from a plan, implement a feature from a section file, start coding a planned component, continue building the next section, write test cases for a section, implement tests, or create unit tests from a plan.\nDO NOT TRIGGER when: user asks to fix a bug or make a quick change to existing code (/shipwright-iterate), run existing tests (/shipwright-test), deploy (/shipwright-deploy), create requirements (/shipwright-project), plan implementation (/shipwright-plan), or design UI (/shipwright-design). Also DO NOT TRIGGER for ad-hoc code changes that don't reference a section file — use /shipwright-iterate instead."
+license: MIT
+compatibility: Requires uv (Python 3.11+), git repository required
+---
+
+# Shipwright Build Skill
+
+TDD implementation with code review, Conventional Commits, and feature branch workflow.
+Enhanced fork of deep-implement with decision logging, session handoff, and migration safety.
+
+> **Autonomous orchestrated mode:** When invoked by `/shipwright-run` in autonomous mode,
+> sections are delegated to the `section-builder` subagent (see `agents/section-builder.md`).
+> Each subagent gets a fresh context window and runs the full TDD cycle independently.
+> This skill is still used directly in guided mode and for standalone invocations.
+
+## Phase Index — Where the prose lives
+
+| Section | Reference |
+|---|---|
+| First Actions C/D/D2/E/F/G detail | [first-actions](references/first-actions.md) |
+| Step 3 TDD (Integration / pgTAP / E2E) | [tdd-tests](references/tdd-tests.md) |
+| Step 4 Implementation loop, Migration apply, Vite DX | [implementation-loop](references/implementation-loop.md) · [migrations-apply](references/migrations-apply.md) · [migration-safety](references/migration-safety.md) |
+| Step 4.5 Browser Verify | [browser-verify](references/browser-verify.md) · [debugging-protocol](references/debugging-protocol.md) |
+| Step 6 Code Review (Self / Full / External) | [code-review](references/code-review.md) · [self-review-checklist](references/self-review-checklist.md) · [code-review-protocol](references/code-review-protocol.md) · [code-review-interview](references/code-review-interview.md) |
+| Step 7 Apply review fixes | [apply-interview-fixes](references/apply-interview-fixes.md) |
+| Step 8 Commit (Conventional Commits) | [git-operations](references/git-operations.md) · [pre-commit-handling](references/pre-commit-handling.md) |
+| Step 9 Decision log | [section-doc-update](references/section-doc-update.md) |
+| Step 10 Section state, record_event, split-done canon · requirement write-back (Step 1 *detects* the mockup contradiction, Step 10b *records* it + the shared-touch carve-out) | [section-state](references/section-state.md) · [requirement-writeback](references/requirement-writeback.md) |
+| Step 10a Reflection | [reflection](references/reflection.md) |
+| Autonomous Section Loop | [autonomous-loop](references/autonomous-loop.md) |
+| Error handling (tests / hooks / context) | [error-handling](references/error-handling.md) |
+| Performance / Simplification / Finalization | [performance-checklist](references/performance-checklist.md) · [simplification-patterns](references/simplification-patterns.md) · [finalization](references/finalization.md) |
+
+---
+
+## CRITICAL: First Actions
+
+**Governing rules:** Read and follow `shared/constitution.md` (ALWAYS / ASK FIRST / NEVER boundaries).
+
+**BEFORE using any other tools**, do these in order:
+
+### A. Print Intro Banner
+
+```
+================================================================================
+SHIPWRIGHT-BUILD: TDD Implementation
+================================================================================
+Implements code from /shipwright-plan section files.
+
+Usage: /shipwright-build @path/to/sections/01-auth.md [--review-model opus|sonnet|haiku|inherit|fable] [--finalization-model ...] [--execution-model ...]
+   or: Invoked by /shipwright-run (orchestrator)
+
+Workflow per section:
+  1. Read section spec
+  2. Write tests first (TDD)
+  3. Implement until tests pass
+  4. Code review (subagent)
+  5. Fix review findings
+  6. Commit (Conventional Commits)
+  7. Update decision log + docs
+
+Features:
+  - Auto feature branch (build/{slug}-{session-id}, derived from run config)
+  - Conventional Commits (feat:, fix:, refactor:, etc.)
+  - Migration safety (down.sql + destructive change detection)
+  - Session handoff before context limits
+================================================================================
+```
+
+### B. Validate Input
+
+Check if user provided @file argument pointing to a section markdown file. If NO argument or invalid, print the "Section File Required" notice and **stop and wait for user to re-invoke with correct path.**
+
+```
+================================================================================
+SHIPWRIGHT-BUILD: Section File Required
+================================================================================
+
+This skill requires a path to a section markdown file.
+
+Example: /shipwright-build @sections/01-auth.md
+
+Section files are generated by /shipwright-plan.
+================================================================================
+```
+
+### C. Detect Invocation Mode
+
+Resolve it with `{shared_root}/scripts/tools/get_phase_context.py --phase-task-id "{phaseTaskId}" --phase build` (**omit `--phase-task-id` entirely if the orchestrator did not hand you one** — that is what selects standalone) and store the returned `mode` as `invocation_mode` (`pipeline` | `standalone` | `error` → STOP). **The dispatch token the orchestrator hands you is the authority — never re-derive the mode from run-config state.** See [first-actions](references/first-actions.md) for the full decision tree (incl. the out-of-sequence warning + the Single-Session Gate Discipline).
+
+### D. Discover Plugin Root, Run Setup Script
+
+`SHIPWRIGHT_PLUGIN_ROOT` comes from the SessionStart hook. Then run `setup_implementation_session.py` and parse its JSON (`success`, `mode == "resume"`, etc.). Full procedure: [first-actions](references/first-actions.md).
+
+### D2. Initialize & Validate Environment
+
+Run `validate_env.py --init` then `validate_env.py` (no `--init`). Handle `created` / `updated` / `unchanged` / `success == false` / `optional_missing` per [first-actions](references/first-actions.md).
+
+### E. Create Feature Branch
+
+Always feature-branch before changes. Resume path: `git checkout {branch_name}`. Create path: anchor on the default branch first. Full snippet + naming fallbacks in [first-actions](references/first-actions.md).
+
+### F. Load Config
+
+Read `shipwright_build_config.json` from project root; defaults in [first-actions](references/first-actions.md) (auto_push false, conventional_commits true, decision_log true, session_handoff true, migration_safety true).
+
+### G. Print Session Report
+
+Resolve model tiers first (**Model tiers** in [first-actions](references/first-actions.md)). Print the SESSION REPORT block (Mode / Section / Branch / Auto-push / Migration safe / Resume from / Model tiers). Template in [first-actions](references/first-actions.md).
+
+---
+
+## Step 0: Phase Session Context Recovery
+
+If the orchestrator handed you a `phaseTaskId` — i.e. `/shipwright-run` dispatched
+you as a phase-runner subagent — you are part of an active pipeline. Run this as your
+very first action:
+
+```bash
+uv run "${SHIPWRIGHT_PLUGIN_ROOT}/../../shared/scripts/tools/get_phase_context.py" \
+  --phase-task-id <phaseTaskId-from-context>
+```
+
+The tool prints structured JSON with `runId`, `phase`, `splitId`, `prerequisites`,
+`runConditions`, and a `skill_artifacts_to_read` list. Read those artifacts
+before proceeding so this phase session has full context for what came before.
+
+If NO `phaseTaskId` was handed to you, this is a standalone invocation —
+continue with Step 1.
+
+---
+
+## Step 1: Read Section Spec
+
+**Goal:** Understand what to implement.
+
+Read the section file. Identify prerequisites, test strategy, implementation steps, files to create/modify.
+
+**Design Reference (mandatory for UI sections):** If the section contains a `## Design Reference` block, you **MUST read the referenced mockup HTML file** before writing any implementation code. The mockup is the visual truth — match layout, component hierarchy, colors/spacing/typography from `.shipwright/designs/visual-guidelines.md`, and responsive behavior. If no `## Design Reference` exists but `.shipwright/designs/screens/` contains relevant mockups, read them anyway. When in doubt, the mockup wins over your assumptions.
+
+**Mockup-vs-Section Contradiction — STOP and put it to a person.** When the approved mockup and the section's own description **contradict** each other, *implement exactly what the section specified* and *never ignore the mockup* cannot both be satisfied — and whichever one you happen to follow wins **silently**, discarding the reason mockups exist. **Stop building**, and **put it to a person**, quoting both sides. The expected resolution is that **the requirement is corrected to match the mockup**, because the mockup is the thing someone looked at and judged against real use. Record the outcome at Step 10b via `--contradiction`. Detecting the contradiction is a human read with **no deterministic check**; full rule in [requirement-writeback](references/requirement-writeback.md).
+
+If prerequisites reference other sections, verify those are complete (commits on the branch or main).
+
+```bash
+uv run "{shared_root}/scripts/tools/update_build_dashboard.py" \
+  --project-root "$(pwd)" --section "{section_name}" --step 1 --detail "Reading section spec" --session-id "{SHIPWRIGHT_SESSION_ID}"
+```
+
+---
+
+## Step 2: Install Dependencies
+
+If section spec lists npm/pip packages: `npm install {packages}` or `uv add {packages}`. **Do NOT commit package changes yet** — they'll be part of the section commit.
+
+---
+
+## Step 3: Write Tests First (TDD)
+
+See [implementation-loop](references/implementation-loop.md) for the TDD cycle and [tdd-tests](references/tdd-tests.md) for Integration / pgTAP / E2E test selection (incl. the decision table).
+
+Red phase: write failing tests, run `npm test` or `uv run pytest`, verify they fail.
+
+---
+
+## Step 4: Implement
+
+See [implementation-loop](references/implementation-loop.md) for guidance.
+
+**Goal:** Write code to make tests pass (green phase).
+
+1. Follow implementation steps from section spec
+2. After each significant change, run tests
+3. Continue until all tests pass
+
+**Migration Safety** (if enabled): when creating `up.sql`, also generate `down.sql`. See [migration-safety](references/migration-safety.md). The PostToolUse hook will warn on destructive operations automatically.
+
+**Vite DX scaffold** (Vite profiles only): see [migrations-apply](references/migrations-apply.md) "Vite DX Scaffold" section.
+
+**Apply migrations immediately** if migration files were created — preflight / apply / verify / post-apply manual steps per [migrations-apply](references/migrations-apply.md).
+
+**Checkpoint:** All tests pass. Run integration / pgTAP tests if files exist. Capture `tests_passed` / `tests_total` for Step 10. Dashboard update + context pressure check per [migrations-apply](references/migrations-apply.md).
+
+---
+
+## Step 4.5: Browser Verify (MANDATORY when frontend files changed)
+
+See [browser-verify](references/browser-verify.md).
+
+Detect frontend changes with `detect_frontend_changes.py`. If `has_frontend_changes == false`, skip. Otherwise: prerequisite self-healing, Playwright setup, dev server, run `browser_verify.py`, auto-fix loop (max 3 retries) per [debugging-protocol](references/debugging-protocol.md). Missing `dev_server` config is a RESOLUTION problem, not a skip trigger.
+
+---
+
+## Step 5: Refactor (Optional)
+
+Remove duplication, improve naming, extract utilities if warranted. Run tests after each refactor.
+
+---
+
+## Step 6: Reviewer Cascade — Spec → Code → Doubt (+ Optional External)
+
+See [code-review](references/code-review.md) for the full cascade (incl. its "Dispatch rule" for a Codex-driving session), the `spec-reviewer` HARD-GATE re-review loop, and the `doubt-reviewer` trigger heuristic.
+
+- **6a Self-Review (always):** 5-point checklist per [self-review-checklist](references/self-review-checklist.md). Fix all failures.
+- **Stage 1 — `spec-reviewer` (HARD-GATE):** spec-compliance gate; runs **whenever 6b runs** (same trigger, so Stage 1 always precedes Stage 2). On REJECT, fix and re-review; **6b does NOT run until PASS**.
+- **6b Full Review — `code-reviewer` (Stage 2, conditional):** triggered when diff > 100 lines, section `risk: high`, or security-sensitive files. Full flow per [code-review-protocol](references/code-review-protocol.md); user interaction per [code-review-interview](references/code-review-interview.md).
+- **6c External Cascade (opt-in):** `external_code_review.enabled: true` in `shipwright_build_config.json`. Generic code-quality second opinion only — the internal `spec-reviewer`/`doubt-reviewer` do NOT cascade externally. See [code-review](references/code-review.md).
+- **Stage 3 — `doubt-reviewer` (conditional, advisory):** after 6b passes, a fresh-context disprove pass for non-trivial touches (migrations, async/concurrency, cross-plugin imports, irreversible ops). Implementer must address each doubt.
+
+---
+
+## Step 7: Apply Review Fixes
+
+See [apply-interview-fixes](references/apply-interview-fixes.md). Autonomous mode: all findings arrive as "accepted" — apply all fixes, re-run tests, mark resolved. Track findings for Step 10 with statuses `fixed` / `declined` / `deferred`.
+
+---
+
+## Step 8: Commit (Conventional Commits)
+
+See [git-operations](references/git-operations.md).
+
+Format: `<type>(<scope>): <description>\n\n<body>\n\nCo-Authored-By: Claude <noreply@anthropic.com>`. Types: feat / fix / refactor / test / docs / chore. Scope = section name.
+
+```bash
+git add -A
+git commit -m "<message>"
+```
+
+**Auto-push** (if enabled): `git push -u origin {branch_name}`.
+
+Dashboard update + context pressure check (same pattern as Step 4 — see [migrations-apply](references/migrations-apply.md)). Pre-commit hook failures: see [error-handling](references/error-handling.md) + [pre-commit-handling](references/pre-commit-handling.md).
+
+---
+
+## Step 9: Update Decision Log
+
+See [section-doc-update](references/section-doc-update.md). If `.shipwright/agent_docs/decision_log.md` exists, log each significant decision via `write_decision_log.py`:
+
+```bash
+uv run "{plugin_root}/../../shared/scripts/tools/write_decision_log.py" \
+  --section "Build — {section_name}" \
+  --commit "$(git rev-parse HEAD)" \
+  --title "{short title}" \
+  --context "{why needed}" --decision "{what decided}" \
+  --consequences "{impact}" --rationale "{reasoning}" \
+  --rejected "{alternatives}" --project-root "$(pwd)"
+```
+
+Log architecture choices, accepted/declined review findings, deviations from the section spec.
+
+---
+
+## Step 10: Update Section State
+
+See [section-state](references/section-state.md) for the full procedure: `update_section_state.py`, `record_event.py` (per section — do NOT batch), dashboard update, phase-complete trigger, and the **canon-hybrid split-done finalization** (C3 handoff + C5 changelog entries + phase_history once per split — both `all_done == true` and `all_done == false` branches).
+
+### Step 10b: Declare the section's requirement impact (REQUIRED)
+
+Commands + carve-out: [requirement-writeback](references/requirement-writeback.md). Runs **after** the Step 8 commit, so `HEAD^..HEAD` is exactly this section's own range — never pass the branch base, which would sweep in every earlier section. `record_requirement_impact.py --phase build --scope "{section_name}"` records one declaration per section (`--impact none` needs a one-line `--reason`; `--impact modify --fr FR-XX.YY` is refused unless a `.shipwright/planning/**/spec.md` was actually edited; add `--contradiction` when Step 1's rule fired). Then `check_section_file_attribution.py` verifies every changed file is either in the section's `## Files to Create/Modify` block or a recorded `--extra "PATH=why"`. **Shared-touch carve-out:** a section that cannot be built without touching something shared **may** make the smallest such change, provided it is recorded as belonging to that section — "nothing outside the section" forbids *unrequested extra work*, not the work the section needs to function.
+
+---
+
+## Step 10a: Reflection — Capture Learnings
+
+Apply the reflection protocol ([reflection](references/reflection.md)): decisions -> ADR; observations -> `conventions.md`; cross-project insights -> Memory.
+
+---
+
+## Step 11: Session Handoff Check
+
+If conversation is long:
+
+```bash
+uv run "{shared_root}/scripts/tools/generate_session_handoff.py" \
+  --project-root "$(pwd)" --preserve-canon-marker \
+  --reason "mid-build handoff: section {section_name} {complete|in_progress}"
+```
+
+Do NOT pass `--canon-marker` here — a mid-build handoff is not a canon closure (the marker is reserved for the split-level C3 closure in [section-state](references/section-state.md)). DO pass `--preserve-canon-marker`: this writes to the same tracked `session_handoff.md` that closure marked, and without the flag it DROPS that marker, so Canon C3 reports "no canon marker" for every phase until the next split closes (iterate-2026-07-27-c3-phase-history-join).
+
+---
+
+## Autonomous Section Loop
+
+When invoked with `--autonomous`, build all pending sections sequentially. Full procedure: [autonomous-loop](references/autonomous-loop.md). When NOT autonomous: skip this section, proceed to Step 12.
+
+---
+
+## Step 12: Completion
+
+Verify: all tests pass, code review complete, commit on feature branch, decision log updated. Print the SHIPWRIGHT-BUILD COMPLETE summary block (Section / Branch / Commit / Tests / Review counts / Next steps).
+
+---
+
+## Error Handling
+
+See [error-handling](references/error-handling.md) for test failures, pre-commit hook failures, and context-window-pressure checkpoint procedure (Steps 4 and 8 fire `estimate_context_pressure.py`).

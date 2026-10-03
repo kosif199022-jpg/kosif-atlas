@@ -1,0 +1,11 @@
+{
+  "name": "grill",
+  "description": "Converges on a decision or spec via one high-leverage question at a time with a decisions ledger, then executes; use for \"grill me\", \"interview me\", \"ask me questions one at a time\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

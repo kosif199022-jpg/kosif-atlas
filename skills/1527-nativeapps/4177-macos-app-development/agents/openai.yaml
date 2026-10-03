@@ -1,0 +1,9 @@
+interface:
+  display_name: "macOS App Development"
+  short_description: "Bootstrap, build and debug native macOS apps in Swift"
+  default_prompt:
+    "Use $macos-app-development to set up or extend this native macOS app with SwiftUI and AppKit, following its
+    existing decisions."
+
+policy:
+  allow_implicit_invocation: true

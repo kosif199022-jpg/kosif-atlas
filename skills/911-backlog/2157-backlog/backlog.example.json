@@ -1,0 +1,16 @@
+{
+  "_about": "Exemplo documental v2; fonte de verdade é o SQLite administrado por backlogctl.",
+  "contract_version": "2",
+  "backlogs": [
+    {
+      "code": "ABC",
+      "name": "Exemplo",
+      "profile": "software",
+      "archived": false,
+      "bound_path": "/repo",
+      "items": [
+        {"id": "ABC-1", "backlog_code": "ABC", "title": "Exemplo", "category": "bug", "status": "open", "criticality": "high", "position": 1}
+      ]
+    }
+  ]
+}

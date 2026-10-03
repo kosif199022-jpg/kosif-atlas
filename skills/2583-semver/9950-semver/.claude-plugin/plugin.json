@@ -1,0 +1,20 @@
+{
+  "name": "semver",
+  "version": "0.1.0",
+  "description": "Decide the correct Semantic Version bump for a change (major/minor/patch) by analyzing the diff against the project's public surface and running the ecosystem's breaking-change detector, then apply it (bump the manifest + changelog).",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/semver",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "semver",
+    "versioning",
+    "breaking-change",
+    "release",
+    "api-compatibility",
+    "engineering-workflow"
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "$schema": "../../schema.json",
+  "schemaVersion": 1,
+  "project": "Coordination test fixture",
+  "defaultAgent": "oak",
+  "staleAfterMinutes": 30,
+  "executionPolicy": {
+    "defaultProfile": "assisted",
+    "profiles": {
+      "assisted": {
+        "delegation": "single",
+        "maxAgents": 1,
+        "review": "self",
+        "commits": "on-request",
+        "onHumanInput": "ask",
+        "maxTasks": 10,
+        "maxMinutes": 120
+      },
+      "unattended": {
+        "delegation": "as-needed",
+        "maxAgents": 3,
+        "review": "independent",
+        "commits": "automatic",
+        "onHumanInput": "defer",
+        "maxTasks": 10,
+        "maxMinutes": 120
+      }
+    },
+    "permissions": {
+      "push": false,
+      "merge": false,
+      "tags": false,
+      "deployment": false
+    }
+  },
+  "agents": [
+    {
+      "name": "oak",
+      "role": "Coordinator"
+    },
+    {
+      "name": "elm",
+      "role": "Researcher"
+    },
+    {
+      "name": "birch",
+      "role": "Builder"
+    },
+    {
+      "name": "rowan",
+      "role": "Reviewer"
+    },
+    {
+      "name": "cedar",
+      "role": "Tester"
+    },
+    {
+      "name": "goku",
+      "role": "Generalist",
+      "defaultProfile": "assisted"
+    }
+  ],
+  "repositories": [
+    {
+      "path": ".",
+      "readOnly": false
+    },
+    {
+      "path": "reference",
+      "readOnly": true
+    },
+    {
+      "path": "implementation",
+      "readOnly": false
+    }
+  ],
+  "backlog": {
+    "command": "backlog",
+    "testedVersion": "1.51.0",
+    "todoStatus": "To Do",
+    "activeStatus": "In Progress",
+    "doneStatus": "Done",
+    "reviewLabel": "needs-review"
+  }
+}

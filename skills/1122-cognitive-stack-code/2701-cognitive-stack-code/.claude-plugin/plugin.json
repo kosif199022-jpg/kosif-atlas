@@ -1,0 +1,11 @@
+{
+  "name": "cognitive-stack-code",
+  "description": "Routes a stuck problem to the right kind of mental model from a 2,375-model library, runs a recipe, and returns a five-part answer (plain answer, cognitive mirror, reasoning trace, recipe answer, optional next move); use for a decision, diagnosis, or stuck problem needing the right kind of model, not a pile of frameworks.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

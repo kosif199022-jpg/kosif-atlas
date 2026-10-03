@@ -1,0 +1,11 @@
+{
+  "name": "editorial-desk",
+  "description": "Senior-editor orchestrator running specialist contributors (strategist, angle, drafter, adversary, headline) over a shared blackboard; use for \"run the editorial desk\", a critiqued-and-revised opinion/POV essay, or a sharp argument piece with editorial review.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

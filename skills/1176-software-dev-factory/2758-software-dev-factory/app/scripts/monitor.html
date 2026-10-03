@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factory Control Room</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F2F4F6; --panel: #FFFFFF; --ink: #1B2630; --muted: #5B6B7A; --line: #C9D1D9;
+    --human: #D08A1F; --pred: #2E8B5C; --agent: #6D5BD0; --ext: #3A6FA8; --halt: #C2453A;
+    --human-bg: #FBF1DF; --pred-bg: #E3F3EA; --agent-bg: #ECE8FA; --ext-bg: #E3ECF6; --halt-bg: #F8E3E1;
+    --track: #E9EDF1; --text: #1B2630;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10161C; --panel: #171F27; --ink: #E6ECF1; --muted: #98A6B3; --line: #2C3741;
+      --human: #E9A43C; --pred: #4DBA83; --agent: #9A8CF0; --ext: #6FA1DC; --halt: #E5675C;
+      --human-bg: #2E2414; --pred-bg: #13301F; --agent-bg: #221E3B; --ext-bg: #142639; --halt-bg: #3A1A17;
+      --track: #1C252E; --text: #E6ECF1;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 14px; }
+  .wrap { max-width: 1480px; margin: 0 auto; min-height: 100vh; }
+  .sticky { position: sticky; top: 0; z-index: 5; background: var(--bg); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px 10px; }
+  h1 { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 30px; text-transform: uppercase; margin: 0; line-height: 1; letter-spacing: 0.01em; }
+  .sub { font-family: "IBM Plex Mono", Menlo, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+  .ptitle { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 17px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .mono { font-family: "IBM Plex Mono", Menlo, monospace; }
+  .chip { font-family: "IBM Plex Mono", Menlo, monospace; font-size: 10.5px; padding: 2px 7px; border-radius: 3px; border: 1px solid; white-space: nowrap; }
+  .k-adv  { color: var(--pred);  border-color: var(--pred);  background: var(--pred-bg); }
+  .k-ai   { color: var(--agent); border-color: var(--agent); background: var(--agent-bg); }
+  .k-run  { color: var(--ext);   border-color: var(--ext);   background: var(--ext-bg); }
+  .k-park { color: var(--human); border-color: var(--human); background: var(--human-bg); }
+  .k-fail { color: var(--halt);  border-color: var(--halt);  background: var(--halt-bg); }
+  .k-dim  { color: var(--muted); border-color: var(--line);  background: var(--track); }
+  button.chip { font: inherit; font-family: "IBM Plex Mono", Menlo, monospace; font-size: 10.5px; cursor: pointer; }
+  .stats { display: flex; align-items: center; gap: 22px; padding: 8px 24px 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  .stat b { font-family: "IBM Plex Mono", Menlo, monospace; font-weight: 500; font-size: 15px; font-variant-numeric: tabular-nums; margin-right: 5px; }
+  .stat { color: var(--muted); white-space: nowrap; }
+  .stats .ship { margin-left: auto; color: var(--muted); }
+  .cols, .cells { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+  .cols { padding: 10px 24px 8px; }
+  .col-h { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 2px solid; padding-bottom: 4px; }
+  .col-h .nm { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .col-h .n { font-family: "IBM Plex Mono", Menlo, monospace; font-size: 11px; color: var(--muted); }
+  .lanes { padding: 6px 24px 24px; display: flex; flex-direction: column; gap: 14px; }
+  .lane { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  .lane-h { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; user-select: none; }
+  .lane-h svg { transition: transform .15s; flex: none; }
+  .lane.closed .lane-h svg { transform: rotate(-90deg); }
+  .lane-h .nm { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 18px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .lane-h .desc { color: var(--muted); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lane-h .prog { font-family: "IBM Plex Mono", Menlo, monospace; font-size: 11px; color: var(--muted); }
+  .lane-h .bar { width: 160px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .lane-h .bar i { display: block; height: 100%; background: var(--pred); }
+  .cells { padding: 0 14px 14px; }
+  .lane.closed .cells { display: none; }
+  .cell { background: var(--bg); border-radius: 5px; padding: 8px; min-height: 64px; display: flex; flex-direction: column; gap: 8px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 5px; padding: 9px 11px; cursor: pointer; transition: transform .1s, box-shadow .1s; }
+  .card:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(27,38,48,.12); }
+  .card .t { font-weight: 600; font-size: 13px; line-height: 1.35; margin-bottom: 4px; }
+  .card .s { font-family: "IBM Plex Mono", Menlo, monospace; font-size: 10.5px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+  .card .note { font-size: 11.5px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
+  .card.dim { opacity: .7; }
+  .rail { display: flex; gap: 3px; margin-top: 7px; }
+  .rail i { flex: 1; height: 4px; border-radius: 2px; background: var(--track); }
+  .strail { display: flex; gap: 8px; margin-bottom: 14px; }
+  .st { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+  .st .bar { height: 6px; border-radius: 3px; width: 100%; background: var(--track); }
+  .st .nm { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .st-done .bar { background: var(--pred); }   .st-done .nm { color: var(--ink); }
+  .st-act .bar { background: var(--ext); }     .st-act .nm { color: var(--ext); font-weight: 600; }
+  .st-ai .bar { background: var(--agent); }    .st-ai .nm { color: var(--agent); font-weight: 600; }
+  .st-park .bar { background: var(--human); }  .st-park .nm { color: var(--human); font-weight: 600; }
+  .st-fail .bar { background: var(--halt); }   .st-fail .nm { color: var(--halt); font-weight: 600; }
+  @media (prefers-reduced-motion: no-preference) {
+    .st-act .bar, .st-ai .bar, .rail i.live { animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  }
+  .overlay { position: fixed; inset: 0; background: rgba(27,38,48,.45); z-index: 20; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+  .modal { background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--line); border-radius: 6px; width: 760px; max-width: 100%; padding: 18px 22px 22px; }
+  .modal .x { float: right; font-size: 20px; line-height: 1; color: var(--muted); cursor: pointer; background: none; border: none; padding: 2px 6px; }
+  .sec { margin-top: 16px; }
+  .lbl { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .feed { overflow-y: auto; max-height: 40vh; }
+  .feedrow { display: flex; align-items: baseline; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--line); font-size: 12.5px; cursor: pointer; }
+  .feedrow:last-child { border-bottom: none; }
+  .evdetail { background: var(--track); border-radius: 4px; padding: 8px 12px; margin: 2px 0 6px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .evdetail b { color: var(--ink); font-weight: 600; }
+  .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 14px 4px; }
+  @media (max-width: 900px) {
+    .sticky { position: static; }
+    header { flex-wrap: wrap; gap: 10px; padding: 12px 14px 8px; }
+    h1 { font-size: 24px; }
+    .stats { flex-wrap: wrap; gap: 8px 16px; padding: 8px 14px; }
+    .stats .ship { flex-basis: 100%; margin-left: 0; }
+    .cols { display: none; }
+    .lanes { padding: 6px 10px 20px; }
+    .lane-h { flex-wrap: wrap; }
+    .lane-h .desc { display: none; }
+    .lane-h .bar { width: 100%; }
+    .cells { grid-template-columns: 1fr; padding: 0 10px 10px; }
+    .cell::before { content: attr(data-col) " · " attr(data-n); font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--c); }
+    .cell:empty, .cell.none { display: none; }
+    .overlay { padding: 8px; }
+    .modal { padding: 14px; }
+    .strail { gap: 3px; } .st .nm { font-size: 9px; }
+  }
+  @media (min-width: 600px) and (max-width: 900px) {
+    .cells { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+    .lane-h .bar { width: 160px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="sticky">
+    <header>
+      <div>
+        <h1>Factory control room</h1>
+        <div class="sub">board view &middot; swimlane per release &middot; click a card for details</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="chip k-dim" id="toggleall">collapse all</button>
+        <span class="chip k-ai" id="spend" style="display:none"></span>
+        <span class="chip k-run" id="lease">&hellip;</span>
+        <span class="mono" id="clock" style="font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums"></span>
+      </div>
+    </header>
+    <div class="stats" id="stats"></div>
+    <div class="cols" id="colhead"></div>
+  </div>
+  <div class="lanes" id="lanes"></div>
+</div>
+<div id="modal" hidden></div>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var selectedRun = null;
+  var expanded = {};
+  var reviewOpen = {};
+  var reviewData = {};
+  var codeOpen = {}; // the diff section, folded until asked for
+  var fileOpen = {}; // one entry per file within it
+  var sending = {};
+  var verdictResult = {};
+
+  function sendVerdict(runId, decision) {
+    var box = $("why-" + runId);
+    var reason = box ? box.value : "";
+    // A rejection with no reason leaves the next person nothing to act on, and
+    // the factory itself records only "reviewer rejected the verdict".
+    if (decision === "reject" && reason.trim() === "") {
+      $("err-" + runId).textContent = "Please say what is wrong before rejecting — otherwise nobody knows what to fix.";
+      if (box) box.focus();
+      return;
+    }
+    sending[runId] = true;
+    render(last);
+    fetch("/verdict", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ run: runId, decision: decision, reason: reason }),
+    })
+      .then(function (r) { return r.json(); })
+      .catch(function () { return { ok: false, error: "Could not reach the factory." }; })
+      .then(function (res) {
+        sending[runId] = false;
+        verdictResult[runId] = res;
+        render(last);
+        poll();
+        // The run's state may have moved, so the panel is re-read — but only by
+        // REPLACING it on arrival. Clearing it first would drop the panel back to
+        // its loading state and hide the very error we just came back with.
+        fetch("/review?run=" + encodeURIComponent(runId))
+          .then(function (r) { return r.json(); })
+          .then(function (d) { reviewData[runId] = d; render(last); })
+          .catch(function () { /* keep what is on screen */ });
+      });
+  }
+  var tab = "queue"; // which side-pane tab is showing
+  var last = null; // most recent /state, so a review toggle can re-render without waiting for the poll
+  function usageText(u) {
+    if (!u) return "";
+    var parts = [];
+    if (typeof u.cost_usd === "number") parts.push("$" + u.cost_usd.toFixed(2));
+    if (typeof u.output_tokens === "number") parts.push(Math.round(u.output_tokens / 100) / 10 + "k out");
+    if (typeof u.input_tokens === "number") parts.push(Math.round(u.input_tokens / 100) / 10 + "k in");
+    return parts.join(" \u00b7 ");
+  }
+  function esc(v) {
+    return String(v == null ? "—" : v).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  // The decision card used to name a run and stop, which is no decision aid at
+  // all (OI-19). Clicking it pulls the reviewer's retained findings and the
+  // actual red^..green diff from the read-only /review endpoint.
+  function toggleReview(runId) {
+    if (reviewOpen[runId]) { reviewOpen[runId] = false; render(last); return; }
+    reviewOpen[runId] = true;
+    render(last);
+    if (reviewData[runId]) return;
+    fetch("/review?run=" + encodeURIComponent(runId))
+      .then(function (r) { return r.json(); })
+      .then(function (d) { reviewData[runId] = d; render(last); })
+      .catch(function () { reviewData[runId] = { error: "could not read the change" }; render(last); });
+  }
+
+  function diffHtml(text) {
+    return text.split("\n").map(function (line) {
+      var c = "var(--text)";
+      if (line.charAt(0) === "+" && line.slice(0, 3) !== "+++") c = "#2E8B5C";
+      else if (line.charAt(0) === "-" && line.slice(0, 3) !== "---") c = "#C4453C";
+      else if (line.charAt(0) === "@") c = "var(--muted)";
+      else if (line.slice(0, 4) === "diff") c = "var(--human)";
+      return '<div style="color:' + c + '">' + esc(line || " ") + "</div>";
+    }).join("");
+  }
+
+  // The person signing this is not necessarily an engineer, and the code is the
+  // LAST thing they need. Lead with what was asked for, what came back, and what
+  // signing actually does; keep every line of code folded away until asked for.
+  var LBL = "font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:5px";
+  var BODY = "font-size:12.5px;line-height:1.55;margin-bottom:12px";
+
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+  function renderReview(d) {
+    var box = 'margin-top:12px;border-top:1px solid var(--line);padding-top:12px';
+    if (!d) return '<div style="' + box + ';color:var(--muted);font-size:12px">reading it now…</div>';
+    if (d.error) return '<div style="' + box + ';color:var(--muted);font-size:12px">' + esc(d.error) + "</div>";
+
+    var out = '<div style="' + box + '">';
+
+    // 1. What you asked the factory for, in the words of the approved spec.
+    if (d.spec && (d.spec.problem || d.spec.outcome)) {
+      out += '<div style="' + LBL + '">What you asked for</div><div style="' + BODY + '">' +
+        (d.spec.problem ? esc(d.spec.problem) + " " : "") +
+        (d.spec.outcome ? '<span style="color:var(--muted)">The goal: ' + esc(d.spec.outcome) + "</span>" : "") + "</div>";
+    }
+
+    // 2. What came back, counted rather than described.
+    var files = d.files || [];
+    var added = files.reduce(function (n, f) { return n + f.added; }, 0);
+    var removed = files.reduce(function (n, f) { return n + f.removed; }, 0);
+    if (files.length) {
+      out += '<div style="' + LBL + '">What the factory built</div><div style="' + BODY + '">It changed ' +
+        plural(files.length, "file", "files") + " — writing " + plural(added, "line", "lines") +
+        " and deleting " + plural(removed, "line", "lines") + ".</div>";
+    }
+
+    // 3. What was checked automatically, so they know what is NOT left to them.
+    var c = d.checks || {};
+    var checks = [];
+    if (c.tests_ran) checks.push("Every test passed.");
+    if (typeof c.coverage_lines === "number" && typeof c.coverage_floor === "number") {
+      checks.push("Tests cover " + Math.round(c.coverage_lines) + "% of the code — your minimum is " + c.coverage_floor + "%.");
+    }
+    if (c.quality_passed) checks.push("The code passed the style and safety checks.");
+    if (checks.length) {
+      out += '<div style="' + LBL + '">Already checked for you</div><div style="' + BODY + '">' +
+        checks.map(function (t) {
+          return '<div style="display:flex;gap:7px;margin-bottom:3px"><span style="color:#2E8B5C">✓</span><span>' + esc(t) + "</span></div>";
+        }).join("") + "</div>";
+    }
+
+    // 4. The reviewer's read. Three kinds of absence, each said plainly — never
+    // a blank that reads as "nothing wrong".
+    var f = d.review && d.review.findings;
+    out += '<div style="' + LBL + '">What the reviewer said</div><div style="' + BODY + '">';
+    if (!d.review) {
+      out += '<span style="color:var(--muted)">Nothing was saved. This run finished before the factory started keeping the reviewer’s notes, so you are reading the change yourself this time.</span>';
+    } else if (f === null) {
+      out += '<span style="color:var(--muted)">The reviewer answered, but the reply could not be read back. Treat it as no review at all.</span>';
+    } else if (f && f.length === 0) {
+      out += '<span style="color:#2E8B5C">The reviewer read it and found no problems.</span>';
+    } else if (f && f.length) {
+      out += "The reviewer raised " + plural(f.length, "concern", "concerns") + ":" +
+        f.map(function (x) {
+          return '<div style="margin-top:6px"><span class="mono" style="color:var(--human);font-size:11px">' +
+            esc(x.severity || "note") + "</span> " + esc(x.path || "") +
+            '<div style="color:var(--muted)">' + esc(x.reason || x.message || "") + "</div></div>";
+        }).join("");
+    }
+    out += "</div>";
+
+    // 5. The ask, and the reply itself — a decision you cannot act on is not a
+    // decision, it is a notification.
+    var sent = verdictResult[d.run_id];
+    out += '<div style="' + LBL + '">What we need from you</div><div style="' + BODY + '">' +
+      "Decide whether this is the change you wanted." +
+      '<div style="margin-top:6px"><b style="color:#2E8B5C">Approve</b> <span style="color:var(--muted)">and the factory finishes the job and moves on.</span></div>' +
+      '<div><b style="color:#C4453C">Reject</b> <span style="color:var(--muted)">and the work stops here. Nothing is thrown away.</span></div>' +
+      "</div>";
+
+    // An answer already on disk outranks whatever this page remembers: the run is
+    // still waiting, so saying so is the only honest state.
+    if (!sent && d.signed) {
+      out += '<div style="border:1px solid var(--human);border-radius:4px;padding:10px 12px;font-size:12.5px;line-height:1.5;margin-bottom:8px">' +
+        "<b>You already " + esc(d.signed.decision === "approve" ? "approved" : "rejected") + " this</b>" +
+        (d.signed.timestamp ? ' <span style="color:var(--muted)">on ' + esc(String(d.signed.timestamp).replace("T", " at ").slice(0, 19)) + "</span>" : "") +
+        '<div style="color:var(--muted);margin-top:4px">Your decision is saved, but the factory has not carried it out — it is still waiting. Answering again below will re-submit it.</div></div>';
+    }
+
+    if (sent && sent.ok) {
+      out += '<div style="border:1px solid #2E8B5C;border-radius:4px;padding:10px 12px;font-size:12.5px;color:#2E8B5C">' +
+        "Recorded — you " + esc(sent.decision === "approve" ? "approved" : "rejected") + " this change." +
+        (sent.output ? '<div class="mono" style="font-size:10.5px;color:var(--muted);margin-top:5px;white-space:pre-wrap;word-break:break-all">' + esc(sent.output) + "</div>" : "") +
+        "</div>";
+    } else if (sending[d.run_id]) {
+      out += '<div style="font-size:12.5px;color:var(--muted)">Recording your decision…</div>';
+    } else {
+      out += '<textarea id="why-' + esc(d.run_id) + '" placeholder="Optional: say why, in your own words. Required if you reject." ' +
+        'style="width:100%;box-sizing:border-box;min-height:52px;font:inherit;font-size:12px;padding:7px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--text);resize:vertical"></textarea>' +
+        '<div style="display:flex;gap:7px;margin-top:7px">' +
+        '<button class="verdictbtn" data-run="' + esc(d.run_id) + '" data-decision="approve" ' +
+        'style="flex:1;font:inherit;font-size:12.5px;font-weight:600;padding:8px;border-radius:4px;cursor:pointer;border:1px solid #2E8B5C;background:#2E8B5C;color:#fff">Approve</button>' +
+        '<button class="verdictbtn" data-run="' + esc(d.run_id) + '" data-decision="reject" ' +
+        'style="flex:1;font:inherit;font-size:12.5px;font-weight:600;padding:8px;border-radius:4px;cursor:pointer;border:1px solid #C4453C;background:transparent;color:#C4453C">Reject</button>' +
+        "</div>" +
+        '<div id="err-' + esc(d.run_id) + '" style="font-size:12px;color:#C4453C;margin-top:6px;line-height:1.5">' +
+        (sent && sent.error ? esc(sent.error)
+          : (sent && !sent.ok ? esc(sent.plain || sent.output || "The factory could not carry out this decision.") : "")) + "</div>";
+    }
+
+    // 6. The code, fully folded. Nobody is made to scroll past a diff to reach
+    // the decision above.
+    if (files.length) {
+      out += '<div class="codetoggle" data-run="' + esc(d.run_id) + '" style="cursor:pointer;font-size:12.5px;color:var(--human);padding-top:2px">' +
+        (codeOpen[d.run_id] ? "▾ Hide the code" : "▸ Show me the code") +
+        ' <span style="color:var(--muted)">(' + plural(files.length, "file", "files") + ", you don’t need to read this)</span></div>";
+      if (codeOpen[d.run_id]) {
+        out += '<div style="margin-top:8px">' + files.map(function (file, i) {
+          var key = d.run_id + "::" + i;
+          return '<div style="border:1px solid var(--line);border-radius:4px;margin-bottom:6px;overflow:hidden">' +
+            '<div class="filetoggle" data-key="' + esc(key) + '" style="cursor:pointer;padding:7px 9px;display:flex;justify-content:space-between;gap:8px;align-items:baseline">' +
+            '<span class="mono" style="font-size:11px;word-break:break-all">' + (fileOpen[key] ? "▾ " : "▸ ") + esc(file.path) + "</span>" +
+            '<span class="mono" style="font-size:10.5px;white-space:nowrap"><span style="color:#2E8B5C">+' + file.added + '</span> <span style="color:#C4453C">−' + file.removed + "</span></span></div>" +
+            (fileOpen[key]
+              ? '<div class="mono" style="font-size:10.5px;line-height:1.5;max-height:320px;overflow:auto;border-top:1px solid var(--line);padding:8px;white-space:pre">' + diffHtml(file.body) + "</div>"
+              : "") + "</div>";
+        }).join("") +
+          (d.diff_truncated ? '<div style="font-size:11px;color:var(--muted);margin-top:4px">This change is too big to show in full here.</div>' : "") +
+          "</div>";
+      }
+    }
+    return out + "</div>";
+  }
+
+  function dur(a, b) {
+    if (!a || !b) return "—";
+    var s = Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 1000));
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m" + (s % 60 ? " " + (s % 60) + "s" : "");
+    return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+  }
+  function chipFor(ev) {
+    var k = ev.kind, st = ev.stage;
+    if (k === "stage-advanced") return { cls: "k-adv", label: "advanced" };
+    if (k === "run-complete") return { cls: "k-adv", label: "complete" };
+    if (k === "stage-started") {
+      if (st === "red" || st === "green") return { cls: "k-ai", label: "ai working" };
+      return { cls: "k-run", label: "started" };
+    }
+    if (k === "stage-parked" || k === "run-parked") {
+      return ev.disposition === "needs_owner"
+        ? { cls: "k-park", label: k }
+        : { cls: "k-fail", label: k };
+    }
+    return { cls: "k-run", label: k || "?" };
+  }
+  function detailFor(ev) {
+    if (ev.kind === "stage-parked" && Array.isArray(ev.missing) && ev.missing.length) {
+      return "missing: " + ev.missing.join(", ");
+    }
+    if (Array.isArray(ev.tokens) && ev.tokens.length) return ev.tokens.join(" · ");
+    if (ev.disposition) return ev.disposition;
+    return "";
+  }
+  function stageCls(name, run, lockHeld) {
+    if (run.parked && run.parked.stage === name && !run.complete) {
+      return run.parked.disposition === "needs_owner" ? "st-park" : "st-fail";
+    }
+    if (run.advanced.indexOf(name) >= 0 || run.complete) return "st-done";
+    if (run.started.indexOf(name) >= 0 && !run.parked && lockHeld) {
+      return name === "red" || name === "green" ? "st-ai" : "st-act";
+    }
+    return "st-todo";
+  }
+  function pillFor(run) {
+    if (run.complete) return { cls: "k-adv", label: "complete" };
+    if (run.superseded) return { cls: "k-fail", label: "superseded" };
+    if (run.record_disposition === "needs_owner" || (run.record_status !== null && run.parked && run.parked.disposition === "needs_owner")) {
+      return { cls: "k-park", label: "needs_owner" };
+    }
+    if (run.parked) return { cls: "k-fail", label: "failed at " + run.parked.stage };
+    return { cls: "k-run", label: run.record_status || "running" };
+  }
+  var C = { done: "#2E8B5C", park: "#D08A1F", fail: "#C2453A", todo: "#C9D1D9" };
+
+  // ---- board -------------------------------------------------------------
+  var COLS = [
+    { id: "next",   name: "Up next",            color: "var(--ext)",   bg: "var(--ext-bg)" },
+    { id: "now",    name: "Working now",        color: "var(--agent)", bg: "var(--agent-bg)" },
+    { id: "decide", name: "Needs your decision", color: "var(--human)", bg: "var(--human-bg)" },
+    { id: "done",   name: "Done",               color: "var(--pred)",  bg: "var(--pred-bg)" },
+    { id: "stop",   name: "Stopped",            color: "var(--halt)",  bg: "var(--halt-bg)" }
+  ];
+  var closed = {};      // lane name -> collapsed
+  var openCard = null;  // { kind: "run"|"queue", id }
+
+  function colOf(run, s) {
+    if (s.lease && s.lease.run_id === run.run_id && !run.complete) return "now";
+    if (run.complete) return "done";
+    if (run.superseded) return "stop";
+    if (run.record_disposition === "needs_owner" || (run.record_status !== null && run.parked && run.parked.disposition === "needs_owner")) return "decide";
+    return "stop";
+  }
+  function railCls(run, s) {
+    var live = !!(s.lease && s.lease.run_id === run.run_id);
+    return s.stages.map(function (nm) {
+      var c = stageCls(nm, run, live);
+      var col = c === "st-done" ? C.done : c === "st-park" ? C.park : c === "st-fail" ? C.fail
+        : c === "st-act" ? "var(--ext)" : c === "st-ai" ? "var(--agent)" : "";
+      return '<i' + (col ? ' style="background:' + col + '"' : "") + (c === "st-act" || c === "st-ai" ? ' class="live"' : "") + "></i>";
+    }).join("");
+  }
+  function matchItem(run, q) {
+    if (!run.spec_id) return null;
+    for (var i = 0; i < q.length; i++) if (q[i].text.indexOf(run.spec_id) >= 0) return q[i];
+    return null;
+  }
+  // Every card on the board, with its lane and column decided here and nowhere else.
+  function buildCards(s) {
+    var q = s.queue || [];
+    var dflt = q.length ? q[0].release : "current";
+    var cards = [], claimed = [];
+    s.runs.forEach(function (r) {
+      var item = matchItem(r, q);
+      if (item) claimed.push(item);
+      var col = colOf(r, s), pill = pillFor(r);
+      if (col === "now") pill = { cls: "k-ai", label: s.working ? "ai working" : "running" };
+      var note = "";
+      if (col === "decide") note = "Waiting " + dur(r.last_ts, s.now) + " for your verdict at " + (r.record_stage || "review");
+      else if (col === "stop" && r.superseded) note = "Superseded: a later run now owns " + (r.spec_id || "this spec");
+      else if (col === "stop" && r.parked) note = "Stopped at " + r.parked.stage + (r.parked.missing && r.parked.missing.length ? ": missing " + r.parked.missing.join(", ") : "");
+      else if (col === "stop") note = "No process holds this run and it never finished";
+      cards.push({ kind: "run", id: r.run_id, lane: item ? item.release : dflt, col: col,
+        title: item ? item.text.replace(/\s*\([^)]*\)\s*$/, "") : (r.spec_id || "(record gone — abandoned run)"),
+        sub: (r.spec_id || "") + " · run " + r.run_id.slice(0, 8), pill: pill, rail: railCls(r, s), note: note,
+        ts: r.last_ts, run: r, dim: col === "done" || col === "stop" });
+    });
+    q.forEach(function (t) {
+      if (claimed.indexOf(t) >= 0) return;
+      cards.push({ kind: "queue", id: t.text, lane: t.release, col: t.done ? "done" : "next",
+        title: t.text.replace(/\s*\([^)]*\)\s*$/, ""), sub: (/\(([^)]*)\)\s*$/.exec(t.text) || [0, ""])[1],
+        pill: t.done ? { cls: "k-adv", label: "done" } : t.blocked ? { cls: "k-dim", label: "waiting" } : { cls: "k-run", label: "ready" },
+        rail: "", note: t.blocked ? "Can’t start until: " + t.blocked : "", ts: "", item: t, dim: t.done });
+    });
+    cards.sort(function (a, b) { return String(b.ts).localeCompare(String(a.ts)); });
+    return cards;
+  }
+  // Release progress is the queue's business: an item counts once it is ticked
+  // or a run for it completed. Run cards alone would make a lane of 60 abandoned
+  // runs look like a lot of work.
+  function progress(lane, s) {
+    var items = (s.queue || []).filter(function (t) { return t.release === lane; });
+    var done = items.filter(function (t) {
+      return t.done || s.runs.some(function (r) { return r.complete && r.spec_id && t.text.indexOf(r.spec_id) >= 0; });
+    }).length;
+    return { done: done, total: items.length };
+  }
+  function laneOrder(cards, s) {
+    var seen = [];
+    (s.queue || []).concat(cards).forEach(function (x) { var r = x.release || x.lane; if (seen.indexOf(r) < 0) seen.push(r); });
+    return seen;
+  }
+  function cardHtml(c, col) {
+    return '<div class="card' + (c.dim ? " dim" : "") + '" data-kind="' + esc(c.kind) + '" data-id="' + esc(c.id) + '" style="border-left-color:' + col.color + '">' +
+      '<div class="t">' + esc(c.title) + "</div>" +
+      '<div class="s"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(c.sub) + '</span><span class="chip ' + c.pill.cls + '">' + esc(c.pill.label) + "</span></div>" +
+      (c.rail ? '<div class="rail">' + c.rail + "</div>" : "") +
+      (c.note ? '<div class="note">' + esc(c.note) + "</div>" : "") + "</div>";
+  }
+
+  function render(s) {
+    var lockHeld = !!s.lease;
+    var leaseEl = $("lease");
+    leaseEl.className = "chip " + (lockHeld ? "k-run" : "k-adv");
+    leaseEl.textContent = lockHeld ? "LOCK HELD · pid " + (s.lease.holder_pid || "?") + " · " + String(s.lease.run_id).slice(0, 8) : "LOCK FREE";
+
+    var cards = buildCards(s);
+    var count = function (col) { return cards.filter(function (c) { return c.col === col; }).length; };
+    var live = null;
+    s.runs.forEach(function (r) { if (lockHeld && r.run_id === s.lease.run_id) live = r; });
+    $("clock").textContent = live ? "elapsed " + dur(live.first_ts, s.now) : "";
+
+    var spent = 0, outTok = 0;
+    (s.active_events || []).forEach(function (ev) {
+      if (ev.usage && typeof ev.usage.cost_usd === "number") spent += ev.usage.cost_usd;
+      if (ev.usage && typeof ev.usage.output_tokens === "number") outTok += ev.usage.output_tokens;
+    });
+    var spendEl = $("spend");
+    spendEl.style.display = spent > 0 || outTok > 0 ? "" : "none";
+    spendEl.textContent = "ai spend " + (spent > 0 ? "$" + spent.toFixed(2) : "") + (outTok > 0 ? (spent > 0 ? " · " : "") + Math.round(outTok / 100) / 10 + "k out-tokens" : "");
+
+    var lanes = laneOrder(cards, s);
+    var main = lanes[0], mp = progress(main, s);
+    var durs = s.runs.filter(function (r) { return r.complete && r.first_ts && r.last_ts; })
+      .map(function (r) { return Date.parse(r.last_ts) - Date.parse(r.first_ts); }).sort(function (a, b) { return a - b; });
+    var median = durs.length ? dur("1970-01-01T00:00:00Z", new Date(durs[Math.floor(durs.length / 2)]).toISOString()) : "—";
+    var stat = function (n, l, color) { return '<span class="stat"><b style="color:' + (color || "var(--ink)") + '">' + esc(n) + "</b>" + esc(l) + "</span>"; };
+    $("stats").innerHTML =
+      stat(count("decide"), "waiting on you", count("decide") ? "var(--human)" : null) +
+      stat(count("now"), "running", "var(--agent)") +
+      stat(count("next"), "queued") +
+      stat(count("done"), "done", "var(--pred)") +
+      stat(count("stop"), "stopped", count("stop") ? "var(--halt)" : null) +
+      stat(median, "median run") +
+      (mp.total ? '<span class="ship">' + esc(main) + " ships when all " + mp.total + " queue items are done · " + mp.done + " so far</span>" : "");
+
+    $("colhead").innerHTML = COLS.map(function (col) {
+      return '<div class="col-h" style="border-color:' + col.color + '"><span class="nm" style="color:' + col.color + '">' + esc(col.name) + '</span><span class="n">' + count(col.id) + "</span></div>";
+    }).join("");
+
+    var anyOpen = lanes.some(function (l) { return !closed[l]; });
+    $("toggleall").textContent = anyOpen ? "collapse all" : "expand all";
+
+    $("lanes").innerHTML = lanes.length === 0
+      ? '<div class="empty">Nothing recorded yet. Add lines like <span class="mono">- [ ] item</span> to docs/release-queue.md and they show up here.</div>'
+      : lanes.map(function (name) {
+        var mine = cards.filter(function (c) { return c.lane === name; });
+        var p = progress(name, s), done = p.done, pct = p.total ? Math.round(100 * done / p.total) : 0;
+        var waiting = mine.filter(function (c) { return c.col === "decide"; }).length;
+        var chip = waiting ? '<span class="chip k-park">' + waiting + " waiting on you</span>"
+          : mine.some(function (c) { return c.col === "now"; }) ? '<span class="chip k-ai">in progress</span>'
+          : pct === 100 ? '<span class="chip k-adv">shipped</span>' : '<span class="chip k-run">planned</span>';
+        return '<div class="lane' + (closed[name] ? " closed" : "") + '" data-lane="' + esc(name) + '">' +
+          '<div class="lane-h">' +
+          '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+          '<span class="nm">' + esc(name) + "</span>" + chip +
+          '<span class="desc">' + mine.length + " items · " + esc(mine.map(function (c) { return c.col; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(", ")) + "</span>" +
+          '<span class="prog">' + done + " / " + p.total + ' done</span><span class="bar"><i style="width:' + pct + '%"></i></span></div>' +
+          '<div class="cells">' + COLS.map(function (col) {
+            var cs = mine.filter(function (c) { return c.col === col.id; });
+            return '<div class="cell' + (cs.length ? "" : " none") + '" data-col="' + esc(col.name) + '" data-n="' + cs.length + '" style="--c:' + col.color + '">' +
+              (cs.length ? cs.map(function (c) { return cardHtml(c, col); }).join("") : '<div class="empty">—</div>') + "</div>";
+          }).join("") + "</div></div>";
+      }).join("");
+
+    renderModal(s, cards);
+  }
+
+  // ---- modal -------------------------------------------------------------
+  function packetHtml(pk) {
+    if (!pk) return '<span style="color:var(--muted)">This run was abandoned, so there is no saved record of it. Only the event feed remains.</span>';
+    var sha = function (v, notYet) { return v ? '<span class="mono" style="font-size:11px">' + esc(v.slice(0, 10)) + "</span>" : '<span style="color:var(--muted)">' + esc(notYet || "not yet") + "</span>"; };
+    var row = function (label, value) { return '<div><span style="color:var(--muted)">' + esc(label) + "</span> " + value + "</div>"; };
+    var dim = function (t) { return '<span style="color:var(--muted)">' + esc(t) + "</span>"; };
+    var who = pk.adapter_model
+      ? '<span class="mono" style="font-size:11.5px">' + esc(pk.adapter_model) + "</span>" + (pk.adapter_reasoning_effort ? ", thinking effort " + esc(pk.adapter_reasoning_effort) : "")
+      : dim("not yet");
+    var checker = pk.governance === "controller" ? "the factory’s own rules, then you at the review gate" : pk.governance ? esc(pk.governance) : dim("not yet");
+    var crits = pk.criterion_ids.map(function (cid) {
+      var bound = null;
+      pk.criterion_map.forEach(function (m) { if (m.criterion === cid) bound = m; });
+      return '<div style="display:flex;align-items:baseline;gap:8px;padding:3px 0">' +
+        '<span style="flex:none;color:' + (bound ? C.done : "var(--muted)") + '">' + (bound ? "&#10003;" : "&#9675;") + "</span>" +
+        '<span class="chip k-run" style="flex:none">' + esc(cid) + "</span>" +
+        (bound ? '<span style="color:var(--muted)">proven — ' + (bound.evidence === "test" ? "a test passes for it" : "checked by " + esc(bound.evidence)) + " in commit " + esc(String(bound.subject).slice(0, 10)) + "</span>"
+          : '<span style="color:var(--muted)">not proven yet — no passing test is tied to it</span>') + "</div>";
+    }).join("");
+    var cov = pk.green_coverage;
+    var covTxt = cov && typeof cov.lines === "number" ? "tests touch " + cov.lines + "% of the lines and " + cov.branches + "% of the branches (must stay at or above " + cov.floor + "%)" : null;
+    return '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 24px;font-size:12.5px">' +
+      row("Who writes the code", who) + row("Who checks it", checker) +
+      row("Started from commit", sha(pk.base_sha)) + row("Failing tests written in", sha(pk.red_sha)) +
+      row("Code that makes them pass", sha(pk.green_sha)) +
+      row("Lint and type checks", pk.quality_passed === true ? "passed" : dim("not yet")) +
+      row("Test coverage", covTxt ? esc(covTxt) : dim("not yet")) + "</div>" +
+      '<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:6px;font-size:12.5px">' +
+      '<div style="color:var(--muted);margin-bottom:2px">What the spec asks for, and whether each part is proven:</div>' +
+      (crits || dim(pk.criterion_ids.length ? "none proven yet" : "not read from the spec yet")) + "</div>";
+  }
+  function feedHtml(s) {
+    var evs = s.active_events || [], feed = "";
+    for (var k = evs.length - 1; k >= 0; k--) {
+      var ev = evs[k], c2 = chipFor(ev);
+      feed += '<div class="feedrow" data-seq="' + esc(ev.seq) + '">' +
+        '<span class="mono" style="color:var(--muted);font-size:11.5px;flex:none;width:56px;font-variant-numeric:tabular-nums">' + esc((ev.ts || "").slice(11, 19)) + "</span>" +
+        '<span class="chip ' + c2.cls + '" style="flex:none">' + esc(c2.label) + "</span>" +
+        '<span style="font-weight:600;flex:none;width:76px">' + esc(ev.stage) + "</span>" +
+        '<span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+        (ev.usage ? '<span class="chip k-ai" style="margin-right:6px">' + esc(usageText(ev.usage)) + "</span>" : "") + esc(detailFor(ev)) + "</span></div>";
+      if (expanded[ev.seq] === true) {
+        feed += '<div class="evdetail">';
+        if (Array.isArray(ev.tokens) && ev.tokens.length) feed += "<b>tokens</b> " + ev.tokens.map(esc).join(" · ") + "<br>";
+        if (Array.isArray(ev.missing) && ev.missing.length) feed += "<b>missing</b> " + ev.missing.map(esc).join(" · ") + "<br>";
+        if (ev.usage) feed += "<b>ai usage</b> " + esc(usageText(ev.usage)) + "<br>";
+        if (ev.disposition) feed += "<b>disposition</b> " + esc(ev.disposition) + "<br>";
+        feed += "<b>seq</b> " + esc(ev.seq) + " · <b>ts</b> " + esc(ev.ts) + "</div>";
+      }
+    }
+    return feed || '<div style="color:var(--muted)">no events yet</div>';
+  }
+  function renderModal(s, cards) {
+    var m = $("modal");
+    if (!openCard) { m.hidden = true; m.innerHTML = ""; return; }
+    // The 2s poll rebuilds the modal wholesale, which would eat a half-typed
+    // reason and steal focus mid-sentence. While the owner is writing, leave it be.
+    if (document.activeElement && document.activeElement.tagName === "TEXTAREA" && m.contains(document.activeElement)) return;
+    var c = null;
+    cards.forEach(function (x) { if (x.kind === openCard.kind && x.id === openCard.id) c = x; });
+    if (!c) { openCard = null; m.hidden = true; return; }
+    var col = COLS.filter(function (x) { return x.id === c.col; })[0];
+    var out = '<div class="overlay"><div class="modal" style="border-top-color:' + col.color + '">' +
+      '<button class="x" id="mclose" aria-label="close">×</button>' +
+      '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px"><span class="chip ' + c.pill.cls + '">' + esc(c.pill.label) + '</span><span class="mono" style="font-size:11px;color:var(--muted)">' + esc(c.lane) + " · " + esc(col.name) + "</span></div>" +
+      '<div style="font-size:19px;font-weight:600;line-height:1.3">' + esc(c.title) + "</div>" +
+      '<div class="mono" style="font-size:12px;color:var(--muted);margin-top:3px">' + esc(c.sub) + "</div>";
+    if (c.kind === "queue") {
+      out += '<div class="sec"><div class="lbl">Status</div><div style="font-size:12.5px;line-height:1.55">' +
+        (c.item.done ? "Done. No run record is linked to this item." : c.item.blocked ? "Can’t start until: " + esc(c.item.blocked) : "Ready to run. Items run top to bottom in docs/release-queue.md.") + "</div></div>";
+    } else {
+      var r = c.run, live = !!(s.lease && s.lease.run_id === r.run_id);
+      out += '<div class="sec"><div class="lbl">Where it is in the pipeline</div><div class="strail" style="margin-bottom:8px">' +
+        s.stages.map(function (nm) { return '<div class="st ' + stageCls(nm, r, live) + '"><div class="bar"></div><div class="nm">' + esc(nm) + "</div></div>"; }).join("") + "</div>";
+      var mine = s.active_run_id === r.run_id;
+      var lastEv = mine ? s.active_events[s.active_events.length - 1] : null;
+      if (lastEv) {
+        var ch = chipFor(lastEv), busy = "";
+        if (live && lastEv.kind === "stage-started") {
+          busy = s.working
+            ? '<span class="chip" style="background:#2E8B5C22;color:#2E8B5C;border:1px solid #2E8B5C55">● working ' + esc(s.working.elapsed || "") + "</span>"
+            : '<span class="chip" style="background:#C4453C22;color:#C4453C;border:1px solid #C4453C55">○ no process — check for a stall</span>';
+        }
+        out += '<div style="display:flex;align-items:baseline;gap:10px;background:var(--track);border-radius:4px;padding:9px 12px;font-size:13px"><span class="chip ' + ch.cls + '">' + esc(ch.label) + "</span><span>" +
+          esc(lastEv.stage) + " — " + esc(detailFor(lastEv) || lastEv.kind) + "</span> " + busy + "</div>";
+      }
+      out += "</div>";
+      if (c.col === "decide") {
+        out += '<div class="sec" style="border:1px solid var(--human);background:var(--human-bg);border-radius:5px;padding:12px 14px">' +
+          '<div style="font-weight:600;color:var(--human)">' + esc((r.record_stage || (r.parked && r.parked.stage)) === "review" ? "Review the finished change" : "Decision at " + (r.record_stage || (r.parked && r.parked.stage) || "an unknown stage")) + "</div>" +
+          renderReview(reviewData[r.run_id]) + "</div>";
+      }
+      out += '<div class="sec"><div class="lbl">Run packet</div>' + packetHtml(r.packet) + "</div>";
+      out += '<div class="sec"><div class="lbl">Event feed</div><div class="feed">' + (mine ? feedHtml(s) : '<div style="color:var(--muted)">loading events…</div>') + "</div></div>";
+    }
+    m.innerHTML = out + "</div></div>";
+    m.hidden = false;
+    $("mclose").onclick = closeModal;
+    m.querySelector(".overlay").onclick = function (e) { if (e.target === e.currentTarget) closeModal(); };
+    Array.prototype.forEach.call(m.querySelectorAll(".codetoggle"), function (el) {
+      el.onclick = function () { var k = el.getAttribute("data-run"); codeOpen[k] = !codeOpen[k]; render(last); };
+    });
+    Array.prototype.forEach.call(m.querySelectorAll(".filetoggle"), function (el) {
+      el.onclick = function () { var k = el.getAttribute("data-key"); fileOpen[k] = !fileOpen[k]; render(last); };
+    });
+    Array.prototype.forEach.call(m.querySelectorAll(".verdictbtn"), function (el) {
+      el.onclick = function () { sendVerdict(el.getAttribute("data-run"), el.getAttribute("data-decision")); };
+    });
+    Array.prototype.forEach.call(m.querySelectorAll(".feedrow"), function (el) {
+      el.onclick = function () { var seq = el.getAttribute("data-seq"); expanded[seq] = expanded[seq] !== true; render(last); };
+    });
+  }
+  function openModal(kind, id) {
+    openCard = { kind: kind, id: id };
+    expanded = {};
+    if (kind === "run") {
+      selectedRun = id; // /state?run= supplies this run's events on the next poll
+      if (!reviewData[id]) {
+        fetch("/review?run=" + encodeURIComponent(id)).then(function (r) { return r.json(); })
+          .then(function (d) { reviewData[id] = d; if (last) render(last); })
+          .catch(function () { reviewData[id] = { error: "could not read the change" }; if (last) render(last); });
+      }
+    }
+    if (last) render(last);
+    poll();
+  }
+  function closeModal() { openCard = null; selectedRun = null; if (last) render(last); poll(); }
+
+  $("lanes").addEventListener("click", function (e) {
+    var card = e.target.closest(".card");
+    if (card) { openModal(card.getAttribute("data-kind"), card.getAttribute("data-id")); return; }
+    var h = e.target.closest(".lane-h");
+    if (h) { var n = h.parentNode.getAttribute("data-lane"); closed[n] = !closed[n]; if (last) render(last); }
+  });
+  $("toggleall").addEventListener("click", function () {
+    if (!last) return;
+    var lanes = laneOrder(buildCards(last), last);
+    var anyOpen = lanes.some(function (l) { return !closed[l]; });
+    lanes.forEach(function (l) { closed[l] = anyOpen; });
+    render(last);
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && openCard) closeModal(); });
+
+  function poll() {
+    fetch("/state" + (selectedRun ? "?run=" + encodeURIComponent(selectedRun) : "")).then(function (r) { return r.json(); }).then(function (s) {
+      last = s;
+      render(s);
+    }).catch(function () {
+      $("lease").className = "chip k-fail";
+      $("lease").textContent = "MONITOR OFFLINE";
+    });
+  }
+  poll();
+  setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>

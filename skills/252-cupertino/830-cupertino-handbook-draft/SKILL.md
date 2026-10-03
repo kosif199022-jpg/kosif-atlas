@@ -1,0 +1,50 @@
+---
+name: cupertino-handbook-draft
+description: "Use when the user wants to create and persist a durable handbook for one domain — design, code, testing, or documentation — capturing the project's actual conventions (or honest scaffolded defaults where none exist) as a checkable rule per dimension. Trigger on 'write a code handbook', 'draft our design standards', 'create a testing handbook', or similar requests naming a domain and asking for a persisted, checkable artifact rather than a one-off answer. Not for researching what a stack *should* adopt from external authority, and not for producing the machine-checkable .lehre/ruleset.json a lehre run enforces — use lehre-codify for those. This skill describes one domain as it already is, in a human-readable per-dimension handbook."
+---
+
+Draft `.cupertino/<domain>-handbook.md` by analyzing this project one dimension at a time, never inventing evidence, and marking honestly what's scaffolded versus observed.
+
+## Steps
+
+1. **Parse the domain** from the first argument — must be exactly one of `code`, `design`, `testing`, `documentation`. If it's anything else, say so and stop; don't guess a mapping.
+2. **Check for an existing handbook** at `.cupertino/<domain>-handbook.md`. If it exists, **ask the user explicitly** whether to overwrite before doing anything else — do not proceed silently. (A PreToolUse hook also enforces this: it refuses to overwrite an existing handbook file unless its first line is the literal marker `<!-- cupertino-overwrite-confirmed -->`. Only include that marker after the user has actually said yes.)
+3. **Run the dimension fan-out** via the Workflow tool. First resolve or build the shared symbol-index snapshot: read `analysis/cupertino/current.json`; if missing or its `source_fingerprint` no longer matches, run
+   ```
+   python3 -B "${CLAUDE_PLUGIN_ROOT}/scripts/build_symbol_index.py" --repo-path . --plugin-name cupertino
+   ```
+   (single-flight lock makes concurrent callers safe -- see `references/parallel-safe-research-protocol.md`). For a repo well under ~50 tracked files the build overhead may not be worth it -- skip this and pass `symbolIndexPath: null`. The snapshot isn't code-only: for `design` and `documentation` dimensions it also surfaces CSS selectors/at-rules/custom properties, HTML headings/landmarks, and full Markdown/MDX structure (headings, YAML frontmatter, links, code-fence languages).
+   ```
+   Workflow({ scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/handbook-draft.js", args: { domain: "<domain>", symbolIndexPath: "<resolved snapshot dir, or null>" } })
+   ```
+   This dispatches `handbook-dimension-analyst` once per dimension in the domain's fixed catalog (6 dimensions), each with exactly one dimension named — enforced structurally by the workflow's loop and backstopped by the PreToolUse hook, which denies any dispatch of that agent whose prompt doesn't contain exactly one `DIMENSION:` marker. Each candidate rule is then independently re-verified by a second, blind dispatch of the same agent type before you use it — a candidate that fails re-verification is discarded, and its dimension is written as scaffolded rather than analyzed.
+4. **Write the handbook** at `.cupertino/<domain>-handbook.md` with sections:
+   - `## Dimensions` — one entry per dimension: the rule, its source (`analyzed` with the file:line evidence, or `scaffolded` with the note explaining no convention exists), and the verification verdict.
+   - `## Exceptions & waivers` — empty to start; populated only by manual, out-of-band edits (no cupertino skill writes to this section automatically).
+   - `## Change log` — one entry noting this handbook was drafted, and when.
+5. **Write the sidecar** at `.cupertino/<domain>-handbook_summary.json` with `{domain, generatedAt, dimensions: [...]}`, matching the schema a PreToolUse hook validates on write (each dimension needs `dimension`, `rule`, `sourceMode`, and either `evidence` (if analyzed) or `note` (if scaffolded) — a missing gating field is rejected, not defaulted). For example:
+   ```json
+   {
+     "domain": "code",
+     "generatedAt": "2026-09-09T12:00:00Z",
+     "dimensions": [
+       {
+         "dimension": "error-handling",
+         "rule": "Every public function wraps I/O in a typed Result, never a bare exception.",
+         "sourceMode": "analyzed",
+         "evidence": "src/io/reader.py:42"
+       },
+       {
+         "dimension": "naming",
+         "rule": "No project-wide naming convention was found; default to snake_case for functions.",
+         "sourceMode": "scaffolded",
+         "note": "No existing convention across the sampled files; this is a scaffolded default, not an observed rule."
+       }
+     ]
+   }
+   ```
+6. **Never invent evidence.** If a dimension analyst reports `scaffolded` because the project genuinely has no visible convention, write it that way plainly — do not upgrade it to `analyzed` to make the handbook look more grounded than it is.
+
+## Output format
+
+Domain confirmation → overwrite check result → the six dimensions with source/evidence/verdict → confirmation that both files were written.

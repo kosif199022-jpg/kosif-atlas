@@ -1,0 +1,45 @@
+# agents.yaml — routing table for multi-CLI workflows
+#
+# Maps each CLI to the focus tags it handles. Used by:
+#   - Lou (as a cheat sheet for which model to invoke when)
+#   - orchestrate.sh, if/when built (as the routing source of truth)
+#
+# Schema:
+#   <name>:
+#     command:    Shell command to invoke this CLI
+#     focus:      #focus tags this CLI handles well (CHARTER §"Focus tags")
+#     cost_tier:  free | low | medium | high — for cost-aware routing
+#     notes:      Free-form hints for Lou or the orchestrator
+#
+# Routing precedence (matches CHARTER §"Routing rules"):
+#   1. Explicit @assignee on a task wins.
+#   2. Else: pick the highest-fit CLI whose focus list contains the task's
+#      #focus tag. If multiple match, prefer lower cost_tier.
+#   3. Else: report no match (orchestrator halts to Needs-Lou; Lou picks
+#      manually).
+#
+# Edit freely. Add new entries as you onboard new models or CLIs.
+
+claude:
+  command: claude
+  focus: [code, content, review, edit, plan-review]
+  cost_tier: high
+  notes: "Default for drafting and content-heavy work. Strong at synthesis and editorial passes."
+
+codex:
+  command: codex
+  focus: [code, review]
+  cost_tier: medium
+  notes: "Code-first instincts; useful for technical review of implementation correctness."
+
+gemini:
+  command: gemini
+  focus: [adversarial, research]
+  cost_tier: medium
+  notes: "Strong at edge-case generation and breadth-first research."
+
+ollama-mistral:
+  command: "ollama run mistral"
+  focus: [research]
+  cost_tier: free
+  notes: "Local; use for cheap research passes when latency and cost matter more than quality."

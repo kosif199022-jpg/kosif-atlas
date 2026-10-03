@@ -1,0 +1,166 @@
+# Fresh-eyes declaration contract (check 21)
+
+## Contents
+
+- [Why](#why)
+- [Form 1: delegation wording (visible prose)](#form-1-delegation-wording-visible-prose)
+- [Form 2: exemption directive (HTML comment)](#form-2-exemption-directive-html-comment)
+- [Check semantics](#check-semantics)
+- [Scan mechanics](#scan-mechanics)
+- [Parsing contract](#parsing-contract)
+
+The contract check 21 enforces. It is generic: it assumes nothing about your repo's doctrine,
+only that a skill step whose output judges work produced in the same context either declares
+delegation to a fresh-context worker or declares an exemption, in the skill's own files.
+
+## Why
+
+A context that produced work is a biased judge of that work. A skill step that self-reviews,
+self-scores, or self-verifies its own session's output carries that bias unless the judgment is
+delegated to a fresh context. Check 21 is a deterministic scanner: it cannot understand prose, so
+conformance is declared in one of two exact, greppable forms.
+
+## Form 1: delegation wording (visible prose)
+
+The step's own text says the judgment goes to a fresh-context worker, matching the POSIX ERE:
+
+```text
+fresh[- ]context
+```
+
+The wording must be **visible prose**: an HTML comment is stripped before this detector runs, so a
+hidden `<!-- dispatch this to a fresh-context agent -->` declares nothing. It would be exactly the
+parallel marker Form 1 exists to rule out.
+
+Both `fresh-context` and `fresh context` are canonical, and the same line must NAME the worker or
+the dispatch as a whole word (with inflections): `agent(s)`/`subagent(s)`, `worker(s)`,
+`advisor(s)`, `reviewer(s)`, `verifier(s)`, `dispatch(es|ed|ing)`, `delegate(s|d)`/`delegating`/
+`delegation`. "dispatch a fresh-context subagent" declares; a bare "think about it in a fresh
+context" assigns the judgment to no one and does not. Both halves need whole-word matches, so an
+embedded stem counts for neither: "agentless" names no worker, and "Refresh context" is not the
+fresh-context wording. The wording is visible prose, not a marker. It IS the model's
+instruction, so a parallel hidden marker would be a second source of truth that drifts.
+
+## Form 2: exemption directive (HTML comment)
+
+```markdown
+<!-- fresh-eyes-exempt: <class> -- <reason> -->
+```
+
+- **Classes (closed set):** `deterministic-gate` (the pass/fail verdict is a script's, not the
+  model's), `external-input` (the judgment is over input the context did not produce), `deferred`
+  (a recorded decision to retrofit later: the reason cites the trigger, and a tracking issue where
+  one exists).
+- **`-- <reason>` is required.** Justification lives at the suppression site (the ESLint
+  `-- description` syntax is the precedent). A directive without a reason FAILs.
+- The HTML comment is renderer-invisible but model-visible; it follows the inline-directive
+  precedent of markdownlint and Vale. A trailing `\r` is tolerated (CRLF checkouts).
+
+## Check semantics
+
+Rows evaluate top-down; the first match wins per detection site.
+
+| Condition | Result |
+|---|---|
+| Exemption directive with unknown class or malformed syntax | FAIL |
+| Exemption directive missing the `-- <reason>` | FAIL |
+| Judgment-language hit with BOTH delegation wording AND a directive in window | pass (INFO: contradictory declaration, hand-verify) |
+| Judgment-language hit with delegation wording in the proximity window | pass (INFO) |
+| Judgment-language hit with a valid exemption directive in the proximity window | pass (INFO) |
+| Judgment-language hit with neither | WARN |
+| Exemption directive with no judgment-language hit in its window (stale directive) | WARN (advisory: the heuristic list, not your directive, may be the gap; verify before removing) |
+
+## Scan mechanics
+
+- **Surface:** `SKILL.md` plus markdown under the skill's own `context/`, `templates/`,
+  `reference/`, `references/`, `actions/`, `lanes/`, and `catalog/` directories. `vendor/` and
+  `evals/` are excluded (vendored content is byte-frozen; evals fixtures contain arbitrary prose).
+  Plugin-level shared files outside the skill directory are NOT scanned. Anchor your declaration
+  in the skill's own files even when the judgment mechanics live in a shared spoke.
+- **Markdown structure:** see the parsing contract below. Keep literal directive examples inside
+  fences. A bare `<class>` placeholder in live prose would FAIL as an unknown class.
+- **Every directive on a line is classified on its own**, bounded at its own `-->`, so a malformed
+  directive cannot borrow a valid neighbor's class or reason to escape the FAIL.
+- **Proximity is per-file and line-based** (`FRESH_EYES_PROXIMITY_LINES` in `check-skill.sh`). A
+  declaration in a different file of the same skill does not satisfy proximity; the WARN message
+  says so ("declaration may live in a referenced spoke — hand-verify"). <!-- ai-slop-ignore: quotes check-skill.sh's emitted check 21 WARN string verbatim -->
+- **Judgment-language heuristic:** a curated POSIX ERE list shipped in `check-skill.sh`. It is a
+  heuristic, WARN-only by design. Curation policy: this plugin owns the list; update triggers are a
+  confirmed false hit, a valid exemption directive reading stale, or a fleet regression.
+  Disposition ladder for any WARN during triage: false hit → regex fix; genuine hit → delegate or
+  add a directive; declaration-in-spoke gap → hand-verified note, no code change.
+
+## Parsing contract
+
+Check 21 runs on a contributor's machine with nothing but a POSIX shell and `awk`, so its markdown
+handling is a hand-written structure pass, not a CommonMark implementation. This section is the
+scanner's **bounded claim**: what it models, what it does not attempt, and what it does when it
+cannot tell. A finding against this check is measured against this list, not against full CommonMark.
+
+### Modeled
+
+- **Fenced code blocks**, backtick and tilde. A closer is a same-character run at least as long as
+  the opener with only whitespace after it; opener and closer indentation cap at three spaces.
+- **Info strings.** An info-string line inside a fence is content, never a closer. A backtick opener
+  whose info string contains a backtick is prose, not a fence (CommonMark forbids it).
+- **Container-nested fences.** Blockquote and list-marker prefixes are stripped before fence
+  matching, so `> ~~~markdown` and `- ```markdown` open fences. Only a fence whose own opener carried
+  a prefix strips prefixes inside the fence, so a quoted run cannot close an unprefixed fence.
+- **Container termination.** A nested fence ends with its container: a blockquote when the quote
+  depth drops below the opener's, a list item on a dedent below the opener's content column.
+- **Multiple directives on one line**, each classified independently and bounded at its own `-->`.
+  The name must be followed by `:`, whitespace, or `-->`, so an ordinary comment about a longer
+  identifier such as `fresh-eyes-exemption` is not read as a directive.
+- **YAML frontmatter is skipped**, not parsed as markdown: nothing in it is a fence, a span, or a
+  directive, and every structural carry resets at its closing `---`.
+- **Whole-word wording boundaries** on both halves of Form 1, so `agentless` names no worker and
+  `Refresh context` is not the fresh-context wording.
+- **HTML comments**, stripped before the Form 1 detector so hidden wording cannot declare. Comment
+  state carries across lines until the closing `-->`, so delegation wording split across a multi-line
+  comment does not satisfy Form 1.
+
+### Not attempted
+
+Each of these is a real construct the scanner does not model. All are recorded here rather than
+patched, because the list of constructs CommonMark permits is unbounded and chasing it is what this
+contract exists to stop:
+
+- **Indented code blocks.** A four-space-indented line is either indented code or a list item's
+  continuation; separating them needs a block parser. Such a line is treated as ambiguous. See
+  *Ambiguity* below.
+- **Mixed container stacks.** Only blockquote depth and a single list-marker column are tracked, so a
+  fence opened at `> - ~~~markdown` is not released when the inner list ends while the quote
+  continues.
+- **Paragraph-interrupting block constructs.** A pending cross-line span carry expires at a blank
+  line or a fence, but not at an ATX heading, thematic break, or table that also interrupts the
+  paragraph in CommonMark.
+- **Inline code spans and backslash escapes.** A line that contains a backtick run or a backslash
+  before `<` is structurally ambiguous for directive hard verdicts and is skipped by the Form 1 and
+  judgment detectors. The scanner does not pair spans, carry openers across lines, or resolve
+  escapes. Literal directive examples in inline code therefore neither FAIL nor satisfy proximity;
+  a `\<!-- ... -->` sequence is not distinguished from a real comment opener.
+- **Reference definitions, HTML blocks, setext headings, and link/image syntax** are not interpreted
+  at all; they are scanned as ordinary prose.
+
+### Ambiguity: the scanner declines rather than guesses
+
+The two verdict families are asymmetric, and the whole posture follows from that:
+
+- `DIRECTIVE_MALFORMED` and `DIRECTIVE_NOREASON` are hard **FAIL**s. A false positive here blocks a
+  legitimate skill author on a parser artifact.
+- `HIT_WORDING` / `HIT_NONE` / `HIT_DIRECTIVE` and the stale-directive notice are **WARN**s or notes.
+  A miss there costs one nudge.
+
+So where the structure pass reaches a configuration it cannot resolve, it **withholds the hard
+verdicts** for directives on that line. It also withholds the stale WARN, and refuses to let such a
+directive satisfy a nearby judgment step. The same lack of confidence cuts both ways. On an
+indented-code line, `fe_icode` feeds that directive-side suppression only; the judgment detector
+still runs on the line's own prose. On a line with a backtick run or a backslash-escaped `<`, the
+scanner declines the line's own Form 1 and judgment detectors via an explicit skip.
+
+Where an unmodeled construct instead causes content to be **skipped**, such as an unclosed fence
+swallowing lines, no verdict forms at all. That is already the safe direction, and it is worth
+being exact: suppression prevents wrong FAILs; it is not what makes a skipped line harmless.
+
+**This posture is specific to check 21**, whose verdicts are authoring nudges. Do not carry it into a
+gate whose verdict is a security decision, where a miss is a bypass and fail-closed is correct.

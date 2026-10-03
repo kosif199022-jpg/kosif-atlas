@@ -1,0 +1,20 @@
+{
+  "created_at": "2026-03-19T00:00:00.000Z",
+  "type": "copy",
+  "sources": [
+    {
+      "url": "https://github.com/mattpocock/skills/tree/main/skills/productivity/grilling",
+      "repository": "mattpocock/skills",
+      "path": "skills/productivity/grilling",
+      "branch": "main",
+      "sha": "170ad48655825783d0193e850e31a9aac957bb95",
+      "original_name": "grilling",
+      "fetched_at": "2026-07-15T00:00:00.000Z"
+    }
+  ],
+  "license": "MIT",
+  "copyright": "Copyright (c) mattpocock",
+  "license_override": false,
+  "license_override_reason": null,
+  "modifications": "Generalized to be domain-agnostic (not just software). Added stop condition, recommendation-with-reasoning format, and pushback handling. Codebase-exploration clause widened to any available context. Re-grafted from upstream 'grilling' (renamed): facts-vs-decisions split, wait-for-answer rationale, and don't-act-until-confirmed guard."
+}

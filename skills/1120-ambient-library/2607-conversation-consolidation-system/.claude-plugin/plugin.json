@@ -1,0 +1,11 @@
+{
+  "name": "conversation-consolidation-system",
+  "description": "Builds a four-stage pipeline turning scattered Claude chat history into a searchable Obsidian external brain; use for \"I can't find what I discussed with Claude\", \"second brain for my AI work\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

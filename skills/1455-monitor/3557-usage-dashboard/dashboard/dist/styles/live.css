@@ -1,0 +1,278 @@
+.live-panel {
+  display: grid;
+  gap: var(--s-14);
+}
+
+.live-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-14);
+  align-items: start;
+}
+
+.live-head h2 {
+  margin: 0 0 var(--s-4);
+  color: var(--text);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.live-count {
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--surface-3) 72%, transparent);
+  padding: var(--s-4) var(--s-10);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.live-list {
+  display: grid;
+  gap: var(--s-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.live-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) max-content;
+  gap: var(--s-10);
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--surface-3) 54%, transparent);
+  padding: var(--s-8) var(--s-10);
+  cursor: pointer;
+  transition:
+    border-color 140ms var(--ease-out),
+    background-color 140ms var(--ease-out);
+}
+
+.live-row:hover,
+.live-row:focus-visible {
+  border-color: color-mix(in oklch, var(--accent) 42%, var(--edge-soft));
+  background: color-mix(in oklch, var(--accent-soft) 20%, var(--surface-3));
+  outline: 2px solid color-mix(in oklch, var(--accent) 46%, transparent);
+  outline-offset: 2px;
+}
+
+.live-row:active {
+  background: color-mix(in oklch, var(--accent-soft) 28%, var(--surface-3));
+}
+
+.live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--text-faint) 18%, transparent);
+}
+
+.live-dot.is-busy {
+  background: var(--sunrise-coral);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklch, var(--sunrise-coral) 18%, transparent);
+}
+
+.live-dot.is-idle {
+  background: var(--positive);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--positive) 18%, transparent);
+}
+
+.live-dot.is-recent {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 16%, transparent);
+}
+
+.live-dot.is-waiting {
+  background: var(--warn);
+  box-shadow:
+    0 0 0 3px color-mix(in oklch, var(--warn) 22%, transparent),
+    0 0 18px color-mix(in oklch, var(--warn) 42%, transparent);
+}
+
+.live-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.live-project-line {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s-8);
+  align-items: center;
+  min-width: 0;
+}
+
+.live-project-line .badge {
+  justify-self: start;
+}
+
+/* cockpit tag + status + ago share one centred grid column, so they line up
+   on the row's vertical centre regardless of how tall live-main (project +
+   path) is. */
+.live-status-cluster {
+  display: flex;
+  align-items: center;
+  gap: var(--s-10);
+}
+
+/* This live session is also a cockpit session — solid accent pill (the inverse
+   of cockpit's dashed "untracked" tag): it has a decision trail worth opening. */
+.live-cockpit-tag {
+  border: 1px solid color-mix(in oklch, var(--accent) 42%, var(--edge-soft));
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  padding: var(--s-2) var(--s-8);
+  color: color-mix(in oklch, var(--accent) 72%, var(--text));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.live-project {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-path {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-status-label,
+.live-ago {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.live-status-label {
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--bg-rail) 74%, transparent);
+  padding: var(--s-4) var(--s-8);
+  text-transform: lowercase;
+}
+
+.live-error {
+  margin: 0;
+  border: 1px solid color-mix(in oklch, var(--danger) 36%, var(--edge-soft));
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--danger) 10%, transparent);
+  padding: var(--s-10);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+
+/* Cockpit daemon down — its rows open transcripts there, so flag it. */
+.live-notice {
+  margin: 0;
+  border: 1px solid color-mix(in oklch, var(--warn) 38%, var(--edge-soft));
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--warn) 9%, transparent);
+  padding: var(--s-10);
+  color: color-mix(in oklch, var(--warn) 72%, var(--text));
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+
+.live-notice strong {
+  color: color-mix(in oklch, var(--warn) 88%, var(--text));
+}
+
+.live-notice code {
+  padding: 1px 6px;
+  border: 1px solid color-mix(in oklch, var(--accent) 40%, var(--edge-soft));
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  color: color-mix(in oklch, var(--accent) 70%, var(--text));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+
+/* Without cockpit, a row click can't open anything — soften the affordance. */
+.live-panel.is-cockpit-down .live-row {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.live-panel.is-cockpit-down .live-row:hover {
+  border-color: var(--edge-soft);
+  background: color-mix(in oklch, var(--surface-3) 54%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .live-dot.is-busy {
+    animation: live-busy-pulse 1.35s var(--ease-out) infinite;
+  }
+
+  .live-dot.is-waiting {
+    animation: live-waiting-pulse 2.2s var(--ease-out) infinite;
+  }
+}
+
+@keyframes live-busy-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 3px
+      color-mix(in oklch, var(--sunrise-coral) 20%, transparent);
+  }
+  50% {
+    transform: scale(1.18);
+    box-shadow: 0 0 0 7px
+      color-mix(in oklch, var(--sunrise-coral) 0%, transparent);
+  }
+}
+
+@keyframes live-waiting-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px color-mix(in oklch, var(--warn) 24%, transparent),
+      0 0 18px color-mix(in oklch, var(--warn) 40%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 7px color-mix(in oklch, var(--warn) 0%, transparent),
+      0 0 24px color-mix(in oklch, var(--warn) 54%, transparent);
+  }
+}
+
+@container (max-width: 560px) {
+  .live-head {
+    grid-template-columns: 1fr;
+  }
+
+  .live-row {
+    grid-template-columns: 12px minmax(0, 1fr);
+    gap: var(--s-8) var(--s-10);
+  }
+
+  /* stack: project/path on line 1, the status cluster on line 2 (left-aligned) */
+  .live-main {
+    grid-column: 2;
+  }
+
+  .live-status-cluster {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}

@@ -1,0 +1,87 @@
+# Self-Review Checklist
+
+Lightweight inline review (~30 seconds). Run BEFORE spawning the code-reviewer subagent.
+For each item: ✅ pass or ❌ fail + 1-sentence explanation. Fix all ❌ before committing.
+
+## Checklist
+
+### 1. Spec Compliance
+Does the code implement what the section spec requires?
+- All features/endpoints/components mentioned in the spec exist
+- No extra features added beyond the spec (YAGNI)
+- **Shared-touch carve-out:** a file the section had to touch to function — a
+  shared helper, a barrel export, a type it must extend — is **not** a YAGNI
+  violation, provided the change is the smallest one the section needs AND it is
+  recorded as belonging to this section (`record_requirement_impact.py --extra
+  "PATH=why"`, SKILL.md Step 10b). YAGNI forbids unrequested extra work, not the
+  work the section needs to run.
+- **Mockup-vs-spec contradiction:** if the approved mockup and the section
+  description disagree, this item is ❌ regardless of which one the code follows
+  — the decision belongs to a person (SKILL.md Step 1).
+
+### 2. Error Handling
+Are system boundaries properly guarded?
+- API routes have try/catch with meaningful error responses
+- External service calls (DB, APIs) handle failures
+- No unhandled null/undefined at data boundaries
+
+### 3. Security Basics
+Is user input treated as untrusted?
+- No raw user input in SQL queries (use parameterized queries)
+- No raw user input in HTML output (use framework escaping)
+- No hardcoded secrets, API keys, or tokens in source
+- Auth/permission checks on protected routes
+
+### 4. Test Quality
+Do tests validate behavior, not implementation?
+- Tests assert on outcomes, not internal state
+- At least one happy-path and one error-path test per feature
+- No tests that always pass regardless of implementation
+
+### 5. Performance Basics
+Any obvious performance issues?
+- No N+1 query patterns (loop of DB calls → use join/include)
+- List endpoints paginated (no unbounded result sets)
+- No large synchronous blocking in async handlers
+- See [performance-checklist.md](performance-checklist.md) for full reference
+
+### 6. Naming & Structure
+Is the code consistent with the existing codebase?
+- File and folder locations match profile conventions
+- New directories or files outside existing structure? → set `--architecture-impact convention`
+- No single file exceeds 300 lines (split if needed)
+- Variable/function names follow existing patterns
+
+## Output Format
+
+```
+Self-Review:
+  1. Spec Compliance:    ✅ All 3 FRs implemented (auth, profile, settings)
+  2. Error Handling:     ✅ API routes wrapped, DB calls guarded
+  3. Security Basics:    ❌ Missing auth check on /api/settings PUT
+  4. Test Quality:       ✅ 8 tests covering happy + error paths
+  5. Performance Basics: ✅ No N+1, lists paginated
+  6. Naming & Structure: ✅ Consistent with existing patterns
+
+Action: Fix item 3 before commit.
+```
+
+## Anti-Rationalization
+
+Before marking all items ✅, check yourself against these:
+
+| Rationalization | Reality |
+|---|---|
+| "It works, ship it" | Working ≠ correct. Does it handle errors, edge cases, and invalid input? |
+| "I'll add tests later" | You won't. Write them now or they won't exist |
+| "It's just a small change" | Small changes in auth, middleware, or shared modules have outsized impact |
+| "The framework handles security" | Frameworks prevent some issues but can't fix missing auth checks or business logic flaws |
+
+## When to Escalate to Full Code Review
+
+After self-review passes, spawn the `code-reviewer` subagent ONLY if:
+- Diff exceeds **100 lines** of changed code
+- Section is marked `risk: high` in the plan
+- Changes touch **security-sensitive files** (auth, middleware, RLS policies, migrations)
+
+Otherwise, self-review is sufficient — proceed to commit.

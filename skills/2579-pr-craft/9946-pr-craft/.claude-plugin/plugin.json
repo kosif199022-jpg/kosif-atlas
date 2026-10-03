@@ -1,0 +1,20 @@
+{
+  "name": "pr-craft",
+  "version": "0.3.1",
+  "description": "Create a pull request with a structured description (Problem / Root cause / Fix / Test / Out of scope) derived from the diff and conversation. Drives the branch -> commit -> push -> gh pr create flow.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/pr-craft",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "pull-request",
+    "git",
+    "github",
+    "stacked-prs",
+    "gh-cli",
+    "engineering-workflow"
+  ]
+}

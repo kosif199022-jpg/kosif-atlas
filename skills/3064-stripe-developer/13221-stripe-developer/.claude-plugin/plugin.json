@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "stripe-developer",
+  "description": "Full-stack Stripe developer skill for building payment integrations with Next.js and Supabase. Covers Checkout (hosted and embedded), Products & Prices, Subscriptions & Billing, Webhooks (signature verification, event handling), Customer Portal, the Stripe Node.js SDK, client-side Stripe.js, and the Stripe CLI.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sleestk",
+    "url": "https://github.com/Sleestk"
+  },
+  "homepage": "https://github.com/Sleestk/Skills-Pipeline",
+  "repository": "https://github.com/Sleestk/Skills-Pipeline",
+  "license": "MIT",
+  "keywords": ["stripe", "payments", "checkout", "subscriptions", "billing", "webhooks", "nextjs"]
+}

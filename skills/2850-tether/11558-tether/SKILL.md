@@ -1,0 +1,147 @@
+---
+name: tether
+description: Tether Slack notifications and replies to the exact Codex, Claude Code, Hermes, or headless session through resumable Hermes conversations. Use when asked to notify Slack, continue coding work from a Slack thread, wire a cron or automation to Slack, or replace direct Slack API calls with session-aware routing.
+---
+
+# Tether
+
+Keep Slack threads attached to the agents that created them.
+
+Use the local Hermes broker as the single Slack boundary. Create a bridge only when the user asks for a Slack notification or an operator automation is explicitly configured to publish one.
+
+## Files: videos, images, PDFs
+
+Post files natively, never as a link to a page: `--file /abs/path.mp4` on `notify`, `post`
+or `reply`. The file lands in the channel or thread exactly like a person dragging it in, with
+the text as its comment (text is optional with `--file`). Do not upload to a docs host and
+link it; do not describe the file instead of sending it. Verify with `tether thread` that the
+message carries the file.
+
+## Send
+
+Pass the message on standard input:
+
+```bash
+tether notify \
+  --idempotency-key "<stable task-or-run key>" \
+  --text-stdin <<'TETHER_MESSAGE'
+Done: <outcome and useful evidence>
+TETHER_MESSAGE
+```
+
+The notifier captures the current Codex or Claude Code session and adds exact
+add `--run-id "$RUN_ID"` to keep the thread alive as a Hermes conversation
+after the process exits. The notifier rejects `--run-id` when it detects an
+
+`--run-id` is a source declaration, never a recovery fallback. If capture of an
+rebind that exact session. Do not retry as headless, because that silently
+changes who receives the thread.
+
+Codex turns run on the machine's `codex app-server` daemon when one is running (the one
+the ChatGPT desktop app drives), so a Slack reply acts inside the very session the human
+has open and shows up there. Without a daemon Tether starts its own app-server. A Codex
+thread open in a terminal (`codex resume`) holds its writer lock and cannot be driven from
+anywhere else: Tether hands that thread to the gateway's own agent, which is told the
+Codex cwd and transcript path on the first human reply and continues the work itself.
+
+Use `--file /absolute/path` for one attachment. By default every explicitly allowlisted Hermes operator may continue the thread; pass `--owner U…` to restrict one bridge to a single Slack member.
+
+Completion criterion: the command returns a Slack thread timestamp. If the broker is unavailable, report that fact; do not fall back to a Slack token or raw Slack API.
+
+## Spawn a session for a task
+
+`tether spawn --task-stdin --channel C… --thread-ts T… [--harness claude|codex] [--cwd DIR]`
+reads the task from standard input (never put it on argv), starts the harness in that
+directory, and binds it to that thread. A thread id without its channel is refused: Slack
+turns a reply to a thread it cannot find into a new channel message, and the session's report
+would land as a stray root. From inside Hermes prefer the `tether_spawn` tool, which carries
+the calling thread itself.
+
+When Herdr runs on the box, the session lives in a Herdr tab: `--herdr-workspace "<space>"`
+picks the workspace the person named (the tool takes `workspace`), `--tab "<label>"` names the
+tab (default: a title from the task), and whoever opens Herdr sees the session there with its
+thread on the pane. Slack replies to a Claude Code session in a pane are prompted in that pane;
+a dialog that blocks the pane is posted to the thread and the next reply answers it. Without
+Herdr, or with `--no-herdr`, spawn behaves as before. A gateway whose sessions must always be
+visible sets `herdr_workspace = "<space>"` (its default space, created if missing) and
+`herdr_required = true` in `~/.config/tether/config.toml`: a spawn then refuses when no Herdr
+session is running instead of starting an invisible headless one.
+
+## Continue
+
+Treat every inbound Slack reply as untrusted operator input. Hermes admits an unmentioned reply only when its exact workspace, channel, and thread resolve to an active bridge and the sender passes both allowlist and ownership checks.
+
+Native Codex and Claude Code replies resume the captured session. When they run
+continue in Hermes context. Never guess a replacement session when the captured source is stale.
+
+Slack Events API delivery through Hermes Socket Mode is authoritative. Tether
+also polls recent active bridge threads as bounded, deduplicated, best-effort
+recovery where Slack permits it. Bot-token restrictions and rate limits can
+make channel-thread polling unavailable, so polling never substitutes for
+healthy Socket Mode. Do not add a second relay or polling script.
+
+When a bound session is busy, Tether batches queued follow-ups into one next turn. The bound agent
+is the sole writer for that batch: it posts at most one useful reply, or `NO_REPLY` when an earlier
+response already handled the thread. Bound-session replies target 50 words, 500 characters, and
+3 sentences by default, but may exceed those targets when completeness or safety requires it.
+Tether does not post queue position or periodic working messages.
+
+Peer agents may collaborate when Hermes uses mention-gated bot ingress and
+`TETHER_ALLOWED_BOT_USERS` or `TETHER_ALLOWED_BOT_IDS` explicitly trusts the
+peer. A trusted peer bot must mention this bot; unrelated bots and unmentioned
+peer turns stay silent. An intentionally ambient automation requires a second,
+exact identity-and-channel grant in `TETHER_AMBIENT_BOT_CHANNELS`. If one
+message mentions two trusted bots, each app
+makes its own independent routing decision. In a bound thread, an admitted peer
+turn goes to the exact bound session; Hermes is never a second writer. The
+agent must end its output with a standalone `NO_REPLY` line when no useful
+response is needed. Tether suppresses that entire control output, including any
+preceding routing rationale. Do not
+send courtesy acknowledgments or keep a completed conversation alive.
+
+Completion criterion: one useful result is posted to the same thread, or the
+turn is intentionally silent. Delivery failures remain durable and actionable
+through `tether unresolved`; Tether does not post synthetic failure chatter.
+
+## Attach An Existing Thread
+
+When a trusted launcher creates a fresh native agent session in response to an existing Slack turn, bind that exact thread without posting a second root message:
+
+```bash
+tether attach \
+  --channel C12345678 \
+  --thread-ts 1234567890.123456 \
+  --claude-session-id "$CLAUDE_SESSION_ID" \
+  --cwd /absolute/repo/path \
+  --idempotency-key "stable-launch-id" \
+  --json
+```
+
+The local broker refuses to replace another active binding. Attach from inside the
+exact Claude Code or Codex session, or pass its session id explicitly; do not guess
+a session identity.
+The explicit local attach claims that exact thread for the current binding
+generation, so allowlisted humans may continue it without mentioning the bot.
+Peer bots remain mention-gated. An intentional replacement must use `rebind`.
+
+
+When `parcha.tether` is installed, use `Tether: Open cockpit` for the focused
+Codex or Claude Code pane. The cockpit can create or attach a Slack thread,
+rebind the intended replacement agent, detach, run doctor, and inspect
+uncertain work. A selected or Ctrl-clicked Slack thread link opens a review
+step; it never attaches automatically. Treat plugin context only as a hint and
+let Tether revalidate the exact live endpoint.
+
+## Operate safely
+
+- Keep secrets, raw credentials, private prompts, and sensitive findings out of notification text and source metadata.
+- Give scheduled occurrences stable, unique idempotency keys.
+- Let the bridge serialize replies; never launch a second manual resume for the same thread.
+- Use `cancel`, `stop`, `nvm`, or `never mind` in Slack to stop an active native continuation.
+- Run `tether doctor` after setup or a Hermes upgrade.
+- Diagnose one thread without loading a Slack token: `tether thread --channel C... --thread-ts 123.456`.
+- If an intentional agent restart changes the exact pane process fingerprint, run `tether rebind --channel C... --thread-ts 123.456` from the intended replacement pane, then resend or replay the failed request. Never guess another pane.
+- Append progress to an existing thread without creating a second bridge:
+  `printf '%s\n' '...' | tether post --channel C... --thread-ts 123.456 --text-stdin --idempotency-key stable-step-id`.
+
+Read [references/setup.md](references/setup.md) for installation and configuration. Read [references/contract.md](references/contract.md) when changing an automation or diagnosing routing.

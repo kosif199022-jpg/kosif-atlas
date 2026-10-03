@@ -1,0 +1,101 @@
+> Source: https://chat-sdk.dev/adapters/community/mattermost.md
+
+---
+title: Mattermost
+description: Community Mattermost adapter for Chat SDK with support for posts, edits, reactions, ephemeral messages, typing indicators, file uploads, and interactive actions.
+tagline: Community Mattermost adapter for Chat SDK. Uses the REST API and WebSocket gateway, with ephemeral messages, reactions, typing indicators, and interactive action attachments.
+package: chat-adapter-mattermost
+---
+
+# Mattermost
+
+
+## Install
+
+
+## Quick start
+
+The adapter requires Node.js 20+ and a Mattermost server with a bot account. It's published as `chat-adapter-mattermost` because the `@chat-adapter/*` npm scope is reserved for official adapters.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMattermostAdapter } from "chat-adapter-mattermost";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const adapter = createMattermostAdapter({
+  baseUrl: process.env.MATTERMOST_BASE_URL,
+  botToken: process.env.MATTERMOST_BOT_TOKEN,
+});
+
+const bot = new Chat({
+  userName: "my-bot",
+  adapters: {
+    mattermost: adapter,
+  },
+  state: createMemoryState(),
+});
+
+await bot.initialize();
+
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post("Hello from Mattermost via Chat SDK.");
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+## Platform setup
+
+1. Create a bot account. In Mattermost, go to **System Console → Integrations → Bot Accounts**, create a new bot, and copy the generated access token.
+2. Enable integrations. Make sure your Mattermost server allows bot accounts and that the REST API and WebSocket gateway are reachable. Both are enabled by default.
+3. Add the bot user to every channel where it should respond. It only receives events from channels it is a member of.
+4. Optionally, set up interactive actions. To use buttons and selects, set `callbackUrl` to a public URL that Mattermost can reach. The adapter exposes `handleWebhook()` for this:
+
+   ```typescript
+   adapter.handleWebhook(request);
+   ```
+
+   Register this URL in **System Console → Integrations → Interactive Dialogs** or per post via the `integration` field.
+
+## Configuration
+
+Instead of passing `baseUrl` and `botToken`, you can provide the configuration through environment variables:
+
+```bash
+export MATTERMOST_BASE_URL=https://mattermost.example.com
+export MATTERMOST_BOT_TOKEN=your-bot-token
+```
+
+```typescript
+const adapter = createMattermostAdapter();
+```
+
+### Environment variables
+
+| Variable               | Required                        | Description               |
+| ---------------------- | ------------------------------- | ------------------------- |
+| `MATTERMOST_BASE_URL`  | Yes, unless you pass `baseUrl`  | Mattermost server URL.    |
+| `MATTERMOST_BOT_TOKEN` | Yes, unless you pass `botToken` | Bot account access token. |
+
+## Transport
+
+The adapter connects to Mattermost over the REST API v4 and the `/api/v4/websocket` gateway. WebSocket reconnection uses exponential backoff with jitter (1 s base, 30 s max).
+
+## Thread IDs
+
+Thread IDs are encoded as `mattermost:<channel>` for channel-level contexts or `mattermost:<channel>:<rootPostId>` for threaded replies.
+
+## Limitations
+
+* No modal open or submit flows.
+* No slash-command parsing or dispatch.
+* Interactive button and select callbacks are received, but the full action lifecycle is not complete.
+* Sending and receiving file attachments works, but editing a message with new uploads is not supported.
+* Streaming falls back to the post+edit pattern, because Mattermost has no native streaming transport.
+* Auth, permission, not-found, and network failures are mapped to errors, but rate-limit responses are not yet surfaced as a typed error.
+* User and channel data are cached in memory with LRU eviction (up to 1000 entries each).
+
+## Feature support
+
+

@@ -1,0 +1,44 @@
+> Source: https://docs.firecrawl.dev/quickstarts/windsurf.md
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.firecrawl.dev/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# MCP Web Search & Scrape in Windsurf
+
+> Add web scraping and search to Windsurf in 2 minutes
+
+Add Firecrawl's keyless Search, Scrape, and Parse tools to Windsurf through the hosted MCP server.
+
+## Quick setup
+
+Open **Settings → Tools → Windsurf Settings → Add Server** or edit `~/.codeium/windsurf/mcp_config.json`:
+
+```json theme={null}
+{
+  "mcpServers": {
+    "firecrawl": {
+      "url": "https://mcp.firecrawl.dev/v2/mcp"
+    }
+  }
+}
+```
+
+Restart Windsurf and confirm that `firecrawl_search`, `firecrawl_scrape`, and `firecrawl_parse` are available.
+
+Keyless access has limits shared by users on the same public IP. Sign in from an interactive client with [For Humans](/mcp-server/oauth), or [add an API key](/mcp-server/keyless#add-an-api-key) for unattended use.
+
+## Try it
+
+```text theme={null}
+Search for the latest Tailwind CSS release notes and summarize the sources.
+```
+
+```text theme={null}
+Scrape https://firecrawl.dev and explain what it does.
+```
+
+## Troubleshooting
+
+* **Server does not connect:** confirm the hosted URL and inspect Windsurf's MCP status.
+* **Crawl or another tool is missing:** keyless exposes exactly Search, Scrape, and Parse. Connect with OAuth or an API key for the broader tool surface.

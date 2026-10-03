@@ -1,0 +1,44 @@
+---
+name: cockpit
+description: >-
+  Opens the Claude Code/Codex/OpenCode cockpit dashboard for live session
+  transcripts and decision logging.
+when_to_use: >-
+  `/cockpit` opens the dashboard; `/cockpit scribe` distills recent work into
+  decision-trail entries; /cockpit restart bounces the daemon onto updated
+  code. Explicitly invoked (opt-in) only — do NOT auto-fire on every session.
+argument-hint: "[scribe|restart]"
+---
+
+# /cockpit
+
+## Step 0 — Provider
+
+Determine which harness is running this skill:
+
+- Running in **Claude Code** → provider is `claude`.
+- Running in **Codex** → provider is `codex`.
+- Running in **OpenCode** → provider is `opencode`.
+
+Then **read the matching reference once**. It defines the provider value,
+`<plugin-root>`, the session-id command, and the wait policy for
+`needs_your_call`:
+
+- Claude Code → [references/claude-cli.md](references/claude-cli.md)
+- Codex → [references/codex.md](references/codex.md)
+- OpenCode → `~/.config/opencode/skills/cockpit/references/opencode.md`
+  (absolute, because OpenCode prints no skill base-directory banner)
+
+Run cockpit commands through `<plugin-root>/skills/cockpit/bin/cockpit`.
+Set `COCKPIT_BIN` to a local release build when developing the Rust crate.
+
+## Mode dispatch
+
+- If invoked as `/cockpit scribe`, or the fork prompt says to run
+  `/cockpit scribe`, read [references/scribe.md](references/scribe.md).
+  Follow it.
+- If invoked as `/cockpit restart`, or the user asks to restart, bounce, or
+  refresh the cockpit daemon onto updated code, read
+  [references/restart.md](references/restart.md). Follow it.
+- Otherwise, for plain `/cockpit`, read
+  [references/pilot.md](references/pilot.md). Follow it.

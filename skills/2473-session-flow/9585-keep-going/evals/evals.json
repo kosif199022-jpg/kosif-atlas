@@ -1,0 +1,120 @@
+{
+  "skill_name": "keep-going",
+  "evals": [
+    {
+      "id": 1,
+      "name": "inspect-real-state-not-assume",
+      "prompt": "keep going — we got cut off. You had a couple of background jobs running before the disconnect.",
+      "expected_output": "The skill inventories the off-thread work, then inspects each item's ACTUAL state from its source of truth (task output / logs / transcript) rather than assuming it finished or died, resumes the resumable ones, reconciles the main thread from a fresh read of its backing artifact, and reports a recovered / restarted / still-running / lost list.",
+      "files": [],
+      "expectations": [
+        "Inventories the off-thread work rather than only continuing the main thread",
+        "Inspects each item's real state from its artifact — does not assume 'probably done' or 'probably died'",
+        "Reconciles the main thread from a fresh read of its plan/checklist/task artifact, not a remembered claim",
+        "Ends with a recovered / restarted / still-running / lost report"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "gate-side-effectful-refire",
+      "prompt": "keep going. Before the crash you were about to push a commit and post a PR comment — I'm not sure whether either went through.",
+      "expected_output": "The skill auto-resumes safe/idempotent work but GATES the push and the PR comment: because step-2 inspection cannot prove they did not already land, it stops and asks before re-running them rather than double-firing the side effects.",
+      "files": [],
+      "expectations": [
+        "Does NOT blindly re-run the push or the PR comment",
+        "Attempts to inspect whether each side effect already landed",
+        "When it cannot prove a side effect did not land, stops and asks before repeating it",
+        "Still auto-resumes safe, idempotent, read-only work without gating"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "nothing-off-thread-still-reconciles",
+      "prompt": "keep going — I think we just got interrupted mid-task, nothing was running in the background.",
+      "expected_output": "The inventory finds no off-thread work, the skill says so, and it goes straight to reconciling the main thread from its real state and continuing — recovering a mid-turn interruption on the main thread alone is still the job.",
+      "files": [],
+      "expectations": [
+        "Reports that no off-thread work was found rather than inventing recovery items",
+        "Proceeds to reconcile the main thread from its real state and continue",
+        "Does not stall just because there was nothing off-thread to recover"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "does-not-diagnose-limit-type",
+      "prompt": "keep going — was that a 5-hour limit or the weekly one that cut us off?",
+      "expected_output": "The skill does not try to classify the interruption type (short vs weekly limit vs crash) — the recovery is identical regardless — and instead runs the inventory / inspect / recover / reconcile flow.",
+      "files": [],
+      "expectations": [
+        "Does not attempt to diagnose or classify the interruption/limit type",
+        "Proceeds with the recovery flow that is the same regardless of cause",
+        "Focuses on real-state inspection and continuation, not the interruption's origin"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "limit-lifted-go-not-summarize",
+      "prompt": "keep going — the usage limit just reset and we're back. We were partway through the refactor.",
+      "expected_output": "The skill recognizes that because it is executing again the block is already over, and CONTINUES the refactor from its real state rather than producing a summary and stopping. It does not summarize-and-stall, and it does not try to classify which limit it was.",
+      "files": [],
+      "expectations": [
+        "Continues the underlying work rather than emitting a summary and handing back",
+        "Grounds the continuation in a fresh read of the real task state, not a remembered claim",
+        "Does not summarize-and-stall as its terminal action",
+        "Does not diagnose which limit type reset"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "live-poke-evidence-before-kill",
+      "prompt": "poke it — check the monitor, that subagent has been staring for a while. Is it stuck? Kill and restart it if so.",
+      "expected_output": "The skill reads the REAL monitor / subagent output first, treats 'been a while' only as a reason to look closer (not proof of a stall), and acts on evidence: if the subagent is progressing it leaves it alive and says so; if it kills and restarts, that is gated as a side effect because a kill of work it cannot prove is dead could destroy live-but-slow progress.",
+      "files": [],
+      "expectations": [
+        "Reads the actual monitor/subagent output before deciding, not just elapsed time",
+        "Treats slow-vs-elapsed as a suspicion-raiser, not authorization to kill",
+        "If the work is progressing, leaves it alive rather than killing it",
+        "Gates the kill/restart — does not kill live-but-slow work it cannot prove is dead"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "goal-alignment-is-the-first-check-on-resume",
+      "prompt": "keep going — resume from the handoff at .work/handoffs/20260803T101500Z-handoff-doc-alignment.md, nothing was running in the background.",
+      "expected_output": "Before any recovery action, and before restating position or continuing, the skill reads the handoff's Original goal section and tests the planned next actions against it, stating in one sentence how the next action serves that goal. If it cannot state that, it treats the gap as drift — stopping to re-derive an action that serves the goal, or asking whether the goal changed — rather than continuing on the process the file describes.",
+      "files": [],
+      "expectations": [
+        "Reads the handoff's Original goal section BEFORE resuming, restarting, or killing any work and BEFORE reconciling position — the check gates recovery actions, not just the position restatement",
+        "States in one sentence how the planned next action serves that goal",
+        "Treats an unstatable connection as drift — stops and re-derives or asks, rather than proceeding",
+        "Still reconciles the main thread from a fresh read of the backing artifact afterwards and continues"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "handoff-missing-the-goal-is-a-defect-not-a-gap-to-infer",
+      "prompt": "keep going — here's the handoff from the last session. It lists the remaining phases and the completion criteria but has no Original goal section.",
+      "expected_output": "The absent Original goal is flagged as a defect in the handoff itself. The skill does NOT infer the goal from the phases and process the file describes — that process is exactly what may have drifted — and instead asks the user for the goal in their own words before continuing, carrying their answer into the next save-point.",
+      "files": [],
+      "expectations": [
+        "Flags the missing Original goal as a defect rather than proceeding as though the file were complete",
+        "Does NOT reconstruct the goal from the phases, criteria, or process the handoff describes",
+        "Asks the user for the goal in their own words before continuing the work",
+        "Carries the user's answer forward so the next save-point records it"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "captured-limit-message-not-trusted-across-account-switch",
+      "prompt": "keep going — subagents died with 'You've hit your weekly limit · resets Sep 8, 6pm (America/New_York)'. I then logged into a different account. Don't wait until Sep 8 if this account has headroom.",
+      "expected_output": "The skill does not treat the captured weekly-limit message as a still-blocked verdict for the current account. It treats the limit as provisional until a live re-check of the current account confirms it: the operator's /usage view, or a live statusline rate_limits reading when one is exposed to the session. If the live reading shows headroom, it continues; when no live reading is obtainable it asks the operator which account is active and whether it has headroom, and never concludes still-blocked. The date-bearing reset form is unparsed (checker exit 2) and is never read as lifted.",
+      "files": [],
+      "expectations": [
+        "Does not hand off and stop solely because a captured limit message from another account still has a future reset",
+        "Treats the limit as provisional and hands off via /session-flow:handoff only after a live re-check of the current account (operator-relayed /usage, or a rate_limits reading exposed to the session) confirms it",
+        "When no live reading is obtainable, asks the operator which account is active and whether it has headroom, and does not conclude still-blocked",
+        "Does not invent a reset window from the date-bearing form, and does not treat an unparsed checker exit as lifted"
+      ]
+    }
+  ]
+}

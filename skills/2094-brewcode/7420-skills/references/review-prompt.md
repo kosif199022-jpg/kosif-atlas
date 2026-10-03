@@ -1,0 +1,110 @@
+# Skill Quality Review
+
+You are reviewing a skill for structural correctness, activation quality, and security.
+
+**Skill path:** `{SKILL_PATH}`
+
+Read the entire skill directory: SKILL.md, references/, scripts/, tests/, README.md.
+
+---
+
+## Review Checklist
+
+| # | Category | What to Check |
+|---|----------|---------------|
+| 1 | Description | Single line, quoted, <= 120 chars (optimal ~100), starts with action verb, no multiline `\|` pipe |
+| 2 | Description (LLM) | If `disable-model-invocation` is NOT true: has `Triggers -` line with 3-5 keyword phrases |
+| 3 | Frontmatter | Valid YAML, `name` is bare lowercase-hyphens, <=64 chars, equal to the dir name -- a `<plugin>:` prefix is a defect (CC adds it) |
+| 4 | Frontmatter flags | `user-invocable`, `disable-model-invocation`, `allowed-tools`, `model` all present and correct |
+| 5 | Body size | <500 lines total in SKILL.md |
+| 6 | Body tone | Imperative form ("Read the file", not "You should read the file") |
+| 7 | Body instructions | WHY-based: each rule explains rationale or has a consequence ("STOP if...") |
+| 8 | References exist | Every file referenced in SKILL.md exists on disk. Verify with `ls` or `Glob` |
+| 9 | References loading | References loaded conditionally (per phase/mode), NOT all at once at top |
+| 10 | References guard | Each reference load has: "If not found, STOP" or equivalent error handling |
+| 11 | Scripts executable | All `.sh` files in `scripts/` have `chmod +x` and execute without error |
+| 12 | Scripts paths | Scripts use `${CLAUDE_SKILL_DIR}` for own files, never hardcoded absolute paths |
+| 13 | Scripts pattern | Bash blocks expose pass/fail and preserve the producer's exit status; tee/tail/echo must not mask Claude, timeout or gate failures. Bare exempt commands may report their own status |
+| 14 | Tests exist | `tests/` directory exists with test files for each script |
+| 15 | Tests pass | All tests execute successfully, cover happy path + at least one error path |
+| 16 | README exists | `README.md` present in skill directory |
+| 17 | README quality | Has Quick Start section, content matches actual skill behavior |
+| 18 | Progressive L1 | Description acts as L1 (~100 words equivalent): enough to decide whether to invoke |
+| 19 | Progressive L2 | Body acts as L2 (<500 lines): complete workflow, load conditions, reference paths and missing-reference guards; specialized instructions may live in explicitly loaded L3 references |
+| 20 | Progressive L3 | References act as L3: loaded on demand per phase, not eagerly |
+| 21 | Security: secrets | No hardcoded tokens, passwords, API keys, or credentials anywhere |
+| 22 | Security: injection | No unescaped user input in bash blocks, no `eval` on external data |
+| 23 | Frontmatter `cli` | Command not spelled like the skill name -> `cli:` declared (string or list, each token `/^[\w.-]{1,42}$/`). No token from the denylist: `sh bash zsh ls cat stat mv rm cp mkdir df du curl wget python python3 node npm git echo grep sed awk find head tail chmod chown`. Never inferred from `allowed-tools` |
+| 24 | Frontmatter `version` | Skill's behaviour lives outside its own directory (binary on PATH, wrapper in an image, remote service) -> `version:` present. Free-form string, not semver, no ordering. `updated:` is not a substitute |
+| 25 | Prompt contract: argument-hint | `argument-hint` present and starts with `[prompt]` (prompt is position 1, always optional). Applies even to exempt skills (`prompt-contract.md` section 5) |
+| 26 | Prompt contract: body section | Not exempt -> body has a `## Prompt contract` section (boilerplate from `prompt-contract.md` section 6), summarizing the resolution algorithm |
+| 27 | Prompt contract: PLAN block | Not exempt -> `PLAN — <invoked skill name>` printed once before the first action (read-only modes immediately before their report), with literal labels in order: `INPUT:`, `MODE:`, `SCOPE:`, `DO:`, `RESULT:` |
+| 28 | Prompt contract: mode table | Not exempt AND 2+ modes -> the mode keyword table has a `Mutates?` column and at least one Cyrillic (RU) keyword per mode row |
+
+---
+
+## Severity Definitions
+
+| Severity | Meaning | Action |
+|----------|---------|--------|
+| critical | Skill broken, security risk, or will not activate | Must fix before use |
+| major | Significant quality issue, poor activation, missing required component | Should fix |
+| minor | Suboptimal but functional | Fix when convenient |
+| nit | Style preference, cosmetic | Optional |
+
+---
+
+## Output Format
+
+Report ALL findings in this exact format:
+
+```markdown
+## Review: {SKILL_NAME}
+
+### Summary
+
+| Metric | Value |
+|--------|-------|
+| Total findings | N |
+| Critical | N |
+| Major | N |
+| Minor | N |
+| Nit | N |
+| Verdict | PASS / PASS WITH ISSUES / FAIL |
+
+Verdict rules: FAIL if any critical. PASS WITH ISSUES if any major. PASS otherwise.
+
+### Findings
+
+| # | Category | Severity | File | Line | Issue | Suggestion |
+|---|----------|----------|------|------|-------|------------|
+| 1 | Description | major | SKILL.md | 3 | Missing Triggers line | Add `Triggers - keyword1, keyword2, keyword3` |
+| 2 | Scripts | critical | scripts/run.sh | 12 | Hardcoded /home/user path | Use `${CLAUDE_SKILL_DIR}` instead |
+```
+
+---
+
+## Verification Requirement
+
+Findings are NOT actionable until verified by a separate agent.
+
+Each finding MUST include:
+- Exact file path relative to skill directory
+- Exact line number where the issue occurs
+- Specific text or pattern that demonstrates the issue
+
+The verification agent will cross-check every finding against the actual file content.
+Do NOT suggest fixes that you have not confirmed are applicable to the current file state.
+
+---
+
+## Review Modes
+
+This prompt is used in two modes by the orchestrator:
+
+| Mode | Reviewers | Verification |
+|------|-----------|--------------|
+| Simple | 1 reviewer agent | 1 verification agent confirms findings |
+| Quorum | 3 reviewer agents (parallel) | Quorum threshold 2/3, then 1 DoubleCheck agent verifies |
+
+In quorum mode, each reviewer works independently. The orchestrator merges results and applies majority-rule filtering.

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Backlog.md Authoring"
+  short_description: "Plan and maintain existing Backlog.md projects"
+  default_prompt:
+    "Use $backlog-authoring for this existing Backlog.md project. Consider tasks, milestones, decisions, and docs, and
+    update only what the plan needs."

@@ -1,0 +1,11 @@
+{
+  "name": "editor",
+  "description": "Surgically edits an EXISTING draft; use for \"edit this draft\", \"polish this\", \"tighten this article\". Requires a draft to already exist.",
+  "version": "1.0.1",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

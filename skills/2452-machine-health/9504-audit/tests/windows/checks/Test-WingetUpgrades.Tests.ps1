@@ -1,0 +1,330 @@
+#Requires -Version 7.4
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.7.0' }
+<#
+.SYNOPSIS
+Tests for scripts/windows/checks/Test-WingetUpgrades.ps1.
+
+.DESCRIPTION
+Pins the Batch 1 hotfix landing:
+
+1. The check reads upgrades via the Get-WingetPackageUpdate lib wrapper.
+   The wrapper returns a tuple @{ upgrades; error } (new contract). The
+   module path calls Get-WinGetPackage | Where IsUpdateAvailable (the
+   previous Get-WinGetPackageUpdate cmdlet does not exist).
+
+2. KEV correlation is ID-based. Matching on display-name substrings was
+   flagging "Windows Subsystem for Linux" against every Microsoft/Windows
+   CVE -- 170 false positives. The fix matches on the winget Id
+   (case-insensitive "<vendor>.<product>$" or prefix).
+
+3. Wrapper returning upgrades=$null surfaces the specific wrapper error
+   (not a generic "winget not available").
+
+4. The check forwards its -LogPath to Get-CisaKevCache so the CISA fetch
+   lands in the run's egress audit trail (urls_called).
+
+5. A KEV match is name-only (the feed carries no affected-version range), so it
+   reports WARN with the CVE list, never CRIT, and the summary counts distinct
+   upgrades separately from matched CVE rows.
+#>
+
+BeforeAll {
+    . "$PSScriptRoot\..\..\helpers\Initialize-CheckSuite.ps1" -Check 'Test-WingetUpgrades' `
+        -AsObject 'Invoke-WingetUpgradesAsObject' `
+        -LibScript 'Get-WingetPackageUpdate.ps1', 'Get-CisaKevCache.ps1'
+
+    function New-UpgradeRecord {
+        param(
+            [string] $Name = 'Some App',
+            [string] $Id = 'Some.App',
+            [string] $Current = '1.0',
+            [string] $Available = '1.1',
+            [string] $Source = 'winget'
+        )
+        [pscustomobject]@{
+            name              = $Name
+            id                = $Id
+            current_version   = $Current
+            available_version = $Available
+            source            = $Source
+        }
+    }
+
+    function New-WingetResult {
+        param(
+            [object[]] $Upgrades = @(),
+            [string] $ErrorMessage = $null
+        )
+        # The wrapper's contract is a hashtable tuple. A bare hashtable is enough here: Pester
+        # mocks forward the return value verbatim, so no comma-operator unwrap guard is needed.
+        return @{ upgrades = $Upgrades; error = $ErrorMessage }
+    }
+
+    function New-KevRecord {
+        param(
+            [string] $CveId = 'CVE-2025-00001',
+            [string] $VendorProject = 'Mock',
+            [string] $Product = 'App'
+        )
+        [pscustomobject]@{
+            cveID         = $CveId
+            vendorProject = $VendorProject
+            product       = $Product
+        }
+    }
+
+    function New-KevCache {
+        param([object[]] $Vulnerabilities = @())
+        [pscustomobject]@{ vulnerabilities = $Vulnerabilities }
+    }
+}
+
+Describe 'Test-WingetUpgrades -- baseline' -Tag 'check' {
+    BeforeAll {
+        Mock Get-WingetPackageUpdate { New-WingetResult -Upgrades @() }
+        Mock Get-CisaKevCache { New-KevCache }
+    }
+
+    It 'emits a schema-valid CheckResult' {
+        $result = Invoke-WingetUpgradesAsObject
+        { Assert-CheckResult $result } | Should -Not -Throw
+        $result.id | Should -Be 'winget-upgrades'
+    }
+
+    It 'reports OK when no upgrades are pending' {
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'OK'
+    }
+}
+
+Describe 'Test-WingetUpgrades -- upgrade count severity' -Tag 'check' {
+    It 'reports INFO for a small number of upgrades' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(
+                New-UpgradeRecord -Name 'Git' -Id 'Git.Git'
+                New-UpgradeRecord -Name 'Node' -Id 'OpenJS.NodeJS'
+            )
+        }
+        Mock Get-CisaKevCache { New-KevCache }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'INFO'
+        $result.detail.upgrades_count | Should -Be 2
+    }
+
+    It 'reports WARN when more than 10 apps are behind' {
+        Mock Get-WingetPackageUpdate {
+            $upgrades = 1..15 | ForEach-Object {
+                New-UpgradeRecord -Name "App$_" -Id "Pub.App$_"
+            }
+            New-WingetResult -Upgrades @($upgrades)
+        }
+        Mock Get-CisaKevCache { New-KevCache }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'WARN'
+    }
+}
+
+Describe 'Test-WingetUpgrades -- CISA KEV correlation (ID-based match)' -Tag 'check' {
+    It 'WARNs, never CRITs, on a single name-only ID match, listing the CVE' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(
+                New-UpgradeRecord -Name 'Mock App' -Id 'Mock.App'
+                New-UpgradeRecord -Name 'Other' -Id 'Other.Other'
+            )
+        }
+        Mock Get-CisaKevCache {
+            New-KevCache -Vulnerabilities @(
+                New-KevRecord -CveId 'CVE-2025-12345' -VendorProject 'Mock' -Product 'App'
+            )
+        }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'WARN'
+        $result.detail.kev_match_count | Should -Be 1
+        $result.detail.kev_matches[0].cve_id | Should -Be 'CVE-2025-12345'
+        $result.detail.kev_matches[0].match_basis | Should -Be 'name-only'
+        $result.summary | Should -Match 'CVE-2025-12345'
+        $result.summary | Should -Match 'installed versions not compared'
+    }
+
+    It 'counts one upgrade matched against three KEV rows as one upgrade and three CVE entries' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(
+                New-UpgradeRecord -Name 'Google Chrome' -Id 'Google.Chrome'
+            )
+        }
+        Mock Get-CisaKevCache {
+            New-KevCache -Vulnerabilities @(
+                New-KevRecord -CveId 'CVE-2020-16017' -VendorProject 'Google' -Product 'Chrome'
+                New-KevRecord -CveId 'CVE-2021-21166' -VendorProject 'Google' -Product 'Chrome'
+                New-KevRecord -CveId 'CVE-2022-0609' -VendorProject 'Google' -Product 'Chrome'
+            )
+        }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'WARN'
+        $result.detail.kev_match_count | Should -Be 3
+        $result.detail.kev_upgrade_count | Should -Be 1
+        $result.summary | Should -Match '^1 upgrade\(s\) name-match CISA KEV \(3 matched CVE entries: '
+        $result.summary | Should -Not -Match '3 upgrade'
+    }
+
+    It 'does NOT match "WSL" against Microsoft/Windows KEV (regression for the 170-false-positive bug)' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(
+                New-UpgradeRecord -Name 'Windows Subsystem for Linux' -Id 'Microsoft.WSL'
+            )
+        }
+        Mock Get-CisaKevCache {
+            New-KevCache -Vulnerabilities @(
+                New-KevRecord -CveId 'CVE-2025-60710' -VendorProject 'Microsoft' -Product 'Windows'
+                New-KevRecord -CveId 'CVE-2023-36424' -VendorProject 'Microsoft' -Product 'Windows'
+                New-KevRecord -CveId 'CVE-2008-0015' -VendorProject 'Microsoft' -Product 'Windows'
+            )
+        }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'INFO'
+        $result.detail.kev_match_count | Should -Be 0
+        $result.detail.upgrades_count | Should -Be 1
+    }
+
+    It 'matches Microsoft.Teams against Microsoft/Teams KEV' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(
+                New-UpgradeRecord -Name 'Microsoft Teams' -Id 'Microsoft.Teams'
+            )
+        }
+        Mock Get-CisaKevCache {
+            New-KevCache -Vulnerabilities @(
+                New-KevRecord -CveId 'CVE-2025-TEAMS' -VendorProject 'Microsoft' -Product 'Teams'
+            )
+        }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'WARN'
+        $result.detail.kev_match_count | Should -Be 1
+    }
+
+    It 'matches Microsoft.Teams.Free against Microsoft/Teams KEV (prefix case)' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(
+                New-UpgradeRecord -Name 'Microsoft Teams (personal)' -Id 'Microsoft.Teams.Free'
+            )
+        }
+        Mock Get-CisaKevCache {
+            New-KevCache -Vulnerabilities @(
+                New-KevRecord -CveId 'CVE-2025-TEAMS' -VendorProject 'Microsoft' -Product 'Teams'
+            )
+        }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'WARN'
+        $result.detail.kev_match_count | Should -Be 1
+    }
+
+    It 'matches case-insensitively (GitHub.cli vs GitHub/CLI)' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(
+                New-UpgradeRecord -Name 'GitHub CLI' -Id 'GitHub.cli'
+            )
+        }
+        Mock Get-CisaKevCache {
+            New-KevCache -Vulnerabilities @(
+                New-KevRecord -CveId 'CVE-2025-GHCLI' -VendorProject 'GitHub' -Product 'CLI'
+            )
+        }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'WARN'
+        $result.detail.kev_match_count | Should -Be 1
+    }
+
+    It 'does not match a prefix-collision (Microsoft.TeamsExtra vs Microsoft/Teams)' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(
+                New-UpgradeRecord -Name 'Teams Extra' -Id 'Microsoft.TeamsExtra'
+            )
+        }
+        Mock Get-CisaKevCache {
+            New-KevCache -Vulnerabilities @(
+                New-KevRecord -CveId 'CVE-X' -VendorProject 'Microsoft' -Product 'Teams'
+            )
+        }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'INFO'
+        $result.detail.kev_match_count | Should -Be 0
+    }
+
+    It 'flags non-conforming IDs (no dot) in notes and skips KEV for them' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(
+                New-UpgradeRecord -Name 'Legacy' -Id 'SingleToken'
+            )
+        }
+        Mock Get-CisaKevCache {
+            New-KevCache -Vulnerabilities @(
+                New-KevRecord -CveId 'CVE-Y' -VendorProject 'Single' -Product 'Token'
+            )
+        }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'INFO'
+        $result.detail.kev_match_count | Should -Be 0
+        $result.detail.non_conforming_id_count | Should -Be 1
+        $result.notes | Should -Match 'non-conforming Id'
+    }
+
+    It 'falls back to count-based severity when KEV cache is empty/unusable' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades @(New-UpgradeRecord)
+        }
+        Mock Get-CisaKevCache { $null }
+
+        $result = Invoke-WingetUpgradesAsObject
+        $result.severity | Should -Be 'INFO'
+        $result.notes | Should -Match 'KEV'
+    }
+}
+
+Describe 'Test-WingetUpgrades -- egress log threading' -Tag 'check' {
+    It 'forwards its -LogPath to Get-CisaKevCache so the KEV fetch is logged' {
+        Mock Get-WingetPackageUpdate { New-WingetResult -Upgrades @(New-UpgradeRecord) }
+        Mock Get-CisaKevCache { New-KevCache }
+
+        & $script:ScriptPath -LogPath 'C:\run\run-2026-07-12.log' | Out-Null
+
+        Should -Invoke Get-CisaKevCache -Times 1 -ParameterFilter {
+            $LogPath -eq 'C:\run\run-2026-07-12.log'
+        }
+    }
+}
+
+Describe 'Test-WingetUpgrades -- failure modes' -Tag 'check' {
+    It 'emits UNKNOWN when the wrapper returns upgrades=$null with an error' {
+        Mock Get-WingetPackageUpdate {
+            New-WingetResult -Upgrades $null -ErrorMessage 'module import failed: FOO'
+        }
+        Mock Get-CisaKevCache { New-KevCache }
+
+        $result = Invoke-WingetUpgradesAsObject
+        { Assert-CheckResult $result } | Should -Not -Throw
+        $result.severity | Should -Be 'UNKNOWN'
+        $result.ran_successfully | Should -BeFalse
+        $result.summary | Should -Match 'FOO'
+        $result.error | Should -Match 'FOO'
+    }
+
+    It 'emits UNKNOWN when the wrapper violates its hashtable contract (returns $null)' {
+        Mock Get-WingetPackageUpdate { $null }
+        Mock Get-CisaKevCache { New-KevCache }
+
+        $result = Invoke-WingetUpgradesAsObject
+        { Assert-CheckResult $result } | Should -Not -Throw
+        $result.severity | Should -Be 'UNKNOWN'
+        $result.ran_successfully | Should -BeFalse
+    }
+}

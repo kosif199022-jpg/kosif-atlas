@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Production"
+  short_description: "GameGen: game production workflow"
+  default_prompt: "Use $game-production for this game using its saved GameGen preferences."

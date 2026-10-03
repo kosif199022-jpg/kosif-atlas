@@ -1,0 +1,420 @@
+{
+  "skills": [
+    {
+      "name": "appletv",
+      "version": "0.2.0",
+      "stack": "node",
+      "cardHash": "025dd781e2b204f5",
+      "facts": 76,
+      "sections": {
+        "setup": 12,
+        "usage": 12,
+        "commands": 20,
+        "architecture": 16,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "bible-study",
+      "version": "0.1.0",
+      "stack": "node",
+      "cardHash": "fb21c7a2606ac2e5",
+      "facts": 42,
+      "sections": {
+        "setup": 7,
+        "usage": 12,
+        "commands": 13,
+        "architecture": 7,
+        "troubleshooting": 3
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "brand-images",
+      "version": "0.1.0",
+      "stack": "node",
+      "cardHash": "61eed4cb22958b6d",
+      "facts": 50,
+      "sections": {
+        "setup": 8,
+        "usage": 12,
+        "commands": 11,
+        "architecture": 8,
+        "troubleshooting": 11
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "brandreport",
+      "version": "0.2.0",
+      "stack": "node",
+      "cardHash": "6bdc245eb86dafe8",
+      "facts": 45,
+      "sections": {
+        "setup": 6,
+        "usage": 12,
+        "commands": 12,
+        "architecture": 9,
+        "troubleshooting": 6
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "city-report",
+      "version": "0.5.0",
+      "stack": "python",
+      "cardHash": "e9da546da18271a3",
+      "facts": 59,
+      "sections": {
+        "setup": 5,
+        "usage": 12,
+        "commands": 20,
+        "architecture": 8,
+        "troubleshooting": 14
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "devlog",
+      "version": "0.14.2",
+      "stack": "node",
+      "cardHash": "bf161e34323bfd89",
+      "facts": 61,
+      "sections": {
+        "setup": 12,
+        "usage": 12,
+        "commands": 20,
+        "architecture": 1,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "dotfiles",
+      "version": "0.1.0",
+      "stack": "node",
+      "cardHash": "be441f5125c1eaf8",
+      "facts": 34,
+      "sections": {
+        "setup": 5,
+        "usage": 12,
+        "commands": 9,
+        "architecture": 5,
+        "troubleshooting": 3
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "eval",
+      "version": "0.4.0",
+      "stack": "node",
+      "cardHash": "4dc58bbbe74a8bf0",
+      "facts": 61,
+      "sections": {
+        "setup": 8,
+        "usage": 12,
+        "commands": 16,
+        "architecture": 9,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "ghfactory",
+      "version": "0.3.0",
+      "stack": "node",
+      "cardHash": "283e838a77ea08c7",
+      "facts": 53,
+      "sections": {
+        "setup": 7,
+        "usage": 12,
+        "commands": 9,
+        "architecture": 9,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "ghostwriter",
+      "version": "0.25.0",
+      "stack": "python",
+      "cardHash": "7ad27bf16825086c",
+      "facts": 59,
+      "sections": {
+        "setup": 8,
+        "usage": 12,
+        "commands": 7,
+        "architecture": 16,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "ghostwriter-x",
+      "version": "0.4.0",
+      "stack": "python",
+      "cardHash": "261d7d36f7065761",
+      "facts": 54,
+      "sections": {
+        "setup": 7,
+        "usage": 12,
+        "commands": 4,
+        "architecture": 15,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "github-stats",
+      "version": "0.2.0",
+      "stack": "python",
+      "cardHash": "93f4a006cfd60acd",
+      "facts": 30,
+      "sections": {
+        "setup": 9,
+        "usage": 12,
+        "commands": 2,
+        "architecture": 1,
+        "troubleshooting": 6
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "gmailtriage",
+      "version": "0.8.1",
+      "stack": "node",
+      "cardHash": "de26c4f4d82fe47c",
+      "facts": 71,
+      "sections": {
+        "setup": 7,
+        "usage": 12,
+        "commands": 20,
+        "architecture": 16,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "issuecreator",
+      "version": "0.1.1",
+      "stack": "node",
+      "cardHash": "ad3a84f04a7ea055",
+      "facts": 49,
+      "sections": {
+        "setup": 9,
+        "usage": 12,
+        "commands": 10,
+        "architecture": 7,
+        "troubleshooting": 11
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "issueflow",
+      "version": "0.18.0",
+      "stack": "node",
+      "cardHash": "bc46c706e78d755a",
+      "facts": 72,
+      "sections": {
+        "setup": 12,
+        "usage": 12,
+        "commands": 16,
+        "architecture": 16,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "local-dev",
+      "version": "0.1.0",
+      "stack": "node",
+      "cardHash": "f587865bf3755b99",
+      "facts": 44,
+      "sections": {
+        "setup": 11,
+        "usage": 12,
+        "commands": 11,
+        "architecture": 5,
+        "troubleshooting": 5
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "netwatch",
+      "version": "0.3.0",
+      "stack": "node",
+      "cardHash": "13bc1fd7ee6addc5",
+      "facts": 64,
+      "sections": {
+        "setup": 10,
+        "usage": 12,
+        "commands": 20,
+        "architecture": 16,
+        "troubleshooting": 6
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "pluginsync",
+      "version": "0.2.0",
+      "stack": "node",
+      "cardHash": "7de42fe222d99852",
+      "facts": 46,
+      "sections": {
+        "setup": 6,
+        "usage": 12,
+        "commands": 11,
+        "architecture": 6,
+        "troubleshooting": 11
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "press",
+      "version": "0.11.0",
+      "stack": "node",
+      "cardHash": "df3c1d5f77fc897c",
+      "facts": 58,
+      "sections": {
+        "setup": 7,
+        "usage": 12,
+        "commands": 20,
+        "architecture": 6,
+        "troubleshooting": 13
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "release",
+      "version": "0.3.0",
+      "stack": "node",
+      "cardHash": "4aa6d242daa94bf9",
+      "facts": 60,
+      "sections": {
+        "setup": 12,
+        "usage": 12,
+        "commands": 9,
+        "architecture": 11,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "resume",
+      "version": "2.1.0",
+      "stack": "node",
+      "cardHash": "203fa98bb8c13500",
+      "facts": 50,
+      "sections": {
+        "setup": 12,
+        "usage": 12,
+        "commands": 10,
+        "architecture": 4,
+        "troubleshooting": 12
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "shipflow",
+      "version": "0.7.0",
+      "stack": "node",
+      "cardHash": "5b743ddb8fdb6ca9",
+      "facts": 71,
+      "sections": {
+        "setup": 12,
+        "usage": 12,
+        "commands": 20,
+        "architecture": 11,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "shipreport",
+      "version": "0.3.0",
+      "stack": "node",
+      "cardHash": "bcee80c8adf6ff63",
+      "facts": 60,
+      "sections": {
+        "setup": 6,
+        "usage": 12,
+        "commands": 18,
+        "architecture": 8,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "skillfactory",
+      "version": "0.5.0",
+      "stack": "node",
+      "cardHash": "27893b65a660c536",
+      "facts": 59,
+      "sections": {
+        "setup": 8,
+        "usage": 12,
+        "commands": 13,
+        "architecture": 10,
+        "troubleshooting": 16
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "skillhelp",
+      "version": "0.2.0",
+      "stack": "node",
+      "cardHash": "58a6d975626eb5af",
+      "facts": 50,
+      "sections": {
+        "setup": 7,
+        "usage": 12,
+        "commands": 13,
+        "architecture": 7,
+        "troubleshooting": 11
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    },
+    {
+      "name": "traefik",
+      "version": "0.1.0",
+      "stack": "node",
+      "cardHash": "0de50fef00c0fcb6",
+      "facts": 40,
+      "sections": {
+        "setup": 10,
+        "usage": 12,
+        "commands": 7,
+        "architecture": 6,
+        "troubleshooting": 5
+      },
+      "emptySections": [],
+      "secretsRefused": 0
+    }
+  ]
+}

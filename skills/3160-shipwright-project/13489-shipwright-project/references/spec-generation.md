@@ -1,0 +1,519 @@
+# Spec File Generation
+
+## Context to Read
+
+Before writing spec files:
+- `{initial_file}` - The original requirements
+- `{planning_dir}/shipwright_project_interview.md` - Interview transcript
+- `{planning_dir}/project-manifest.md` - Split structure and dependencies
+
+**From setup-session.py output:**
+- `split_directories` - Full paths to all split directories
+- `splits_needing_specs` - Names of splits that still need spec.md written
+
+## Template
+
+Each `spec.md` MUST follow this structure (IREB-aligned):
+
+### Required Sections
+
+1. **Purpose & Scope** — What this split builds, explicit in/out of scope
+2. **Functional Requirements** — Table with ID, requirement text, priority.
+   Performance, security, and scalability targets are FR rows in this same
+   table, not a separate section — see "Quality Targets Are FR Rows, Not a
+   Separate Section" below
+3. **Constraints** — Technical, regulatory, integration constraints, written
+   as prose (if applicable) — see "Constraints Are Prose, Not a Requirement
+   Table" below
+4. **Dependencies** — What this split needs from / provides to other splits
+5. **Key Decisions** — Interview decisions that shaped this split
+6. **References** — Paths to source files
+
+Constraints is skipped when there are no specific constraints beyond the
+stack profile — item 3 above already says "(if applicable)".
+
+### Requirement Format (Rupp's Template)
+
+Write requirements using IREB's sentence template:
+
+    The system {SHALL | SHOULD | MAY} {action} {object} [qualifier].
+
+- **SHALL** = Must-have (maps to MoSCoW "Must")
+- **SHOULD** = Should-have (maps to MoSCoW "Should")
+- **MAY** = Nice-to-have (maps to MoSCoW "Could")
+
+**The sentence is plain business language** — read `shared/fr-authoring.md`
+before writing requirements. It must name a *capability* the product offers, in
+words a product owner understands, and carry no implementation detail (no file
+paths, ADR numbers, HTTP verbs, or code symbols).
+
+- ❌ The system SHALL expose a POST `/api/leave_request` handler writing to
+  `leave_requests` with a `proper-lockfile` guard.
+- ✅ The system SHALL let an employee request time off for a chosen date range,
+  and SHALL refuse a request that overlaps one they already have.
+
+Both say the same thing. The second one can be signed off by the person who
+asked for the feature. Never drop a guarantee (here: the overlap rule) to make
+a sentence plainer — plain wording, full meaning.
+
+### ID Schema
+
+    FR-{Split-Number}.{Sequential-Number}
+
+`FR` is the only requirement id space. A quality target (performance,
+security, scalability) gets an FR id like any other requirement — there is no
+separate `QR-` space. Constraints are prose, with no id at all.
+
+Examples for Split 01:
+- `FR-01.01` — First functional requirement
+- `FR-01.02` — Second functional requirement (a quality target reads the
+  same way, e.g. "The system SHALL respond to X within 500ms")
+
+### Quality Targets Are FR Rows, Not a Separate Section
+
+A quality target is written as an ordinary row in the Functional Requirements
+table, with an FR id and a Priority, exactly like any other capability. There
+is no `QR-` id space: nothing in the framework reads a `QR-` id — not the
+FR-table reader, not compliance, not the RTM — so a row minted under that
+space was never addressable. It looked like a tracked requirement and was not
+one.
+
+Word it the same way any FR is worded — SHALL/SHOULD/MAY, testable, in
+business language:
+
+    The system SHALL complete login requests within 500ms (p95).
+
+That sentence is self-evidently a performance requirement; it needs no
+`Category` column to say so. File it under the Area of the capability it
+constrains (a login-latency target belongs under "Authentication", not a
+generic "Quality" bucket).
+
+### Acceptance Criteria Rules
+
+- Every FR with Priority "Must" MUST have acceptance criteria
+- A quality-target FR with a measurable target (e.g., "within 500ms", "10 concurrent users") follows the same rule — its criteria drive performance/load tests in shipwright-build
+- Criteria must be testable (shipwright-build uses them for TDD)
+- Use checkbox format: `- [ ] {criterion}`
+- 2-5 criteria per requirement (not more)
+
+**The criteria are also how you find out the requirement is too big.** Read
+`shared/fr-authoring.md` §3a: a capability that cannot be given criteria **a
+single delivery** would satisfy is too broad and gets divided, and being unable
+to enumerate what would settle it is the signal that it names several
+capabilities at once. If the list refuses to end, or each criterion turns out to
+be about a different piece, split the requirement rather than writing vaguer
+criteria. A requirement with **no** criteria at all is reported by audit `I6`.
+
+This is a different question from how big a *split* should be — that one is
+answered by `split-heuristics.md`. A split holds many requirements; sizing the
+split correctly says nothing about whether any one row inside it is right.
+
+### Removed Requirements
+
+When an iterate REMOVES a user-visible capability, its FR is **never silently
+deleted** — `/shipwright-iterate` moves the row into a `### Removed
+Requirements` subsection placed last under `## 2. Functional Requirements`.
+This preserves traceability: the FR id keeps a home, and the RTM stops
+reporting the retired capability as an uncovered/failing requirement.
+
+Rules:
+- Each row keeps the original FR id, requirement text, and priority, and adds
+  the run_id that removed it plus a `status` cell whose value is the literal
+  string `status: deprecated`.
+- The literal `status: deprecated` is **mandatory**: the Phase-Quality
+  Stop-hook check S4 (`check_s4_fr_preservation`) scans for it within a few
+  lines of any FR id that disappeared from the live table. Omitting it raises
+  a spurious "removed FR without status=deprecated" warning.
+- The FR parsers (`shared/scripts/lib/drift_parsers.py:parse_fr_table` and
+  the compliance `data_collector.collect_requirements`) skip this whole
+  subsection — removed FRs do not count as live requirements.
+- Omit the subsection entirely while no FR has been removed.
+
+### Constraints Are Prose, Not a Requirement Table
+
+A constraint ("must use Supabase Auth", "must run on Windows") states a limit
+the implementation operates under — it is not itself a requirement with a
+test, so giving it an id (`C-{NN}.{YY}`) would claim an addressability the
+framework does not provide: nothing reads a `C-` id either. Write constraints
+as plain bullets, grouped by type when that helps a reader (Technical /
+Regulatory / Integration), with no numbering.
+
+### Writing Guidelines
+
+- **Self-contained:** Each spec should stand alone for /shipwright-plan
+- **Reference don't duplicate:** Point to requirements file for background context
+- **Capture decisions:** Include interview answers that shaped this split
+- **Note dependencies:** Be explicit about what this split needs/provides
+- **Be specific:** "The system SHALL authenticate users via email/password"
+  not "The system SHALL handle authentication"
+- **Be testable:** Every SHALL/SHOULD must be verifiable
+- **Be readable by a non-engineer:** a product owner who has never seen the
+  code must be able to read the requirement and say what the product does —
+  see `shared/fr-authoring.md`. Specific and plain are not in tension: the *what*
+  gets sharper, the *how* moves to `architecture.md`.
+- **One requirement, one capability:** a route, a bugfix, a polish pass, or a
+  "Phase 2" is not its own requirement — it is acceptance criteria on the
+  capability it belongs to (`fr-authoring.md` §3). The mirror of that rule is
+  §3a: a row too *broad* to be settled by one delivery is several capabilities
+  and gets divided.
+
+## Template Structure
+
+```markdown
+# {Split-Name}
+
+> Split {NN} of {total} | Source: {requirements file or "interview"}
+
+## 1. Purpose & Scope
+
+{1-3 sentences: What is the goal of this split? What gets built?}
+
+**In Scope:**
+- {What belongs here}
+
+**Out of Scope:**
+- {What explicitly does NOT belong here (important for split boundaries)}
+
+## 2. Functional Requirements
+
+| ID | Area | Name | Priority | Description | Basis | Layers |
+|---|---|---|---|---|---|---|
+| FR-{NN}.01 | {Area} | {Short capability name} | Must | The system SHALL ... | interview | unit, e2e |
+| FR-{NN}.02 | {Area} | {Short capability name} | Must | The system SHALL ... | interview | unit, integration |
+| FR-{NN}.03 | {Area} | {Short capability name} | Should | The system SHOULD ... | interview | unit |
+| FR-{NN}.04 | {Area} | {Short capability name} | May | The system MAY ... | interview | unit |
+
+**Every seeded row reads `interview`, and that is deliberate.** In a new project
+the person who knows is in the conversation, so `interview` is the basis you
+should almost always be able to write. Earlier versions of this template seeded
+`assumed` rows, which put a reader following the template straight into
+violating the phase's own rule against it — copy `interview` and change it only
+when you genuinely could not get the answer (see `Basis` below).
+
+This header is the **one converged shape**, emitted byte-identically by
+`/shipwright-project` and `/shipwright-adopt`. Do not add, drop, rename or
+reorder a column: the reader resolves columns by name, so a renamed column is
+not a cosmetic choice — it is a column that no longer exists.
+
+**`Area`** is the requirement's capability group, **rendered from the group digit
+of its ID** — `FR-03.xx` belongs to split `03-…`, and the Area cell is that
+split's name. It is a display label, never a second grouping axis: if you find
+yourself choosing an Area that disagrees with the ID's group, the ID is
+authoritative and the requirement is filed in the wrong split.
+
+Add `### {Area}` sub-sections **only when one split genuinely holds more than one
+area**. A greenfield split already carries its grouping in the ID, so in the
+normal case the sections would restate what the IDs already say.
+
+**`Name`** is a short capability name (2–5 words, a noun phrase — "Password
+reset", not "The system SHALL reset passwords"). **`Description`** carries the
+full Rupp/IREB sentence. They are separate columns because the name fence in
+`shared/fr-authoring.md` §5 applies to the name only.
+
+**`Basis`** records **how we know this requirement**, from a closed vocabulary:
+
+| Value | Meaning |
+|---|---|
+| `interview` | a human told us |
+| `code` | read from source |
+| `observed` | seen in the running application |
+| `tests` | derived from existing tests |
+| `assumed` | **nobody confirmed this — and what would settle it is named** |
+| `other` | special case; add the reason as `other: <reason>` |
+
+`assumed` is the load-bearing value, and the one to reach for when you are
+tempted to guess. Its whole job is to stop a guess from later reading as
+established fact — if an interviewee could not recall *why* a limit is 90 and you
+wrote down a plausible number, that requirement's basis is `assumed`, not
+`interview`. A value outside this vocabulary is a hard error (it is a typo, not a
+special case); `other` never blocks. Known values take no qualifier: write
+`code`, not `code (auth.ts)` — the file path is exactly what this column replaced.
+
+**In this phase `assumed` is the exception, not a default.** The person who
+could answer is in the conversation, so an unanswered dimension usually means
+*unasked*, and unasked is the failure this phase exists to prevent. Reach for
+`assumed` only where the answer genuinely does not exist yet — nobody has
+decided, or it depends on something not built — and then **name what would
+settle it**: who to ask, or what to try.
+
+Write that settlement as an **acceptance criterion**, never in the `Basis` cell.
+The cell takes one bare vocabulary value and nothing else, so
+`assumed — ask the product owner` is malformed and fails audit `I5` in exactly
+the way `code (auth.ts)` does:
+
+```markdown
+| FR-01.05 | Auth | Login rate limit | Should | The system SHOULD limit repeated
+  failed sign-ins. | assumed | unit |
+```
+
+**FR-01.05: Login rate limit**
+- [ ] Confirm the threshold with the product owner before build — 5/minute is a
+      placeholder nobody has approved.
+
+The binding rules are `shared/fr-authoring.md` §4a and
+`shared/requirement-elicitation.md` §8; this section must not diverge from them.
+
+**`Layers`** declares the test layers this requirement MUST be covered at, from
+`{unit, integration, e2e}` — the set compliance checks per-layer coverage against
+(a UI requirement that only ever gets a unit test is then a visible gap, not tribal
+knowledge). Emit it with these defaults, then let the author override:
+
+- **every FR ⇒ `unit`.**
+- a **UI / user-flow** requirement (a page, screen, click, form, navigation) **⇒ add `e2e`.**
+- a **CRUD / persistence / DB** requirement (store, query, migrate a row) **⇒ add `integration`.**
+
+Comma-separate multiple layers. The column is **backward-compatible**: an FR authored
+without it still parses — a UI-worded FR defaults to `e2e`, everything else to `unit` —
+but a requirement created after this field ships SHOULD declare it explicitly, so its
+provenance reads as author-chosen rather than legacy-inferred.
+
+**Write the layers bare when the requirement is one you are about to build.** A
+bare cell is an author's declaration, and compliance treats it as binding: a
+missing layer becomes a hard coverage failure rather than a warning. That is the
+intended contract for a requirement a human wrote — you are stating what this
+must be tested at, and in the normal flow the tests follow immediately, because
+`/shipwright-project` feeds `/shipwright-build`, which is TDD.
+
+**When you are auto-deriving a cell from the defaults above rather than deciding
+it, mark it `(inferred)`** — see the next paragraph. The defaults are a starting
+guess about a requirement nobody has planned tests for yet, and a guess written
+bare is a binding claim you cannot back.
+
+You will also see cells ending in `(inferred)`, e.g. `unit, e2e (inferred)`.
+**That marker means "nobody has verified these layers", and it keeps the
+requirement advisory** — reported, never blocking. It is *usually* written by a
+tool (`/shipwright-adopt` for reverse-engineered requirements, and migrations),
+because a tool is usually what produces an unverified guess — but the marker
+describes the cell's **standing**, not who typed it.
+
+So: **declare bare when you know, mark `(inferred)` when you do not.** Writing
+`(inferred)` by hand for layers you have not established is honest and is the
+form that does not hard-block; writing a bare cell you have not established
+asserts a binding requirement you cannot back. See `shared/fr-authoring.md` §4a,
+which is the binding rulebook for this column.
+
+**Do not reach for `Basis: assumed` to express "I don't know the layers".** They
+are different columns answering different questions: `Basis` records how we know
+the **requirement**; `Layers` records what it must be **tested** at. A
+requirement can be `Basis: interview` (a human told us, plainly) and still have
+entirely unverified layers.
+
+Only the literal word `inferred` in parentheses counts — `(auto)` or `(guess)` do
+not, and a cell marked that way is read as a binding declaration. Mind the
+space: `unit (inferred)` parses, `unit(inferred)` silently yields no layers.
+
+**Why this is authored by hand here, and not by an automated writer.** A newly
+minted FR has no CI-confirmed test evidence yet — it is new *right now* — so
+there is nothing an evidence-based writer could promote a cell from.
+`shared/scripts/tools/promote_required_layers.py` (P3.5) exists precisely for
+the opposite case: it *widens* an already-existing binding once a LATER CI run
+confirms a higher layer, and it is wired to run opportunistically at iterate
+worktree setup. It never mints a first cell for a row that did not exist when
+its evidence was produced. Hand-authoring this cell on a new FR is therefore
+the complete mechanism for this path, not a stand-in for one that has not been
+built yet.
+
+### Acceptance Criteria
+
+**FR-{NN}.01: {Short name}**
+- [ ] {Testable criterion 1}
+- [ ] {Testable criterion 2}
+
+**FR-{NN}.02: {Short name}**
+- [ ] {Testable criterion 1}
+- [ ] ...
+
+### Removed Requirements
+
+{Only present once a REMOVE-classified iterate has retired an FR.
+Omit this subsection entirely while empty.}
+
+| ID | Requirement | Priority | Removed by | status |
+|----|-------------|----------|------------|--------|
+| FR-{NN}.{YY} | {original requirement text} | {Must/Should/May} | {run_id} | status: deprecated |
+
+## 3. Constraints
+
+**Technical:**
+- Must use {technology}
+
+**Regulatory:**
+- Must comply with {regulation}
+
+**Integration:**
+- Must integrate with {system}
+
+## 4. Dependencies
+
+**Depends on:**
+- Split {XX}: {what this split needs — e.g., "database schema from 01-backend"}
+
+**Provides to:**
+- Split {XX}: {what this split delivers — e.g., "API endpoints for 02-frontend"}
+
+**Dependency type:** {models | APIs | schemas | patterns}
+
+## 5. Key Decisions
+
+{Decisions from the interview that shaped this split.
+Only decisions that shipwright-plan needs to plan correctly.}
+
+- **Decision:** {What was decided}
+  **Rationale:** {Why}
+
+## 6. UI Requirements (optional)
+
+{Include only if this split has user-facing screens.
+Used by shipwright-design to generate mockups.}
+
+| Screen | Description | Key Elements |
+|--------|-------------|-------------|
+| {Screen name} | {What the user sees} | {Key UI elements: forms, tables, cards, etc.} |
+
+**Layout preference:** {Sidebar | Top-nav | Centered | Full-width}
+**Design references:** {Link to existing mockups in .shipwright/designs/uploads/ if any}
+
+## 7. References
+
+- Requirements: `{path to requirements file}`
+- Interview: `{path to interview transcript}`
+- Related splits: {links to other split specs if relevant}
+- Designs: `{path to design-manifest.md if available}`
+```
+
+## Example: Filled spec.md
+
+For a hypothetical split "01-auth" of a SaaS Time Tracking project:
+
+```markdown
+# Authentication & Authorization
+
+> Split 01 of 03 | Source: .shipwright/planning/requirements.md
+
+## 1. Purpose & Scope
+
+Build the authentication and authorization system for the time tracking
+application. Users can sign up, log in, and access features based on their role.
+
+**In Scope:**
+- User registration (email/password)
+- Login / logout
+- Password reset flow
+- Role-based access (admin, member)
+- Session management
+
+**Out of Scope:**
+- OAuth/social login (planned for future iteration)
+- Multi-tenancy (handled in Split 02)
+- UI components (handled in Split 03)
+
+## 2. Functional Requirements
+
+| ID | Area | Name | Priority | Description | Basis | Layers |
+|---|---|---|---|---|---|---|
+| FR-01.01 | Authentication | User registration | Must | The system SHALL allow users to register with email and password | interview | unit, integration, e2e |
+| FR-01.02 | Authentication | User login | Must | The system SHALL authenticate users via email/password and return a session token | interview | unit, integration, e2e |
+| FR-01.03 | Authentication | Password reset | Must | The system SHALL support password reset via email link | interview | unit, integration, e2e |
+| FR-01.04 | Authentication | Role-based access | Must | The system SHALL enforce role-based access control (admin, member) | interview | unit, e2e |
+| FR-01.05 | Authentication | Login rate limiting | Should | The system SHOULD rate-limit login attempts to 5 per minute per IP | assumed | unit |
+| FR-01.06 | Authentication | Remember me | May | The system MAY support "remember me" for extended sessions | interview | unit, e2e (inferred) |
+| FR-01.08 | Authentication | Login response time | Must | The system SHALL complete login requests within 500ms (p95) | interview | unit, integration |
+| FR-01.09 | Authentication | Password storage | Must | The system SHALL store passwords using bcrypt with cost factor >= 10 | interview | unit, integration |
+
+Both `Layers` forms appear above on purpose — copying either should be a choice,
+not an accident:
+
+- **FR-01.01–.05, .08 and .09 are bare** — binding declarations. This is the
+  recommended form: you are building these, so the tests land with them. Until
+  they do, the missing layer hard-aborts finalization.
+- **FR-01.06 carries `(inferred)`** — advisory, for a `May` capability whose
+  layers nobody has verified yet. Reported, never blocking.
+
+**FR-01.08 and FR-01.09 are quality targets** (response time, password
+storage) folded into this same table like any other requirement — there is
+no separate `QR-` id space; see "Quality Targets Are FR Rows, Not a Separate
+Section" above. Their ids skip past `.07`, which the Removed Requirements
+table below retires permanently.
+
+### Acceptance Criteria
+
+**FR-01.01: User Registration**
+- [ ] User can register with valid email and password (min 8 chars)
+- [ ] Duplicate email returns clear error message
+- [ ] Registration creates user record in Supabase Auth
+- [ ] Confirmation email is sent after registration
+
+**FR-01.02: User Login**
+- [ ] Valid credentials return session token
+- [ ] Invalid credentials return 401 with generic error
+- [ ] Session token expires after 24 hours
+
+**FR-01.03: Password Reset**
+- [ ] User receives reset link via email
+- [ ] Reset link expires after 1 hour
+- [ ] New password must meet minimum requirements
+
+**FR-01.04: Role-Based Access**
+- [ ] Admin can access all routes
+- [ ] Member cannot access /admin/* routes
+- [ ] Unauthenticated users are redirected to /login
+
+**FR-01.05: Login rate limiting**
+- [ ] A sixth failed sign-in within a minute from one IP is refused
+- [ ] Confirm the threshold with the product owner before build — 5/minute is a
+      placeholder nobody has approved
+
+**FR-01.06: Remember me**
+- [ ] A returning user with the box ticked is still signed in after 30 days
+- [ ] Leaving it unticked ends the session when the browser closes
+
+**FR-01.08: Login response time**
+- [ ] API responds within 500ms at p95 under normal load
+- [ ] No endpoint exceeds 1000ms at p99
+
+**FR-01.09: Password storage**
+- [ ] A newly created password hash uses bcrypt with cost factor >= 10
+- [ ] An attempt to store a password with a lower cost factor is rejected
+
+The FR-01.05 block is the shape `Basis: assumed` obliges: the cell stays the
+bare vocabulary word, and the **second criterion names what would settle it**.
+Every requirement here carries criteria, including the `Should` and `May` ones
+— a row with none at all is what audit `I6` reports (`fr-authoring.md` §3a).
+
+### Removed Requirements
+
+| ID | Requirement | Priority | Removed by | status |
+|----|-------------|----------|------------|--------|
+| FR-01.07 | The system SHALL support social login via Google OAuth | Should | iterate-20260120-drop-oauth | status: deprecated |
+
+## 3. Constraints
+
+**Technical:**
+- Must use Supabase Auth (GoTrue) as authentication backend
+- Must use Row Level Security (RLS) for authorization
+
+## 4. Dependencies
+
+**Depends on:**
+- None (this is the foundation split)
+
+**Provides to:**
+- Split 02 (Data Model): Auth user IDs for foreign keys
+- Split 03 (Frontend): Auth hooks and session context
+
+**Dependency type:** APIs, schemas
+
+## 5. Key Decisions
+
+- **Decision:** Use Supabase Auth instead of custom auth
+  **Rationale:** Reduces implementation effort, built-in email verification, PKCE flow
+
+- **Decision:** Roles stored in user metadata, not separate table
+  **Rationale:** Simpler RLS policies, sufficient for 2-role model
+
+## 6. References
+
+- Requirements: `.shipwright/planning/requirements.md`
+- Interview: `.shipwright/planning/shipwright_project_interview.md`
+- Related splits: `02-data-model/spec.md`, `03-frontend/spec.md`
+```

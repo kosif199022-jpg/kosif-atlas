@@ -1,0 +1,135 @@
+{
+  "title": "HOSTILE <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+  "view": {
+    "tab": "t <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3))",
+    "highlight": [
+      "m"
+    ]
+  },
+  "widgets": [
+    {
+      "id": "m",
+      "tab": "t <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3))",
+      "type": "metric",
+      "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "value": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "delta": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "actions": [
+        {
+          "id": "go",
+          "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+          "say": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+          "confirm": true
+        }
+      ]
+    },
+    {
+      "id": "tb",
+      "tab": "t <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3))",
+      "type": "table",
+      "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "columns": [
+        "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+        "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)"
+      ],
+      "rows": [
+        [
+          "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+          "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)"
+        ],
+        [
+          1,
+          null
+        ]
+      ]
+    },
+    {
+      "id": "li",
+      "tab": "t <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3))",
+      "type": "list",
+      "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "items": [
+        "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+        {
+          "text": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "id": "no",
+      "tab": "t <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3))",
+      "type": "note",
+      "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "md": "# <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)\n- <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)\n**<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)**\n`<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)`\n<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)"
+    },
+    {
+      "id": "ch",
+      "tab": "t <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3))",
+      "type": "chart",
+      "kind": "bar",
+      "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "series": [
+        {
+          "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+          "value": 3
+        },
+        {
+          "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+          "value": 5
+        }
+      ]
+    },
+    {
+      "id": "ln",
+      "tab": "t <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3))",
+      "type": "chart",
+      "kind": "line",
+      "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "series": [
+        {
+          "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+          "value": 1
+        },
+        {
+          "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": "gr",
+      "tab": "t <img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3))",
+      "type": "group",
+      "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "children": [
+        "li"
+      ],
+      "actions": [
+        {
+          "id": "ga",
+          "label": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+          "say": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)"
+        }
+      ]
+    },
+    {
+      "id": "other",
+      "tab": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3))",
+      "type": "note",
+      "md": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)"
+    }
+  ],
+  "log": [
+    {
+      "at": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "by": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)",
+      "msg": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)"
+    },
+    {
+      "at": "2026-01-01T00:00:00Z",
+      "by": "agent",
+      "msg": "<img src=x onerror=alert(1)><script>alert(2)</script>[x](javascript:alert(3)) [a](JaVaScRiPt:alert(4)) [b](java\tscript:alert(5)) [c](data:text/html,<script>alert(6)</script>) \" ' ` onmouseover=alert(7)"
+    }
+  ]
+}

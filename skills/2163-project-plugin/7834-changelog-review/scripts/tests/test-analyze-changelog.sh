@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+# Regression tests for analyze-changelog.sh
+#
+# Run: bash project-plugin/skills/changelog-review/scripts/tests/test-analyze-changelog.sh
+# Exit 0 = all tests pass, Exit 1 = failures
+#
+# Covers issue #1638 (changelog-review blind to tool deprecations):
+#   - A "Deprecated `TaskOutput` tool" line is counted (DEPRECATION dimension).
+#   - A deprecated identifier referenced in plugin code is surfaced as a
+#     candidate file — the "changelog → plugin code" bridge that the rule-doc-
+#     only map lacked. This is the exact miss that left bash-antipatterns.sh
+#     recommending the dead TaskOutput tool.
+#   - A deprecation token NOT referenced anywhere does not raise the actionable
+#     flag (no false positives).
+#   - An oversized excerpt (review stall) flags STATUS=WARN.
+#   - A pure feature excerpt stays STATUS=OK with no deprecation.
+#
+# Covers issue #2712 (bare, un-backticked removal subjects):
+#   - "Removed the deprecated TaskOutput tool" (2.1.277) and "Unshipped
+#     AgentOutputTool and BashOutputTool" surface their subjects; bare
+#     capitalised non-tools (Opus, Task tool's `mode`, JetBrains) do not.
+set -uo pipefail
+
+SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/analyze-changelog.sh"
+PASS=0
+FAIL=0
+
+# Throwaway fake repo: one plugin hook that references the deprecated tool, plus
+# a rules dir so keyword→rule-doc mapping has somewhere to point.
+REPO=$(mktemp -d)
+trap 'rm -rf "$REPO"' EXIT
+mkdir -p "$REPO/fake-plugin/hooks" "$REPO/.claude/rules"
+cat > "$REPO/fake-plugin/hooks/bash-antipatterns.sh" <<'EOF'
+# REMINDER: Use the Read tool on the task-output file path.
+# (The TaskOutput tool is deprecated.)
+EOF
+# Identifiers that appear NEAR deprecation keywords in the changelog but are not
+# themselves being deprecated (the #1638 sweep false positives). Referenced here
+# so that a too-loose extractor WOULD surface them — making the negative
+# assertions below meaningful.
+cat > "$REPO/fake-plugin/hooks/coexist.sh" <<'EOF'
+# uses SendMessage between agents; reads enabledPlugins and mcpServers config
+EOF
+: > "$REPO/.claude/rules/skill-development.md"
+
+run() {
+  # run <excerpt-content> [extra-args...] -> sets OUT to the script's stdout
+  local content="$1"; shift
+  local exc; exc=$(mktemp)
+  printf '%s\n' "$content" > "$exc"
+  OUT=$(bash "$SCRIPT" --excerpt "$exc" --repo-dir "$REPO" --tracked 2.1.76 --latest 2.1.138 "$@")
+  rm -f "$exc"
+}
+
+field() { echo "$OUT" | grep -E "^$1=" | head -1 | cut -d= -f2-; }
+
+assert_eq() {
+  local desc="$1" want="$2" got="$3"
+  if [ "$got" = "$want" ]; then
+    printf "  PASS: %s\n" "$desc"; PASS=$((PASS + 1))
+  else
+    printf "  FAIL: %s (want '%s', got '%s')\n" "$desc" "$want" "$got"; FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_contains() {
+  local desc="$1" needle="$2"
+  if echo "$OUT" | grep -qF "$needle"; then
+    printf "  PASS: %s\n" "$desc"; PASS=$((PASS + 1))
+  else
+    printf "  FAIL: %s (output missing: %s)\n" "$desc" "$needle"; FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_absent() {
+  local desc="$1" needle="$2"
+  if echo "$OUT" | grep -qF "$needle"; then
+    printf "  FAIL: %s (output unexpectedly contains: %s)\n" "$desc" "$needle"; FAIL=$((FAIL + 1))
+  else
+    printf "  PASS: %s\n" "$desc"; PASS=$((PASS + 1))
+  fi
+}
+
+echo "=== analyze-changelog.sh tests ==="
+
+# ── deprecation referenced in plugin code (the #1638 miss) ───────────────────
+echo ""
+echo "deprecated tool referenced in plugin code is surfaced as a candidate:"
+run "## 2.1.83
+- Deprecated \`TaskOutput\` tool in favor of using \`Read\` on the background task's output file path"
+
+assert_eq "DEPRECATION dimension counts the line" "1" "$(field DEPRECATION)"
+assert_eq "ACTIONABLE_DEPRECATION raised" "1" "$(field ACTIONABLE_DEPRECATION)"
+assert_contains "DEPRECATED_TOKENS names TaskOutput" "DEPRECATED_TOKENS=TaskOutput"
+assert_contains "candidate surfaces the referencing hook file" "fake-plugin/hooks/bash-antipatterns.sh"
+assert_eq "STATUS is WARN for an actionable deprecation" "WARN" "$(field STATUS)"
+assert_contains "issue row explains the actionable deprecation" "TYPE=actionable_deprecation"
+
+# ── deprecation of an unreferenced identifier → no false positive ────────────
+echo ""
+echo "deprecation of an identifier absent from the repo does not raise the flag:"
+run "## 2.1.99
+- Deprecated \`SomeNonexistentTool\` in favor of the new flow"
+
+assert_eq "DEPRECATION still counted" "1" "$(field DEPRECATION)"
+assert_eq "ACTIONABLE_DEPRECATION stays 0 (token not in repo)" "0" "$(field ACTIONABLE_DEPRECATION)"
+assert_absent "no fake-plugin candidate surfaced" "fake-plugin/hooks"
+
+# ── verb-anchored extraction rejects co-located non-deprecations (#1638 sweep) ─
+# Real shapes from the 2.1.138→2.1.176 sweep where a deprecation keyword sat on
+# the same line as a live identifier that was NOT being deprecated.
+echo ""
+echo "co-located identifiers (not the deprecation subject) do not raise the flag:"
+run "## 2.1.166
+- Hardened cross-session messaging: messages relayed via \`SendMessage\` from other Claude sessions no longer carry user authority
+## 2.1.153
+- \`--strict-mcp-config\` no longer strips inline \`mcpServers\` from explicitly-passed agent definitions
+## 2.1.152
+- Fixed /doctor reporting for stale \`enabledPlugins\` entries referencing removed marketplaces or dropped plugins"
+
+assert_eq "DEPRECATION count still fires on the coarse keywords" "3" "$(field DEPRECATION)"
+assert_eq "ACTIONABLE_DEPRECATION stays 0 (none is the deprecation subject)" "0" "$(field ACTIONABLE_DEPRECATION)"
+assert_absent "SendMessage not surfaced as a candidate" "coexist.sh"
+
+# Counterpart true positive: the same verb-first shape that the sweep correctly
+# caught (an env var that was genuinely removed) still surfaces.
+run "## 2.1.160
+- Removed \`TaskOutput\`; it is now a no-op"
+assert_eq "verb-first 'Removed \`X\`' still raises the flag" "1" "$(field ACTIONABLE_DEPRECATION)"
+assert_contains "the removed identifier is surfaced" "DEPRECATED_TOKENS=TaskOutput"
+
+# ── BREAKING tool removal, verb-after `/`-separated pair (#1733) ──────────────
+# "BREAKING: `A`/`B` tools removed" is verb-after with no is/are/now/been
+# auxiliary, so neither the verb-first nor the token-first form catches it. This
+# is the exact 2.1.178 TeamCreate/TeamDelete shape that left the agent-teams
+# skill referencing removed tools unflagged. A fake skill references both tokens
+# so the code bridge has something to surface.
+mkdir -p "$REPO/agentish-plugin/skills/agent-teams"
+cat > "$REPO/agentish-plugin/skills/agent-teams/SKILL.md" <<'EOF'
+# Agent Teams
+Use TeamCreate to make a team and TeamDelete to tear it down.
+EOF
+echo ""
+echo "BREAKING verb-after tool removal (\`A\`/\`B\` ... removed) surfaces both tokens:"
+run "## 2.1.178
+- BREAKING: \`TeamCreate\`/\`TeamDelete\` tools removed; every session now has one implicit team"
+
+assert_eq "ACTIONABLE_DEPRECATION raised for the BREAKING removal" "1" "$(field ACTIONABLE_DEPRECATION)"
+assert_contains "first paired token surfaced" "TeamCreate"
+assert_contains "second paired token surfaced" "TeamDelete"
+assert_contains "the referencing skill is surfaced as a candidate" "agentish-plugin/skills/agent-teams/SKILL.md"
+
+# Guard: a *replacement* named after the removal verb (in favor of `X`) is NOT
+# the subject and must not be surfaced — keeps the BREAKING shape from grabbing
+# tokens that merely follow the verb.
+run "## 2.1.178
+- BREAKING: \`TeamCreate\` removed in favor of \`SendMessage\` between agents"
+assert_contains "the removed subject is surfaced" "TeamCreate"
+assert_absent "the replacement named after the verb is not surfaced" "DEPRECATED_TOKENS=SendMessage"
+
+# ── bare (un-backticked) removal subject (#2712) ──────────────────────────────
+# Upstream does not always backtick the removed tool. 2.1.277 wrote "Removed the
+# deprecated TaskOutput tool" bare, every form above requires a backticked
+# subject, and the bridge returned DEPRECATED_TOKENS= / STATUS=OK against a tree
+# that still granted TaskOutput in two agents. The fixtures are verbatim upstream
+# lines; the negatives are the bare capitalised words a looser form would grab
+# (a sweep of the full upstream CHANGELOG found these beside the three real
+# subjects). The fake file references every one of them so a loose extractor
+# WOULD surface it.
+cat > "$REPO/fake-plugin/hooks/bare-words.sh" <<'EOF'
+# AgentOutputTool BashOutputTool TaskOutputTool; the Task tool spawns agents;
+# runs Opus in JetBrains or Windsurf on Windows
+EOF
+echo ""
+echo "bare tool-removal subject (no backticks) is surfaced:"
+run "## 2.1.277
+- Removed the deprecated TaskOutput tool; Claude reads a background task's output file with Read instead, and the \`taskOutputMaxChars\` setting and \`TASK_MAX_OUTPUT_LENGTH\` no longer have any effect"
+
+assert_eq "ACTIONABLE_DEPRECATION raised for the bare subject" "1" "$(field ACTIONABLE_DEPRECATION)"
+assert_contains "DEPRECATED_TOKENS names the bare TaskOutput" "DEPRECATED_TOKENS=TaskOutput"
+assert_eq "STATUS is WARN for the bare removal" "WARN" "$(field STATUS)"
+# The fake hook names Read too, so a loose extractor would list "Read TaskOutput".
+assert_eq "only the removed tool, not the Read replacement, is surfaced" "TaskOutput" "$(field DEPRECATED_TOKENS)"
+
+echo ""
+echo "bare *Tool list subject surfaces every listed tool, not the replacement:"
+run "## 1.0.93
+- Unshipped AgentOutputTool and BashOutputTool, in favor of a new unified TaskOutputTool"
+
+assert_contains "first listed tool surfaced" "AgentOutputTool"
+assert_contains "second listed tool surfaced" "BashOutputTool"
+assert_absent "the in-favor-of replacement is not surfaced" "TaskOutputTool"
+
+echo ""
+echo "bare capitalised words that are not a removed tool do not raise the flag:"
+run "## 2.1.219
+- Removed Opus 4.7 from fast mode; \`/fast\` now applies to Opus 5 and Opus 4.8
+## 2.1.212
+- Deprecated the Task tool's \`mode\` parameter (now ignored); subagents inherit the parent session's permission mode by default
+## 2.1.150
+- Removed the JetBrains plugin install suggestion from startup
+- Renamed Windsurf to Devin Desktop in the \`/ide\` menu"
+
+assert_eq "DEPRECATION still counts the four lines" "4" "$(field DEPRECATION)"
+assert_eq "ACTIONABLE_DEPRECATION stays 0" "0" "$(field ACTIONABLE_DEPRECATION)"
+assert_absent "bare-words fixture file not surfaced" "bare-words.sh"
+
+# ── oversized batch (review stall) flags WARN ────────────────────────────────
+echo ""
+echo "oversized excerpt (review stall) flags STATUS=WARN:"
+run "## 2.1.05
+- New feature
+## 2.1.04
+- New feature
+## 2.1.03
+- New feature" --max-versions 2
+
+assert_eq "VERSION_COUNT counts the headings" "3" "$(field VERSION_COUNT)"
+assert_eq "STATUS WARN on oversized batch" "WARN" "$(field STATUS)"
+assert_contains "issue row explains the oversized batch" "TYPE=oversized_batch"
+
+# ── pure feature excerpt stays clean ─────────────────────────────────────────
+echo ""
+echo "a pure feature excerpt has no deprecation and stays OK:"
+run "## 2.1.90
+- Added a new /color command for per-session prompt bar color"
+
+assert_eq "DEPRECATION is 0" "0" "$(field DEPRECATION)"
+assert_eq "ACTIONABLE_DEPRECATION is 0" "0" "$(field ACTIONABLE_DEPRECATION)"
+assert_eq "STATUS OK" "OK" "$(field STATUS)"
+
+# ── keyword → rule-doc mapping preserved ─────────────────────────────────────
+echo ""
+echo "keyword hits still map to rule-doc candidates:"
+run "## 2.1.50
+- New hook events: WorktreeCreate, TaskCompleted
+- New permission model for subagents"
+
+assert_contains "hook keyword maps to hooks-reference.md" ".claude/rules/hooks-reference.md"
+assert_contains "agent keyword maps to agent-development.md" ".claude/rules/agent-development.md"
+assert_contains "permission keyword maps to agentic-permissions.md" ".claude/rules/agentic-permissions.md"
+
+# ── Summary ──────────────────────────────────────────────────────────────────
+echo ""
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ] && exit 0 || exit 1

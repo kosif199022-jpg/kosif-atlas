@@ -1,0 +1,74 @@
+# Work-plan format — `work-plan.md`
+
+**Written by**: `scripts/analyze-capabilities.mjs` (Station 2a) and the `orchestrate-app` skill
+(track/task status updates).
+**Read by**: `orchestrate-app` on every invocation (Station 0).
+**Location**: `.spec/app/work-plan.md` when the spec lives under `.spec/spec/`. Legacy specs keep it beside `spec.md`.
+
+Hybrid YAML front matter + append-only Markdown `## Log`.
+
+`work-plan-version` is `"1.1"` when the plan was derived from a spec 2.0 delivery plan (tasks
+carry `slice-ref` and `depends-on`, one `B-*` per slice) and `"1.0"` for a 1.x spec (one `B-*`
+per entity). See `track-decomposition.md`.
+
+```yaml
+---
+work-plan-version: "1.1"
+spec-ref: ".spec/spec/spec-{tc}_{slug}/spec.md"
+prototype-ref: ".spec/prototype/{proto-tc}_{slug}/"
+generated: "YYYY-MM-DDTHH:mm:ssZ"
+updated: "YYYY-MM-DDTHH:mm:ssZ"
+
+tracks:
+  - id: backend
+    needed: true
+    confidence: high          # high | low
+    status: pending           # pending | in-progress | done | skipped | blocked
+    entry: backend-dev-kit:backend-dev
+    result: ""                # kit-result path once the track finishes
+    blocked-reason: ""
+  - id: agent
+    needed: false
+    confidence: high
+    status: skipped
+    entry: agent-dev-kit:agent-dev
+    result: ""
+    blocked-reason: ""
+  - id: frontend
+    needed: true
+    confidence: high
+    status: pending
+    entry: frontend-orchestrator-kit:orchestrate-frontend
+    result: ""
+    blocked-reason: ""
+
+tasks:
+  - id: B-001
+    track: backend
+    title: Access and catalogue  # 1.1: slice title · 1.0: entity name
+    slice-ref: SL-001            # 1.1 only
+    depends-on: []               # 1.1 only — task ids that must be done first
+    entity-refs: [Profile]
+    api-refs: [API-001]
+    tool-refs: []
+    agent-ref: ""
+    story-refs: [US-001]
+    ac-refs: [AC-001]
+    priority: must
+    slug-hint: profile
+    status: pending
+    slug: ""
+    branch: ""
+    blocked-reason: ""
+    change: ""                # remove — delete the existing resource instead of building it
+---
+```
+
+Frontend `T-*` tasks live in `task-checklist.md` (frontend-orchestrator-kit). This file only
+lists `B-*` and `A-*` increment tasks plus track-level frontend status.
+
+## Status lifecycle
+
+Same as the frontend checklist: `pending` → `in-progress` → `done` / `pending` (abort) /
+`blocked` (error, including `blocked-reason: stale-agent`) / leave `in-progress` (missing
+envelope; a stale pulse rebuilds once, then blocks). Only a human writes `skipped`.

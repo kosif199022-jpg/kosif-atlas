@@ -1,0 +1,211 @@
+#!/bin/bash
+# Fetch unresolved, non-outdated PR review threads via GitHub GraphQL API.
+# Usage: get-pr-comments <owner/repo> <pr-number>
+# Output: JSON array of thread objects to stdout.
+# Errors: Exit 1 with message to stderr.
+
+set -euo pipefail
+
+# --- Dependency checks ---
+command -v gh >/dev/null 2>&1 || { printf 'Error: gh CLI not found. Install from https://cli.github.com\n' >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { printf 'Error: jq not found. Install from https://jqlang.github.io/jq\n' >&2; exit 1; }
+
+# --- Input validation ---
+if [ $# -lt 2 ]; then
+    printf 'Usage: get-pr-comments <owner/repo> <pr-number>\n' >&2
+    exit 1
+fi
+
+REPO="$1"
+PR_NUMBER="$2"
+
+# Validate owner/repo format
+case "$REPO" in
+    */*)
+        OWNER="${REPO%%/*}"
+        NAME="${REPO#*/}"
+        if [ -z "$OWNER" ] || [ -z "$NAME" ]; then
+            printf 'Error: Invalid repo format. Expected owner/repo, got: %s\n' "$REPO" >&2
+            exit 1
+        fi
+        ;;
+    *)
+        printf 'Error: Invalid repo format. Expected owner/repo, got: %s\n' "$REPO" >&2
+        exit 1
+        ;;
+esac
+
+# Validate PR number is numeric
+case "$PR_NUMBER" in
+    ''|*[!0-9]*)
+        printf 'Error: PR number must be numeric, got: %s\n' "$PR_NUMBER" >&2
+        exit 1
+        ;;
+esac
+
+# --- Pagination constants ---
+MAX_PAGES=10
+PAGE_SIZE=100
+
+# --- GraphQL query with cursor pagination ---
+# shellcheck disable=SC2016
+QUERY='
+query($owner: String!, $name: String!, $number: Int!, $cursor: String, $pageSize: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: $pageSize, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          path
+          line
+          startLine
+          comments(first: 50) {
+            nodes {
+              author { login }
+              body
+            }
+          }
+        }
+      }
+    }
+  }
+}'
+
+# --- Paginated fetch loop ---
+ALL_PAGES=()
+CURSOR=""
+PAGE=0
+
+_STDERR_FILE=$(mktemp)
+trap 'rm -f "$_STDERR_FILE"' EXIT
+
+while true; do
+    PAGE=$((PAGE + 1))
+
+    # Execute query — separate stdout from stderr to avoid gh warnings poisoning JSON
+    # Use && ... || to capture exit code without triggering set -e on failure
+    if [ -z "$CURSOR" ]; then
+        RESPONSE=$(gh api graphql \
+            -f owner="$OWNER" \
+            -f name="$NAME" \
+            -F "number=$PR_NUMBER" \
+            -F cursor=null \
+            -F "pageSize=$PAGE_SIZE" \
+            -f query="$QUERY" 2>"$_STDERR_FILE") && _GH_EXIT=0 || _GH_EXIT=$?
+    else
+        RESPONSE=$(gh api graphql \
+            -f owner="$OWNER" \
+            -f name="$NAME" \
+            -F "number=$PR_NUMBER" \
+            -f cursor="$CURSOR" \
+            -F "pageSize=$PAGE_SIZE" \
+            -f query="$QUERY" 2>"$_STDERR_FILE") && _GH_EXIT=0 || _GH_EXIT=$?
+    fi
+    _GH_STDERR=$(cat "$_STDERR_FILE")
+    if [ "$_GH_EXIT" -ne 0 ]; then
+        # Parse error category from stderr
+        case "$_GH_STDERR" in
+            *"401"*|*"Bad credentials"*|*"authentication"*)
+                printf 'Error: Authentication failed. Run "gh auth login" to re-authenticate.\n' >&2
+                ;;
+            *"403"*|*"Forbidden"*|*"permission"*|*"insufficient permissions"*)
+                printf 'Error: Insufficient permissions for this repo.\n' >&2
+                ;;
+            *"Could not resolve"*|*"not found"*|*"NOT_FOUND"*)
+                printf 'Error: Repository or PR not found: %s #%s\n' "$REPO" "$PR_NUMBER" >&2
+                ;;
+            *"rate limit"*|*"429"*)
+                printf 'Error: GitHub API rate limit exceeded. Wait and retry.\n' >&2
+                ;;
+            *"5xx"*|*"5XX"*|*"Server Error"*|*"server error"*|*"500"*|*"502"*|*"503"*)
+                printf 'Error: GitHub server error. Retry in a few minutes.\n' >&2
+                ;;
+            *)
+                printf 'Error: GraphQL query failed (page %d): %s\n' "$PAGE" "$_GH_STDERR" >&2
+                ;;
+        esac
+        exit 1
+    fi
+
+    # --- Validate response shape ---
+    JQ_ERR=""
+    if ! JQ_ERR=$(printf '%s' "$RESPONSE" | jq -e '.data.repository.pullRequest.reviewThreads' 2>&1 >/dev/null); then
+        ERRORS=$(printf '%s' "$RESPONSE" | jq -r '.errors[0].message // empty' 2>/dev/null)
+        if [ -n "$ERRORS" ]; then
+            printf '[get-pr-comments] Error: GraphQL error: %s\n' "$ERRORS" >&2
+        elif [ -n "$JQ_ERR" ]; then
+            printf '[get-pr-comments] Error: jq parse error: %s\n' "$JQ_ERR" >&2
+        else
+            printf '[get-pr-comments] Error: Unexpected response shape from GitHub API.\n' >&2
+        fi
+        exit 1
+    fi
+
+    # --- Accumulate threads (O(n) — array append, merge once at end) ---
+    PAGE_THREADS=$(printf '%s' "$RESPONSE" | jq '.data.repository.pullRequest.reviewThreads.nodes // []' 2>&1) || {
+        printf '[get-pr-comments] Error: Failed to extract threads from page %d: %s\n' "$PAGE" "$PAGE_THREADS" >&2
+        exit 1
+    }
+    ALL_PAGES+=("$PAGE_THREADS")
+
+    # --- Check pagination ---
+    HAS_MORE=$(printf '%s' "$RESPONSE" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false') || {
+        printf '[get-pr-comments] Error: Failed to read pagination state on page %d. Aborting.\n' "$PAGE" >&2
+        exit 1
+    }
+    if [ "$HAS_MORE" != "true" ]; then
+        break
+    fi
+
+    CURSOR=$(printf '%s' "$RESPONSE" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // empty')
+    if [ -z "$CURSOR" ]; then
+        # Inconsistent state: hasNextPage=true but no cursor to continue
+        printf '[get-pr-comments] Warning: pagination truncated — hasNextPage=true but no endCursor (page %d). Results may be incomplete.\n' "$PAGE" >&2
+        break
+    fi
+
+    # Validate cursor format (base64-like chars only — defense against injection)
+    case "$CURSOR" in
+        *[!a-zA-Z0-9+/=_-]*)
+            printf '[get-pr-comments] Error: Invalid cursor format from GitHub API (page %d). Aborting pagination.\n' "$PAGE" >&2
+            exit 1
+            ;;
+    esac
+
+    if [ "$PAGE" -ge "$MAX_PAGES" ]; then
+        TOTAL=$((PAGE * PAGE_SIZE))
+        printf 'Warning: Reached pagination limit (%d pages, ~%d threads). Results may be truncated.\n' "$MAX_PAGES" "$TOTAL" >&2
+        break
+    fi
+done
+
+# --- Merge all pages (single jq call — O(n) instead of O(n²)) ---
+ALL_THREADS=$(printf '%s\n' "${ALL_PAGES[@]}" | jq -s 'add // []') || {
+    printf '[get-pr-comments] Error: Failed to merge thread pages.\n' >&2
+    exit 1
+}
+
+# --- Filter and transform ---
+OUTPUT=$(printf '%s' "$ALL_THREADS" | jq '
+  [
+    .[]
+    | select(.isResolved == false and .isOutdated == false)
+    | {
+        threadId: .id,
+        path: .path,
+        line: .line,
+        startLine: .startLine,
+        comments: [
+          (.comments.nodes // [])[]
+          | { author: (.author.login // "ghost"), body: .body }
+        ]
+      }
+  ]') || {
+    printf 'Error: Failed to transform GraphQL response.\n' >&2
+    exit 1
+}
+
+printf '%s\n' "$OUTPUT"

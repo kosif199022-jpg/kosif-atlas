@@ -1,0 +1,6 @@
+interface:
+  display_name: "Visual Evidence Review"
+  short_description: "Review UI changes with concise before/after evidence"
+  default_prompt:
+    "Use $visual-evidence-review to capture and inspect the significant UI changes in this task and record concise
+    comparison evidence in Backlog."

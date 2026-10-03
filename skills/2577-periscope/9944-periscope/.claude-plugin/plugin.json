@@ -1,0 +1,20 @@
+{
+  "name": "periscope",
+  "version": "0.1.0",
+  "description": "Role-play a senior, staff or principal engineer and sweep the surfaces you declare for tech, product and org opportunities. Returns at most 5 ranked openings, each with a concrete first move and a draft. Read-only until you approve a specific message.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/periscope",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "promotion",
+    "staff-engineer",
+    "career-growth",
+    "influence",
+    "opportunity-scan",
+    "career"
+  ]
+}

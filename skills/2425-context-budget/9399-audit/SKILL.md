@@ -1,0 +1,360 @@
+---
+description: "When the bundled explain-usage skill resolves in this session, prefer it for where this session's tokens went; this skill for startup cost before any work, per-tool attribution, and whether a settings change saved anything. Use when: 'what is eating my context window at startup', 'measure my startup payload', 'which built-in tools cost the most', 'did that settings change save tokens'. Read-only; `fix` applies one trim behind approval."
+argument-hint: "[--full-sweep|--tools T1,T2|--ledger|fix]"
+user-invocable: true
+disable-model-invocation: false
+metadata:
+  workflow-stage: anytime
+  summary: Measure the startup context payload per item and ledger every lever's real delta
+---
+
+**Arguments.** `[--full-sweep|--tools T1,T2|--ledger|fix]`. Full form: [--full-sweep] every live tool, engine flag --tools from-baseline | [--tools T1,T2] | [--ledger] history | [fix] guided trim (explicit override)
+
+## Purpose
+
+`/context` itemizes skills, agents, and MCP tools natively. The model cannot invoke it in this
+session, so for those, ask the person to run it and read its tables (the Boundary section below).
+What it structurally cannot itemize is the built-in tool pool: `System tools` and
+`System tools (deferred)` are lump sums, and together they are typically the largest single
+contributor to the fixed startup payload. This skill measures that attribution on the consumer's
+own machine by A/B differencing: a baseline session versus one session per candidate tool with
+that tool denied by bare name. The two attributed buckets compose differently, so price a basket
+per bucket rather than as one number: deferred-side deltas add, and a basket's deferred saving is
+the sum of its members; prefix-side deltas double-count, and their sum is only an upper bound on
+what the basket saves on the prefix side. Confirm both on this binary with
+`attribute --verify-additivity`, which reports its verdict per bucket.
+
+Two rules govern everything this skill says, per the plugin's
+[`reference/engine.md`](reference/engine.md):
+
+1. **Only measured numbers are reported.** No token figure, tool inventory, or threshold ships in
+   this skill; values drift with every CLI release. If a number was not produced by a run on this
+   machine in this audit, it is not stated.
+2. **Every report is stamped** with the measured binary path and version, the measurement mode
+   (`sdk` exact vs `cli-parse` display-rounded), and the session kind (headless). Machines with
+   two CLI installs produce different answers per binary; the stamp is what makes the answer a
+   claim instead of a guess.
+
+## Scope boundary (route out)
+
+- Which skills to turn off → the built-in `/skill-doctor`; unused MCP servers and plugins → the
+  bundled `/doctor`. Tell the operator to run either one themselves;
+  never reimplement their checks, and never decide here what to turn off. Pointers: for
+  `/skill-doctor`, see <https://code.claude.com/docs/en/skills#find-unused-skills>; for `/doctor`,
+  see the `/doctor` row on <https://code.claude.com/docs/en/commands>. As of 2026-10-02. Recheck
+  when either changes which command it sends that question to, or when a release note names
+  `/skill-doctor` or `/doctor`.
+- Per-skill / per-agent / per-MCP-tool attribution → `/context` natively, which the person runs.
+- Live in-session occupancy over time → the `context-guard` plugin, if installed.
+- Settings correctness, permission-rule state → the `harness-config` plugin, if installed.
+
+## Boundary, the bundled `explain-usage` skill
+
+One native surface also answers "what is using my tokens", and the two get conflated when a
+session feels crowded:
+
+- **`explain-usage` (bundled skill)**: after the fact, explains where the current session's tokens
+  went, with one simple chart in plain language. The model and the person can both invoke it where
+  it resolves.
+- **This skill (marketplace plugin).** Measures the fixed startup payload of a fresh headless
+  session per item, including the built-in tool pools `/context` reports as lump sums, and keeps a
+  before/after ledger for every lever the operator toggles.
+
+**Routing.** When the bundled `explain-usage` skill resolves in this session, prefer it for a
+plain-language account of where this session's tokens went. Prefer this skill for what a session
+costs before any work starts, per-tool attribution, and whether a settings change saved anything.
+
+**Mutation gate.** `explain-usage`'s description names an explanation, not a write. This skill is read-only unless
+`fix` is passed; never chain into one on the other's behalf.
+
+**Availability is never assumed.** The skill is gated, and bundled skills vary by settings, plan,
+and host; this section states what to do when it resolves, never that it is present. The four-part
+records live in [reference/native-explain-usage.md](reference/native-explain-usage.md).
+
+## Boundary, the built-in `/context` command
+
+Both show what fills a context window, so "what is eating my context" can land on either:
+
+- **`/context` (built-in command)**: visualizes the current session's context usage as a colored
+  grid, with optimization suggestions and capacity warnings; `all` expands the per-item breakdown.
+  It is reserved for the person to run; the model does not invoke it.
+- **This skill (marketplace plugin).** Measures a fresh headless session's startup payload per
+  item, splits the built-in tool pools `/context` reports as lump sums, and ledgers before/after
+  deltas.
+
+**Routing.** When the person wants a live look at the current session's window, offer it to the
+person: If /context is available in your session (gate basis: the verification record below), you
+can run `/context` to see what fills the current window. Prefer this skill for startup cost,
+per-tool attribution, and whether a settings change saved anything. An unattended run records the
+offer in its output instead of asking.
+
+**Mutation gate.** Neither writes files by default. This skill never runs `/context` in the
+person's session. The engine's headless capture of `/context` output in a spawned measurement
+session is a separate path: the `cli-parse` rung in [reference/engine.md](reference/engine.md).
+
+**Availability is never assumed.** The command is gated; this section states what to do when the
+person can run it, never that it is present.
+
+**Verification record, `/context`.** Claim: `/context` is a gated, user-only built-in command
+("Visualize current context usage as a colored grid", argument hint `[all]`) that the model
+cannot invoke. Basis: the `/harness-ops:inventory` extraction of the installed Claude Code 2.1.285
+binary on 2026-09-29 (`builtin_commands` lane: `gated` true, `user_invocable` true,
+`model_invocable` false); the `/context [all]` row on <https://code.claude.com/docs/en/commands>,
+fetched 2026-09-30. As of 2026-09-30. Recheck when a release renames or removes `/context`,
+changes its gate, or makes it model-invocable. The remaining records live in
+[reference/native-context.md](reference/native-context.md).
+
+## Boundary, the built-in `skill-doctor` command
+
+"Which of my skills cost context" can land on either surface:
+
+- **`/skill-doctor` (built-in command, user-only).** We send the choice of which skills to turn
+  off there; the person runs it.
+- **This skill (marketplace plugin).** Measures a fresh headless session's startup payload per
+  item, splits the built-in tool pools, and ledgers the measured delta of each toggle, including
+  what turning a skill off actually saved.
+
+**Routing.** When the person asks which skills to turn off, offer it to the person:
+If /skill-doctor is available in your session (gate basis: the records linked below), you can run
+`/skill-doctor` to choose which skills to turn off. Prefer this skill to measure what a toggle
+saved. An unattended run records the offer in its output instead of asking.
+
+**Mutation gate.** This skill never runs `/skill-doctor` and never turns a skill off on its
+behalf; it stays read-only unless `fix` is passed.
+
+**Availability is never assumed.** This section states what to do when the person can run the
+command, never that it is present; its gate is read live at the pointer. The four-part records
+live in [reference/native-skill-doctor.md](reference/native-skill-doctor.md).
+
+## Declared scope
+
+This skill measures **the local Claude Code CLI, in a headless session**. On cloud or web surfaces
+(where the container's binary and settings are not the operator's own), the numbers describe the
+container, not the operator's machine. Say so in the report. Interactive sessions can differ from
+headless ones (deferral eligibility is partly server-decided); the stamp's `sessionKind: headless`
+is the honest boundary of the claim.
+
+## Prerequisites
+
+- `node`. Required for correctness. Absent: stop and report the gap; do not estimate.
+- The Claude Code CLI (`claude` on PATH, or a `--binary` path the operator names).
+- `@anthropic-ai/claude-agent-sdk`. Required for exact mode only. Absent, the engine degrades to
+  parsing headless `/context` output (display-rounded, and undocumented as a `-p` surface. The
+  record carries both caveats). To enable exact mode, offer the operator this one-time install
+  into the plugin's own data directory (network access; their call):
+
+  ```shell
+  mkdir -p "${CLAUDE_PLUGIN_DATA}/sdk" && npm install --prefix "${CLAUDE_PLUGIN_DATA}/sdk" @anthropic-ai/claude-agent-sdk
+  ```
+
+  On Windows, print the PowerShell form instead of that POSIX line:
+
+  ```powershell
+  New-Item -ItemType Directory -Force -Path "$env:CLAUDE_PLUGIN_DATA\sdk" | Out-Null; npm install --prefix "$env:CLAUDE_PLUGIN_DATA\sdk" @anthropic-ai/claude-agent-sdk <!-- portability-ok: Windows path, not a shell regex -->
+  ```
+
+## Workflow
+
+### 1. Derive the per-project data directory
+
+```shell
+bash "${CLAUDE_PLUGIN_ROOT}/lib/state-key.sh"
+```
+
+The audit's artifacts live under `${CLAUDE_PLUGIN_DATA}/audit/<state-key>/`, keyed by project so
+one machine's many checkouts never share a ledger. Pass this resolved absolute path wherever
+`<data-dir>` appears below. Note near the ledger that uninstalling the plugin from its last scope
+deletes this directory unless `--keep-data` is passed.
+
+### 2. Take the baseline snapshot
+
+```shell
+node "${CLAUDE_PLUGIN_ROOT}/skills/audit/scripts/measure.mjs" snapshot \
+  --sdk-dir "${CLAUDE_PLUGIN_DATA}/sdk" --out <data-dir>/baseline.json
+```
+
+Each measurement spawns a short-lived headless session against the pinned binary and records
+per-category tokens, the live tool list, per-agent tokens, the skill-listing signature, and the
+binary stamp. `/context` counts with the token-counting API or, from Claude Code 2.1.261, a
+local estimate when that API is unavailable. The dated record is in
+`reference/engine.md` under "Session-kind boundary." Exit 3 means measurement is unavailable.
+The JSON record names the remediation; relay it and stop. Never substitute an estimate of your own.
+
+### 3. Attribute the built-in tool pools
+
+Candidates come from the **live tool list in the baseline record** (`tools`), never from a
+memorized inventory. Ask the operator (or take from arguments) which to measure:
+
+- A **chosen set** (one run per tool):
+
+  ```shell
+  node "${CLAUDE_PLUGIN_ROOT}/skills/audit/scripts/measure.mjs" attribute \
+    --tools <T1,T2,...> --verify-additivity --sdk-dir "${CLAUDE_PLUGIN_DATA}/sdk" \
+    --operator-deny <bare names already in permissions.deny> \
+    --out <data-dir>/attribution.json
+  ```
+
+  `--operator-deny` is the operator's existing bare-name denies, comma-separated. Omit it only
+  when that list is empty. A denied interactive-only name is `knownUncovered.deniedAbsent`, not
+  a structural absence.
+
+- The **full sweep** is the skill argument `--full-sweep`. The engine flag is `--tools
+  from-baseline`. It prices every live tool; warn that it is one run per tool and let the
+  operator opt in. Interactive-only tools never appear in that live list: Artifact,
+  SendUserFile, AskUserQuestion, plan-mode tools, EndConversation, interactive-only MCP servers.
+  The attribution record's `knownUncovered` names them; the report lists each as known-uncovered,
+  never as absent. That category is distinct from unmeasured-but-candidate.
+
+Report the ranked `perTool` table with the binary stamp, and each row's `comparable` flag: a row
+the engine marked incomparable (skill listing shifted, version changed mid-run) is reported as
+such, not as a number. Note which bucket moved. A deny that empties a *deferred* tool's schema
+reduces request weight without changing the context-usage headline, so present `prefixDelta` and
+`deferredDelta` separately, never merged into one figure.
+
+### 4. Present levers from the catalogue
+
+Levers come from the catalogue at
+[`${CLAUDE_PLUGIN_ROOT}/skills/audit/reference/levers.json`](reference/levers.json), data rows,
+each carrying its honesty category, category basis, posture, detection, measurement route,
+emitted config, official citations, verified date, and recheck trigger. Rules, from the
+catalogue's own meta:
+
+- **Every lever presented carries its category and at least one official citation.** A lever
+  whose category cannot be determined for this consumer's configuration is not offered.
+- **Resolve conditions by measurement, not assumption.** A row whose `conditions` names a
+  configuration dependency (cap saturation, model default, surface) is measured here before its
+  category is asserted. A condition-dependent lever presented without resolving the condition is
+  the exact failure this plugin exists to prevent.
+- **Respect postures.** `never-recommend` rows (net-negative) are disclosed with their price,
+  never offered as actions; `disclose-only` rows are explained, not pushed; `report-only` rows
+  (vendor weight) appear as the honest unaddressable floor.
+- **Honor recheck triggers.** A row whose trigger has plausibly fired (version jump past the
+  catalogue's `verifiedAgainst`, upstream page moved) is re-verified against a fresh fetch of its
+  citations before being offered, and a measured result always outranks the catalogue's stored
+  expectation. On a version jump, also run the binary-strings existence check against the
+  stamped binary (docs pages move; the binary is what the consumer actually runs):
+
+  ```shell
+  node "${CLAUDE_PLUGIN_ROOT}/skills/audit/scripts/measure.mjs" verify-catalogue \
+    --binary <stamped-binary> --find-unstored --out <data-dir>/catalogue-verify.json
+  ```
+
+  The binary is the authority on *existence* of each key/env name at the measured version; the
+  docs fetch remains the authority on *semantics*. Report every `absent` token by name. Silence
+  reads as "present". `--find-unstored` lists env names in the binary that no catalogue row
+  cites (`unstored`). The catalogue does not claim to hold every switch. A row with
+  `saving: "runtime-resolved"` is priced by the measurement, not by its stored category. A row
+  with `measurementScope: "unmeasurable-in-this-session-kind"` is reported in that group, not as
+  a zero.
+- **Keep the two ledgers apart** (the catalogue's `dualLedger` note): context-window occupancy
+  versus per-request weight. Deferral moves weight between them; only removal clears both.
+
+### 5. Ledger any before/after the operator produces
+
+When the operator toggles a lever (a `permissions.deny` entry, a settings change) and wants the
+real delta: re-run the snapshot, then
+
+```shell
+node "${CLAUDE_PLUGIN_ROOT}/skills/audit/scripts/measure.mjs" compare \
+  --before <data-dir>/baseline.json --after <after.json> \
+  --lever "<what changed>" --emitted-config "<the exact config text>" --out <row.json>
+node "${CLAUDE_PLUGIN_ROOT}/skills/audit/scripts/measure.mjs" ledger --append <row.json> --dir <data-dir>
+```
+
+The ledger keeps one file per run plus an appended history line, so a same-day rerun never erases
+an earlier point. `--ledger` in the arguments means: list the history (`ledger --list`) and report
+it.
+
+### 6. Produce and persist the report
+
+The audit's deliverable follows the report contract at
+[`${CLAUDE_PLUGIN_ROOT}/skills/audit/reference/report.md`](reference/report.md): stamp first,
+smart-zone headline (reclaimed reasoning space, never cost), measured category totals, the ranked
+per-tool table with incomparable rows carrying reasons instead of numbers, lever findings grouped
+by honesty category with citations and emitted config, route-outs, then degradations and caveats.
+Persist it to `<data-dir>/reports/<UTC-timestamp>-audit.md`, one file per run, and present it
+to the operator. When `context-guard` is installed its zone vocabulary may frame the headline;
+otherwise use the payload's share of the measured window.
+
+## Reading the numbers honestly
+
+- **A scoped deny saves nothing.** A bare tool name removes a schema from the request, except
+  `EndConversation`, which the permissions page exempts while any other tool remains. A scoped
+  rule is a runtime guard whose schema still ships. The dated record is in
+  [`reference/engine.md`](reference/engine.md).
+- **A deferred tool is out of the context window but still in every request.** Do not present the
+  deferred bucket as already-saved weight.
+- **`System tools` deltas are valid only between runs with identical skill listings.** The engine
+  enforces this via the listing signature; relay its verdict rather than overriding it.
+- **Zero is a finding.** A lever that measures zero here is reported as measuring zero here, at
+  this version, not as broken, and not silently dropped.
+- **The snapshot is another session's, not this one's.** Free-space and window figures describe
+  the spawned headless session; they say nothing about the context remaining here and are no
+  reason to shorten, summarize, or wrap up this audit.
+
+## Gotchas
+
+Each of these produces a confidently wrong number unless the engine's guard is honored:
+
+- **Removing skills makes `System tools` rise.** Listed skill-frontmatter tokens are subtracted
+  from that bucket, so a run that changes the skill listing shifts `System tools` with no tool
+  changing state; read naively, a safe-mode run looks as if safe mode loads deferred tools. The
+  signature check catches this; never hand-compare two snapshots the engine marked incomparable.
+- **Unredirected stdin prepends a warning line** to headless output, which breaks naive parsing.
+  The engine redirects and strips; if you capture `/context` by hand for `parse-context`, redirect
+  stdin or expect the leading line.
+- **Two CLI installs on one machine answer differently.** Category lists differ across versions.
+  The stamp is the guard; when the operator's interactive `claude` is not the binary on PATH, ask
+  which to pin with `--binary`.
+- **The measured machine's numbers are not this repo's research numbers.** Never quote a figure
+  from any document, including this plugin's own development history, as if it were the
+  consumer's; the drift is the whole reason the engine exists.
+
+## Report-only by default; the fix path is an explicit override
+
+Bare invocation is the audit. It changes no configuration. When a measured result suggests a
+trim, print the exact config the operator would apply and let them apply it, with the ledger
+loop verifying the result. For persistent denies, print a `permissions.deny` entry. There is
+no `disallowedTools` settings key.
+
+### Fix path (`fix` in the arguments only)
+
+The guided walkthrough runs only when the operator explicitly asked for `fix`, the verb
+contract's mutation override. Per lever, in the report's ranked order, offer only
+`recommendable-on-fit` catalogue rows whose conditions this audit resolved by measurement;
+everything else stays report material even here.
+
+Write posture splits by scope, and the split is not negotiable:
+
+- **Project scope** (`.claude/settings.json`, `.claude/settings.local.json`): may be edited, one
+  lever at a time, after the operator approves the exact diff shown in advance. Make that edit
+  with a file-editing tool (`Edit` or `Write`), never through the shell. The plugin's PreToolUse
+  checkpoint returns `permissionDecision: "ask"` for a file-editing tool call that targets a
+  settings file, so even in auto mode the write prompts rather than sliding through. It does not
+  see a settings write made through `Bash` or `PowerShell`, or one rendered into place by another
+  program such as a dotfile manager (README "Hook" names each route and records why the hook is
+  not widened). **A checkpoint, not a
+  guarantee**: a `PermissionRequest` hook can still answer the prompt, and `disableAllHooks` set
+  outside managed settings turns off user, project, local, and plugin hooks. The checkpoint
+  survives `bypassPermissions`, because hooks are evaluated before the mode check and can still
+  block a tool there; in a headless run that skips permissions, a call that would still prompt is
+  denied instead. Verified 2026-09-06 against Claude Code 2.1.263 and three pages: the settings
+  reference (<https://code.claude.com/docs/en/settings-reference>, `disableAllHooks`), the
+  permission-modes page (<https://code.claude.com/docs/en/permission-modes>, the unattended `-p`
+  row and the `PermissionRequest` sentence), and the Agent SDK permissions page
+  (<https://code.claude.com/docs/en/agent-sdk/permissions>, "Bypass permissions mode"). Recheck
+  when any of the three stops carrying its statement, or when a release note names hook evaluation
+  order or `disableAllHooks`. Say so when describing the protection.
+- **User-global** (`~/.claude/settings.json`): **never written by this skill.** Print the exact
+  edit, fully resolved and paste-ready; applying it is the operator's. "Protected path" is not a
+  human-confirmation guarantee. In auto mode a write there routes to the classifier, which can
+  approve with no human involved. Print-only is the posture precisely because the prompt cannot
+  be relied on.
+- **Managed policy**: read-only by construction; never targeted, never suggested as a write.
+- **Env-var levers**: no persistent settings surface exists; print the export line and where the
+  operator might put it.
+
+The loop per applied lever: approve → apply (project scope) or print (everywhere else) →
+re-measure → `compare --lever "<lever>" --emitted-config "<exact text>"` → `ledger --append` →
+report the measured delta, zero included. Never apply a second lever before the first one's
+delta is measured. Un-attributed multi-lever jumps are how false folklore starts.

@@ -1,0 +1,23 @@
+{
+  "skill_name": "fresh-eyes",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "pretend you're a new member on a brand new computer. walk through the install instructions in README.md step by step and see where you run into hiccups",
+      "expected_output": "Spawns a fresh zero-context agent with the non-technical persona brief (does NOT walk it itself), walker executes real commands, returns a hiccup ledger in journey order with severities, orchestrator fixes blockers/friction at root cause, respawns a NEW walker, loops until clean or 5 rounds.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "we just rewrote the quick start guide. does it actually work for someone who's never seen this project?",
+      "expected_output": "Recognizes the fresh-eyes pattern without the word 'walkthrough'. Confirms persona/entry point/done state, then runs the spawn-walk-fix-respawn loop. Never reuses a walker across rounds.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "take me through a test run of the app the way a real user would use it",
+      "expected_output": "Defines the done state, spawns a persona walker that drives the actual app (not the test suite), reports the journey in order encountered with a felt-experience paragraph.",
+      "files": []
+    }
+  ]
+}

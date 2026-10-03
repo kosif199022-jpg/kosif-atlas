@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "supabase-js",
+  "description": "Full-stack Supabase developer skill for Next.js apps. Covers Database (Postgres tables, schemas, views, indexes, RLS, CLS, roles, functions, triggers, webhooks), Auth (email/password, magic link, OTP, OAuth, MFA, SSR/PKCE), the @supabase/supabase-js client, and @supabase/ssr Next.js integration.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sleestk",
+    "url": "https://github.com/Sleestk"
+  },
+  "homepage": "https://github.com/Sleestk/Skills-Pipeline",
+  "repository": "https://github.com/Sleestk/Skills-Pipeline",
+  "license": "MIT",
+  "keywords": ["supabase", "postgres", "auth", "rls", "database", "nextjs", "ssr"]
+}

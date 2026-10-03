@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD Verify"
+  short_description: "Fresh, independent verification verdict"
+  default_prompt: "Use $sdd-verify to reproduce a task's claims with fresh commands and produce its verdict."

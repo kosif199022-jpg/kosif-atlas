@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "obsidian-power-user",
+  "description": "Full-featured Obsidian expert skill covering every official feature, plugin, and syntax — vault design, note templates, canvas, bases, Dataview queries, Templater, core/community plugins, Obsidian Publish, Web Clipper, CSS snippets, URI links, and MOC notes. Loads reference docs on demand.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sleestk",
+    "url": "https://github.com/Sleestk"
+  },
+  "homepage": "https://github.com/Sleestk/Skills-Pipeline",
+  "repository": "https://github.com/Sleestk/Skills-Pipeline",
+  "license": "MIT",
+  "keywords": ["obsidian", "pkm", "notes", "dataview", "templater", "canvas", "markdown", "second-brain"]
+}

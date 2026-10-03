@@ -1,0 +1,87 @@
+# Recurring concerns: the reusable plugin-audit checklist
+
+These are design failure modes that recur across Claude Code plugin components. Walk every one each
+audit.
+
+## 1. Silent bypass surfaces (highest value)
+
+A guard is only as good as its coverage. Find the paths where it *doesn't* fire.
+
+- **Tool-matcher coverage.** Hooks match on tool name (e.g. `matcher: "Bash"`). If the same action
+  can be issued through a *different* tool (a PowerShell tool on Windows, a different shell tool),
+  the guard is silently bypassed. Enumerate every tool that can perform the gated action and check
+  the matcher covers them.
+- **Direct-path bypass.** A skill that enforces a convention only at draft time enforces nothing if
+  the user runs the underlying command directly. Ask: what happens if I bypass the skill entirely?
+- **Fail-open vs fail-closed.** When a prerequisite is missing (no `jq`, empty stdin, parse error),
+  does the guard fail open (allow) or closed (block)? Is that the right default for its purpose?
+
+## 2. Enforcement scope & who it fires for
+
+- **Plugin-enablement probes.** If a hook gates its behavior on whether a plugin is "enabled", does
+  it resolve enablement the way Claude Code actually does, merged across user-global + project +
+  local scopes? A probe that only checks project scope false-negatives for the common global
+  install. Verify against real resolution, not the code's assumption.
+- **User-gated by default.** Guardrails a user adds should default to firing only for that user (and
+  their agents), never surprise-blocking teammates who didn't opt in. Prefer mechanisms invisible
+  to uninvolved parties (machine-local git hooks, user-scope config) with a clean migration path to
+  shared enforcement later. Flag anything that imposes on non-adopters by default.
+
+## 3. Enforcement tiers: what CAN vs CANNOT be gated
+
+- **Mechanics** (verifiable command shape, e.g. message-on-stdin): hook-enforceable → gate it.
+- **Declarative conventions** (a subject/title matches a pattern): hook-enforceable by inspecting
+  content → gate it if the plugin claims to enforce it; a config file that's only read at draft
+  time is not enforcement.
+- **Process** (rebase happened, triage occurred, footer assembled): NO command signature → NOT
+  hook-enforceable. Advisory is the correct ceiling; the fix is making the advisory reliably fire,
+  not hard-blocking. Never hard-block a command that has a documented legitimate direct use.
+- **Claimed property the producer can break.** If a skill asserts write-once, sealed, or immutable,
+  but the producing agent can Edit the artifact, that is a discipline with after-the-fact verify,
+  not a guarantee. Flag a surface that states the stronger reading. Detection after loss is not
+  prevention. Doctrine owner: [`evidence-packet.md`](evidence-packet.md) "What a sealed packet
+  asserts" (do not restate the rule here).
+
+## 4. SSOT / DRY / drift
+
+- **Detection cue (this checklist only):** does the same fact (a regex, a convention, a path) live
+  in multiple hand-maintained places within this component? Name each duplicate site and the owner
+  you believe should hold the value.
+- **Doctrine owner:** when the fix is extract-or-point, not a plugin-local judgment call, route to
+  `/docs-hygiene:extract-ssot` when installed (Rule of Three, remedies, and the extraction workflow).
+  When the duplicated value is a plugin-shipped constant or config field, also read **One owner per
+  value** in `docs/plugin-philosophy.md`. Restatement across instruction surfaces (skills, agents,
+  rules) is `/harness-config:audit-instructions` territory when that plugin is installed.
+- **Inline-floor contracts:** where a contract file declares consumers copy named values verbatim,
+  check the copies actually match. Byte-identity drift between a writer's contract and a consumer's
+  inlined constants is a silent split-brain.
+
+## 5. Coupling & portability
+
+- **`.claude/` coupling.** Is an artifact under `.claude/` because it must be, or just by default?
+  `.claude/` is not write-protected and not special for storage, so a tool-agnostic doc other tools
+  should consume doesn't belong there. Ask whether the path should be configurable.
+- **Single-plugin artifact in a shared repo.** A committed file only one plugin reads is inert (and
+  confusing) for everyone else. Make it self-describing, or make its location configurable, or
+  derive it from an existing shared source.
+- **Hardcoded consumer specifics.** Detection cue: does this component ship a machine path, org name,
+  or another repo's layout as if it were universal? **Doctrine owner:** `docs/plugin-philosophy.md`
+  § Design boundary → **Hardcoded consumer specifics** (do not restate the rule here).
+
+## 6. Cross-platform
+
+- Shell assumptions: bash heredocs, `$VAR`, forward vs back slashes, `~` vs `%USERPROFILE%`,
+  case-sensitivity. Do error messages hand the user a remediation they can actually paste on their
+  platform (Windows/PowerShell vs POSIX)?
+- Path matching: drive letters, trailing slashes, symlink resolution, case-insensitive matches.
+
+## 7. Escape hatches
+
+- Every deterministic gate needs a clean, documented bypass for when the gate itself is buggy
+  (`--no-verify`, an env-var skip, removing an untracked file). A gate with no escape hatch is a
+  lockout waiting to happen. Confirm one exists and is discoverable.
+
+## 8. Observability & failure reporting
+
+- When the guard degrades (missing dependency, timeout), does it surface that to the user, or
+  silently disable itself? A silently-skipped guard is a defect, and it should be visible.

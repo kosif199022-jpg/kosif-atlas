@@ -1,0 +1,371 @@
+{
+ "_comment": "Tier-1 skill-contract manifest. Each prose invariant is a regex asserted (case-insensitive, DOTALL) against the named file by tests/test_skill_contract.py. These guardrails live ONLY in SKILL.md prose with no other automated guard; deleting one would otherwise pass CI green. Adding a new guardrail to the skill = add an entry here. The `rationale` is surfaced on failure so a breakage is self-explaining.",
+ "prose": [
+  {
+   "id": "approval-required",
+   "file": "SKILL.md",
+   "pattern": "never\\s+(auto-?publish|publish[^.\\n]*without[^.\\n]*approval)",
+   "rationale": "linkedin_post.py has NO approval check in code; approval-before-publish lives only in this prose. Deleting it lets the agent publish to the user's real profile without consent."
+  },
+  {
+   "id": "source-gate-step",
+   "file": "SKILL.md",
+   "pattern": "verify_sources\\.py",
+   "rationale": "SKILL.md must reference the source gate at all (the literal appears in the Generate research step, the Publish gate note, and Guardrails). This is a soft check that the gate isn't unreferenced; the HARD enforcement that publishing runs the gate is code-tested in tests/test_linkedin_post.py (enforce_source_gate) \u2014 not this regex."
+  },
+  {
+   "id": "tos-no-automation",
+   "file": "SKILL.md",
+   "pattern": "(never automate posting|ToS\\s*\u00a7?\\s*3\\.1|decline and explain)",
+   "rationale": "LinkedIn ToS \u00a73.1 exposure: this is the only instruction telling the agent to decline scheduled/looped/unattended posting."
+  },
+  {
+   "id": "sources-not-in-body",
+   "file": "SKILL.md",
+   "pattern": "(never put sources[\\s\\S]{0,60}?post\\s+body|sources stay in the sidecar)",
+   "rationale": "verify_sources never inspects the post body; keeping sources out of the body is prose-only (and in-body links also crush reach)."
+  },
+  {
+   "id": "allow-unverified-human-only",
+   "file": "SKILL.md",
+   "pattern": "(allow-unverified[^.\\n]*human-only|agent must never (set|self-apply) it)",
+   "rationale": "--allow-unverified is the single bypass of the source gate; it is enforced only by this human-only convention."
+  },
+  {
+   "id": "never-fabricate",
+   "file": "SKILL.md",
+   "pattern": "never fabricate",
+   "rationale": "Anti-fabrication for first-person content has no mechanical check; this is the skill's core authenticity rule."
+  },
+  {
+   "id": "research-after-save-before-show",
+   "file": "SKILL.md",
+   "pattern": "after .{0,40}save.{0,200}before .{0,40}show",
+   "rationale": "Generate flow ordering is load-bearing: research must run AFTER Save (the slug/sidecar path exists) and BEFORE Show (the shown draft is already source-backed)."
+  },
+  {
+   "id": "voice-feedback-persists-same-turn",
+   "file": "SKILL.md",
+   "pattern": "voice-notes\\.md[^.]{0,80}same turn,?\\s*before redrafting",
+   "rationale": "In-session voice corrections were lost twice in one real session (the user had to repeat the no-AI-closings rule). Persist-before-redraft lives only in this prose; deleting it regresses to corrections evaporating at session end."
+  },
+  {
+   "id": "outcome-checkin-loop",
+   "file": "SKILL.md",
+   "pattern": "post_outcome\\.py",
+   "rationale": "The publish log + self-reported outcomes are the ONLY compliant performance signal (no LinkedIn member analytics API; scraping banned by ToS). Dropping the check-in reference severs the skill's feedback loop and reverts topic/format choice to blind priors."
+  },
+  {
+   "id": "ending-self-check",
+   "file": "SKILL.md",
+   "pattern": "stops? on the\\s+last real point",
+   "rationale": "AI-sounding endings are the user's #1, most-repeated content complaint across sessions. The pre-show ending check is prose-only; the voice_judge eval samples it but nothing else forces it at draft time."
+  },
+  {
+   "id": "visual-pick-before-build",
+   "file": "SKILL.md",
+   "pattern": "never render a form\\s+the user\\s+didn.t\\s+choose",
+   "rationale": "Rendering a visual before asking wasted a full card build in a real session (user wanted a carousel). One form question before any authoring is prose-only."
+  },
+  {
+   "id": "lane-first-selection",
+   "file": "SKILL.md",
+   "pattern": "first question[\\s\\S]{0,180}What type of post will you be[\\s\\S]{0,300}Project[\\s\\S]{0,180}Trends in Industry[\\s\\S]{0,180}Personal Fun",
+   "rationale": "The user chooses Project, Trends in Industry, or Personal Fun before any idea research is shown. This prevents a mixed, irrelevant idea menu and makes the first interaction predictable."
+  },
+  {
+   "id": "codex-complete-draft-visible",
+   "file": "SKILL.md",
+   "pattern": "Codex:[\\s\\S]{0,120}always display the complete post text[\\s\\S]{0,160}including every line after the fold",
+   "rationale": "Approval is meaningful only when the user can read every line of the exact draft. Codex must show the full post inline, not rely on a clipped preview or a file link."
+  },
+  {
+   "id": "fold-marked-draft-show",
+   "file": "SKILL.md",
+   "pattern": "fold ~210 chars",
+   "rationale": "The ~210-char '\u2026see more' fold decides LinkedIn reach, and the fold-marked draft presentation is the only place the user actually SEES where their post cuts off before approving it. Prose-only; deleting it regresses to showing drafts with no fold visibility."
+  },
+  {
+   "id": "ai-tells-gate-step",
+   "file": "SKILL.md",
+   "pattern": "post_review\\.py check[^\\n]*--show",
+   "rationale": "Only a current passing full editorial review permits displaying draft copy; mechanical lint alone cannot approve it."
+  },
+  {
+   "id": "ai-tells-rerun-on-edit",
+   "file": "SKILL.md",
+   "pattern": "re-run the gate after every edit",
+   "rationale": "An edit is how a tell gets back into a draft that already passed. Re-run-on-edit is prose-only; deleting it regresses to gating the first draft and publishing the third."
+  },
+  {
+   "id": "allow-ai-tells-human-only",
+   "file": "SKILL.md",
+   "pattern": "allow-ai-tells[^.\\n]*human-only",
+   "rationale": "Same shape as allow-unverified: the bypass exists for a human, and an agent that sets it to clear its own gate has removed the gate. Prose-only; the flag itself is code-tested."
+  },
+  {
+   "id": "real-output-transcription",
+   "file": "SKILL.md",
+   "pattern": "transcription of a real session,\\s*not an\\s*invention",
+   "rationale": "A real session (2026-07-18) burned ~9 review rounds because the terminal card was invented instead of transcribed from the agent's actual output ('I want my terminal cards to represent my actual agents'). Capture-before-author lives only in this prose; the term-misaligned lint checks alignment, not provenance."
+  },
+  {
+   "id": "trending-lane-scripted",
+   "file": "SKILL.md",
+   "pattern": "trending\\.py",
+   "rationale": "The trending lane's four-surface sweep exists only because SKILL.md tells sessions to run scripts/trending.py; deleting the reference silently reverts the lane to ad-hoc prose curls, which 19 boards showed collapses to HN-only."
+  },
+  {
+   "id": "angle-gate",
+   "file": "SKILL.md",
+   "pattern": "enters the menu\\s+only when paired with a named angle",
+   "rationale": "Every scored post sourced from the trending/radar lanes flopped (6 of 6, all news-shaped without a lived angle). The angle gate is the structural fix and lives only in this prose; deleting it reopens the exact lane that produced every flop."
+  },
+  {
+   "id": "stats-not-eyeballed",
+   "file": "SKILL.md",
+   "pattern": "post_outcome\\.py --stats",
+   "rationale": "Outcome-driven ranking used to be the model re-reading the raw jsonl and freestyling a conclusion each session; --stats is the computed rollup. Dropping the reference reverts ranking to unauditable vibes."
+  },
+  {
+   "id": "clean-run-output",
+   "file": "SKILL.md",
+   "pattern": "never forward raw command output",
+   "rationale": "The Codex run transcript is part of the product. Forwarding stdout, shell commands, file dumps or stack traces makes the interaction unreadable and exposes machinery the user cannot act on."
+  },
+  {
+   "id": "collapsed-execution-when-supported",
+   "file": "SKILL.md",
+   "pattern": "host offers a collapsed execution/tool group[\\s\\S]{0,260}every command\\s+and edit",
+   "rationale": "Commands and edits should stay out of the main transcript when the host supports collapsed execution groups, while acknowledging that the host controls the UI."
+  },
+  {
+   "id": "stable-stage-navigation",
+   "file": "SKILL.md",
+   "pattern": "ghostwriter \u00b7 ideas[\\s\\S]{0,160}ghostwriter \u00b7 publish",
+   "rationale": "Four stable stage labels give the user a reliable sense of place while the skill moves through a long multi-gate workflow."
+  },
+  {
+   "id": "codex-generated-image-route",
+   "file": "SKILL.md",
+   "pattern": "generated card replaces the\\s+old template-filling path",
+   "rationale": "Codex has native image generation. Without an explicit host route it falls back to the old HTML card templates and misses the requested generated-card experience."
+  },
+  {
+   "id": "generated-image-no-silent-legacy-fallback",
+   "file": "references/codex-images.md",
+   "pattern": "legacy renderer is never an automatic fallback",
+   "rationale": "A failed native image call must not silently change the visual form the user selected."
+  },
+  {
+   "id": "generated-card-separate-approval",
+   "file": "references/codex-images.md",
+   "pattern": "show the actual image[\\s\\S]{0,850}Approve card[\\s\\S]{0,200}does not authorize publication",
+   "rationale": "The reviewed image must be visible for approval; selecting a card settles media but cannot silently publish the final LinkedIn payload."
+  },
+  {
+   "id": "generated-card-supplements-post",
+   "file": "references/codex-images.md",
+   "pattern": "decorated restatement of the opening line fails",
+   "rationale": "The generated asset is a LinkedIn information card. Abstract art or a decorated copy of the opening line does not add value beside the post."
+  },
+  {
+   "id": "generated-card-prompt-receipt",
+   "file": "references/codex-images.md",
+   "pattern": "save `images/<slug>-generated-vN\\.image\\.json`",
+   "rationale": "Without a saved seed, palette, exact-copy list, and prompt, a successful native generation cannot be reproduced or edited reliably in a later session."
+  },
+  {
+   "id": "generated-card-open-every-candidate",
+   "file": "references/codex-images.md",
+   "pattern": "after every generated or edited candidate that passes all applicable checks, open the PNG",
+   "rationale": "The user explicitly asked to see generated cards full-size; inline thumbnails alone are not an adequate approval view."
+  },
+  {
+   "id": "generated-card-viewer-fallback",
+   "file": "references/codex-images.md",
+   "pattern": "fall back to a browser[\\s\\S]{0,320}Opening is required\\s+before asking for approval",
+   "rationale": "A generated card must open for full-size review before approval; a missing default PNG handler cannot silently downgrade the review to a thumbnail."
+  },
+  {
+   "id": "selectable-controls-first",
+   "file": "references/codex-session-ui.md",
+   "pattern": "Use an available native selector for ordinary preferences[\\s\\S]{0,250}current mode, tool purpose, schema and option limit",
+   "rationale": "Use the current Codex capability and tool purpose instead of permanently disabling working selectors after a past host failure. Three native selections were answered in the local-dev development session."
+  },
+  {
+   "id": "architecture-evidence-model",
+   "file": "references/codex-images.md",
+   "pattern": "evidence model[\\s\\S]{0,500}nodes[\\s\\S]{0,300}edges[\\s\\S]{0,300}exceptions",
+   "rationale": "The first generated architecture card in a real run invented a normal flow from the compatibility check to ADAPTER REQUIRED. Explicit evidence-backed nodes, edges, and exception paths prevent polished but false diagrams."
+  },
+  {
+   "id": "rendered-graph-reconciliation",
+   "file": "references/visual-review.md",
+   "pattern": "transcribe ALL nodes, directions, containment and exceptions[\\s\\S]{0,320}reversed or ambiguous arrow fails",
+   "rationale": "A correct prompt does not prove the raster output is correct. The rendered arrows and containment must be transcribed from the image and compared with the evidence model before the card is shown."
+  },
+  {
+   "id": "complete-review-before-display",
+   "file": "SKILL.md",
+   "pattern": "Only exit 0 permits display",
+   "rationale": "No failed or incomplete review can reach the user as draft copy."
+  },
+  {
+   "id": "review-bound-and-repeated",
+   "file": "references/post-review.md",
+   "pattern": "re-run the gate after every edit",
+   "rationale": "Every revision must pass the full editorial rubric again."
+  },
+  {
+   "id": "review-failure-withholds-text",
+   "file": "references/post-review.md",
+   "pattern": "report the missing[\\s\\S]{0,150}without exposing the failed text",
+   "rationale": "Exhausted revisions report a blocker, not the rejected draft."
+  },
+  {
+   "id": "codex-visual-gate-routing",
+   "file": "SKILL.md",
+   "pattern": "references/visual-review\\.md",
+   "rationale": "Codex imagegen visuals require pixel review before presentation; native and legacy paths stay separate."
+  },
+  {
+   "id": "codex-visual-actual-inspection",
+   "file": "references/visual-review.md",
+   "pattern": "actual pixels at full resolution[\\s\\S]{0,80}360 CSS pixels",
+   "rationale": "Prompt inspection cannot establish the correctness, craft or mobile readability of a generated raster."
+  },
+  {
+   "id": "codex-visual-before-show",
+   "file": "references/visual-review.md",
+   "pattern": "Only exit 0 permits showing/opening that exact image",
+   "rationale": "A passing current review must precede any approval preview, not merely the final upload."
+  },
+  {
+   "id": "codex-visual-stop-condition",
+   "file": "references/visual-review.md",
+   "pattern": "two failed internal candidates[\\s\\S]{0,140}without showing failed art",
+   "rationale": "Repeated failures must not lower the quality threshold or expose rejected candidates."
+  },
+  {
+   "id": "codex-visual-private-host-capability",
+   "file": "references/visual-review.md",
+   "pattern": "cannot withhold those[\\s\\S]{0,140}stop this workflow",
+   "rationale": "A host that automatically displays unreviewed images cannot truthfully promise private review."
+  },
+  {
+   "id": "review-comparison-quality",
+   "file": "references/post-review.md",
+   "pattern": "Do not use a deliberately\\s+bad alternative",
+   "rationale": "Comparison records must challenge the draft with plausible alternatives; schema validation alone cannot judge that."
+  },
+  {
+   "id": "review-positive-voice",
+   "file": "references/post-review.md",
+   "pattern": "first-person pronouns and short paragraphs alone do not establish warmth",
+   "rationale": "A previous passing draft was a neutral feature explanation despite first person and short paragraphs; the editor must compare positive voice evidence."
+  },
+  {
+   "id": "review-question-context",
+   "file": "references/post-review.md",
+   "pattern": "warning does not ban questions",
+   "rationale": "Question findings require contextual judgment, preserving useful and genuine questions rather than flattening the author voice."
+  },
+  {
+   "id": "review-preserve-conditions",
+   "file": "references/post-review.md",
+   "pattern": "Check conditions, thresholds and fallback/error behavior",
+   "rationale": "The real forward test exposed a missing minimum-history condition in an otherwise source-backed first-person capability claim."
+  },
+  {
+   "id": "codex-readable-approval-control",
+   "file": "references/codex-session-ui.md",
+   "pattern": "For \\*\\*draft, image and publication approvals\\*\\*[\\s\\S]{0,240}\\*\\*final message\\*\\*[\\s\\S]{0,180}Do not put the artifact in commentary",
+   "rationale": "A selector that collapses the actual draft cannot be a readable approval surface."
+  },
+  {
+   "id": "codex-text-only-single-approval",
+   "file": "references/codex-session-ui.md",
+   "pattern": "already-complete \\*\\*text-only\\*\\* payload[\\s\\S]{0,200}skip the intermediate Approve[\\s\\S]{0,200}final decision",
+   "rationale": "A complete text-only post must not receive two identical approval questions."
+  },
+  {
+   "id": "codex-final-payload-approval",
+   "file": "references/codex-session-ui.md",
+   "pattern": "\\*\\*Publish now\\*\\* applies to the exact currently visible post, media,[\\s\\S]{0,80}alt text or document title",
+   "rationale": "Approval binds the complete final combination, including attachment descriptions."
+  },
+  {
+   "id": "codex-no-publish-after-save-or-stop",
+   "file": "references/codex-session-ui.md",
+   "pattern": "Stop, exit, Save draft[\\s\\S]{0,200}invalidates pending questions[\\s\\S]{0,100}late selector response cannot revive",
+   "rationale": "A late answer cannot restart a cancelled or saved session."
+  },
+  {
+   "id": "codex-carousel-complete-preview",
+   "file": "references/codex-session-ui.md",
+   "pattern": "For a carousel, show every reviewed slide[\\s\\S]{0,120}\\*\\*document title\\*\\*[\\s\\S]{0,150}never approve from the cover alone",
+   "rationale": "The cover does not let a user approve unseen slides or a different document title."
+  },
+  {
+   "id": "codex-draft-only-endpoint",
+   "file": "references/codex-session-ui.md",
+   "pattern": "explicitly draft-only/no-publish request[\\s\\S]{0,180}never a Publish now action",
+   "rationale": "The UI must honor the requested endpoint rather than leading a draft-only user into publishing."
+  }
+ ],
+ "_baseline_comment": "Baseline eval sets: deterministic, offline, $0 checks pinned against artifacts from real local runs. These gate `ci / ghostwriter` alongside the unit tests. Every entry names the test that enforces it so tools/lint_baseline.py can verify the declaration is not aspirational.",
+ "baseline": [
+  {
+   "id": "voice-corpus-stays-clean",
+   "kind": "corpus",
+   "test": "tests/test_baseline_voice.py",
+   "corpus_glob": "evals/baseline/drafts/*.md",
+   "exclude_suffixes": [
+    ".STAGED.md"
+   ],
+   "min_corpus": 8,
+   "rationale": "The drafts the user actually approved and published are the only ground truth for 'this is my voice'. Ten of them are frozen into evals/baseline/drafts/ as a committed corpus: drafts/ itself is gitignored as a working directory ('personal data exports & generated posts'), so globbing it would find zero files in CI and red-line every PR. Pinning the corpus clean catches a gate rule (scripts/ai_tells.py) that grows too broad and starts blocking real work; pinning bad-draft.md's, ai-tells-draft.md's and offvoice-draft.md's exact flag sets catches a rule that gets weakened and stops catching real AI tells. The min_corpus floor stops the glob silently matching nothing and passing vacuously. `.STAGED.md` stays excluded because a staged file's human-written 'not published' banner contains an editorial em-dash that is not post body.",
+   "update_command": "Add a newly published, user-approved draft: cp drafts/<slug>.md evals/baseline/drafts/ (never edit one to appease a rule). A new FAIL rule: extend evals/fixtures/ai-tells-draft.md and KNOWN_ALL_FLAGS in tests/test_baseline_voice.py in the same commit.",
+   "fixtures": [
+    "evals/fixtures/bad-draft.md",
+    "evals/fixtures/ai-tells-draft.md",
+    "evals/fixtures/offvoice-draft.md"
+   ]
+  },
+  {
+   "id": "trending-sweep-frozen-replay",
+   "kind": "fixture",
+   "test": "tests/test_trending.py",
+   "fixtures": [
+    "evals/baseline/trending/hn.json",
+    "evals/baseline/trending/lobsters.json",
+    "evals/baseline/trending/news-ai-agents-ops.xml",
+    "evals/baseline/trending/github.json",
+    "evals/baseline/trending/expected-table.md"
+   ],
+   "rationale": "Real payloads captured live from all four surfaces on 2026-09-01, replayed through the same build_candidates() path main() uses and byte-compared against the frozen table. Catches a parser dropping a surface or field while the table still looks complete. Two-sided: test_baseline_all_surfaces_dead_is_an_error pins the opposite face \u2014 a sweep finding nothing anywhere must exit 2, never render an empty table as a quiet day.",
+   "update_command": "Re-capture: cd evals/baseline/trending && bash refresh.sh, then run pytest tests/test_trending.py -k baseline to re-render, inspect the diff, and commit fixtures + expected-table.md together."
+  },
+  {
+   "id": "outcome-stats-frozen-log",
+   "kind": "fixture",
+   "test": "tests/test_post_outcome.py",
+   "fixtures": [
+    "evals/baseline/outcomes/published-frozen.jsonl",
+    "evals/baseline/outcomes/expected-stats.md"
+   ],
+   "rationale": "A field-projected freeze of the real 24-post publish log (date/slug/lane/format/outcome/impressions only \u2014 no urns, urls or post text), with --stats re-run and byte-compared. Pins the finding that drove the 0.19 revamp \u2014 trending/radar-sourced posts flopped 6 of 6 \u2014 so the rollup cannot silently drop a lane or miscount while still printing a complete-looking table.",
+   "update_command": "python3 tests/refresh_outcomes_baseline.py (re-projects the live log and re-renders expected-stats.md; inspect the diff before committing)."
+  },
+  {
+   "id": "post-review-published-corpus",
+   "kind": "corpus",
+   "test": "tests/test_post_review.py",
+   "corpus_glob": "evals/baseline/drafts/*.md",
+   "min_corpus": 8,
+   "rationale": "Previously published real drafts retain zero hard failures; mutation tests reject edited text, missing editorial evidence, unresolved warnings and stale context before display or writes.",
+   "update_command": "Add a newly published, user-approved draft to evals/baseline/drafts/ and run pytest tests/test_post_review.py. Never edit an approved artifact merely to appease a rule."
+  }
+ ]
+}

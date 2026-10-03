@@ -1,0 +1,11 @@
+{
+  "name": "download-book-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test ../tests/anna-archive-links.test.mjs ../tests/site-session.test.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.63.0"
+  }
+}

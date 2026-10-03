@@ -1,0 +1,76 @@
+{
+  "name": "plan-author",
+  "version": "1.0.0",
+  "eligibility": {
+    "triggers": [
+      "controller enters the plan stage with an accepted intake (approved spec digest, lease held)",
+      "a plan-invalidating drift exception has been approved and the plan must be re-derived"
+    ],
+    "antiTriggers": [
+      "no approved executable spec exists (spec drafting is not a lifecycle role)",
+      "the request is to write tests or code for a packet",
+      "the plan exists and only a packet's implementation is pending"
+    ]
+  },
+  "io": {
+    "inputs": [
+      { "name": "executableSpec", "type": "ExecutableSpec (src/controller/sdlc/spec.ts)" },
+      { "name": "specDigest", "type": "sha256 hex" },
+      { "name": "repositorySnapshot", "type": "{ path: string, baseSha: string }" }
+    ],
+    "outputs": [
+      { "name": "packetDag", "type": "PacketPlan (spec §4.2: flat packets, disjoint allowedPaths, typed dependency reasons)" },
+      { "name": "criterionCoverage", "type": "Record<criterionId, packetId[]>" },
+      { "name": "planDigest", "type": "sha256 hex" }
+    ]
+  },
+  "allowed": {
+    "tools": ["read", "grep", "list"],
+    "paths": ["**"],
+    "sideEffects": []
+  },
+  "authorityExclusions": ["git_write", "github_write", "approval", "policy_change", "merge", "release", "deploy", "controller_state"],
+  "procedure": [
+    "Read the executable spec; enumerate acceptance criteria and interfaces touched.",
+    "Map the dependency graph of seams from the repository as it is at baseSha.",
+    "Slice vertically: each packet is an end-to-end, demoable increment with a tracer-bullet blocking edge to its prerequisites.",
+    "Assign disjoint allowedPaths and a typed dependency reason per edge; record parent_intent per packet.",
+    "Verify every criterion maps to at least one packet; emit the flat DAG and its digest."
+  ],
+  "completion": [
+    "plan.dag-schema-valid, plan.total-criterion-coverage and plan.classifier-rule-valid predicates pass",
+    "no packet mutates another packet's paths",
+    "plan digest recorded in the run record"
+  ],
+  "evidence": [
+    "packet DAG with digest",
+    "criterion-to-packet coverage table",
+    "list of files read while deriving the graph"
+  ],
+  "failure": {
+    "handoff": "Return findings to the controller; a spec gap or scope conflict becomes an owner decision request (owner.scope-or-waiver-exception-if-required). The role never edits the spec."
+  },
+  "provenance": {
+    "derived": true,
+    "sources": [
+      { "repository": "https://github.com/addyosmani/agent-skills", "revision": "df1edb2e05487d0aa6d93c747141e0aed1187f25", "license": "MIT", "licenseFile": "upstream/addy/LICENSE", "path": "skills/planning-and-task-breakdown/SKILL.md", "upstreamDigest": "ea6e7529be29098f3e02c8b3da79c0dfddd56e45eaec1248aefd5fc6a62491a8" },
+      { "repository": "https://github.com/mattpocock/skills", "revision": "0ab1b63a410a03d3627979a109c8695de27af954", "license": "MIT", "licenseFile": "upstream/matt/LICENSE", "path": "skills/engineering/to-tickets/SKILL.md", "upstreamDigest": "5c9fba69845c2519b9b35b9af42ae5142c21f8ca15ac2123dc2722002c8058ae" },
+      { "repository": "https://github.com/helderberto/agent-skills", "revision": "6f94e940f79d478782683ce81f2c9f83acad6e56", "license": "MIT", "licenseFile": "upstream/helder/LICENSE", "path": "skills/plan/SKILL.md", "upstreamDigest": "fe461727216261cc7bf529d98863807df08d2ee07e303cc862c3fbda3fdb6e8f" }
+    ]
+  },
+  "patterns": {
+    "adopted": [
+      "acceptance- and verification-oriented decomposition (Addy)",
+      "dependency graph before slicing; high-risk first (Addy)",
+      "tracer-bullet blocking edges between tickets (Matt)",
+      "demoable vertical slices (Helderberto)",
+      "parent_intent, public outputs, typed dependency reasons (recursive-development, pattern only)"
+    ],
+    "rejected": [
+      "tasks/plan.md and tasks/todo.md checklist files or external tracker writes (plan is an immutable digest, not mutable state)",
+      "ticket creation in an issue tracker",
+      "runtime dependencies and automatic recursive decomposition",
+      "plan mode as an agent-specific tool"
+    ]
+  }
+}

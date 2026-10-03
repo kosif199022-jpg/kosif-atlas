@@ -1,0 +1,414 @@
+#!/usr/bin/env bash
+# Fact emitter for /docs-hygiene:audit-progressive-disclosure.
+#
+# Emits deterministic, mechanical facts about instruction-markdown targets —
+# sizes, heading census, load-tier classification, pointer inventory, orphan
+# spokes, spoke-to-spoke chains, TOC presence. It is a fact emitter, not a
+# finding adjudicator: the skill's judgment layer maps these facts onto the
+# seven finding shapes; nothing here is a verdict.
+#
+# Output records (TAB-separated, one per line, sorted per section):
+#   file <path> lines=N words=N h2=N tier=<always|invocation|on-demand|unknown> toc=<yes|no>
+#   pointer <path> <line> <target> resolved=<yes|no> ctx=<trimmed source line>
+#   orphan <path> hub=<skill-root>
+#   chain <from> <line> <target>
+#   summary files=N pointers=N unresolved=N orphans=N chains=N
+#
+# A pointer is a markdown link to a *.md file, or a backtick-quoted
+# repo-relative *.md path (a slash, path characters only). A command, a flag,
+# or a short token inside backticks is not a pointer. Both forms resolve the
+# same way: the target exists as a file in the linking file's directory.
+#
+# Tier classification is a path/frontmatter heuristic; files it cannot place
+# are tier=unknown and left to the in-session judgment layer. A repo with no
+# Claude Code configuration degrades gracefully: everything not matching an
+# instruction-surface pattern is on-demand/unknown and the size facts still
+# emit.
+# Exit: 0 facts emitted (including zero facts), 2 usage/environment error.
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: detect.sh <path> [<path> ...]
+
+Emit progressive-disclosure facts for markdown files or directories.
+Directories are scanned recursively for *.md (skipping node_modules, .git,
+vendor, evals/fixtures). A directory containing SKILL.md is additionally
+analyzed as a hub root (orphan spokes, spoke-to-spoke chains).
+Exit: 0 facts emitted, 2 usage/environment error.
+USAGE
+}
+
+if [[ $# -eq 0 ]]; then
+  usage >&2
+  exit 2
+fi
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+# --- target collection -------------------------------------------------------
+
+# Enumerate name-matching files under a root, excluding vendored/fixture trees
+# by path RELATIVE to the scan root — so explicitly targeting a fixture or
+# vendored directory still scans it (the exclusions guard corpus sweeps, not
+# deliberate descent).
+collect() {
+  local root="$1" name="$2" f rel
+  find "$root" -type f -name "$name" | LC_ALL=C sort | while IFS= read -r f; do
+    rel="${f#"$root"/}"
+    case "$rel" in
+    node_modules/* | */node_modules/* | .git/* | */.git/* | \
+      vendor/* | */vendor/* | evals/fixtures/* | */evals/fixtures/*) continue ;;
+    *) printf '%s\n' "$f" ;;
+    esac
+  done
+}
+
+TARGETS=()
+TROOTS=()
+HUB_ROOTS=()
+for arg in "$@"; do
+  if [[ -f "$arg" ]]; then
+    # Root "." keeps the AS-TYPED path as the tier-relevant relative form: a
+    # bare `CLAUDE.md` is the invoker's working-directory file (always tier),
+    # while `packages/api/CLAUDE.md` keeps its nesting (subtree tier). Using
+    # dirname here would collapse every file arg to its basename and
+    # misclassify a directly-targeted nested CLAUDE.md as always-loaded.
+    # An absolute path is not nested merely for being absolute: a
+    # repository-root CLAUDE.md/AGENTS.md stays always-loaded (see
+    # at_repo_root). An absolute path that is not the repository root still
+    # classifies by its full path (nested form).
+    TARGETS+=("$arg")
+    TROOTS+=(".")
+  elif [[ -d "$arg" ]]; then
+    while IFS= read -r f; do
+      TARGETS+=("$f")
+      TROOTS+=("$arg")
+    done < <(collect "$arg" '*.md')
+  else
+    echo "detect.sh: no such file or directory: $arg" >&2
+    exit 2
+  fi
+done
+
+if [[ ${#TARGETS[@]} -eq 0 ]]; then
+  printf 'summary\tfiles=0\tpointers=0\tunresolved=0\torphans=0\tchains=0\n'
+  exit 0
+fi
+
+# Every SKILL.md among the collected targets registers its hub root, whether it
+# arrived as a directory scan or as a directly passed file.
+for t in "${TARGETS[@]}"; do
+  if [[ "$(basename "$t")" == "SKILL.md" ]]; then
+    HUB_ROOTS+=("$(dirname "$t")")
+  fi
+done
+
+# --- helpers -----------------------------------------------------------------
+
+# Frontmatter block of a file (between leading --- fences), empty if none.
+frontmatter() {
+  awk 'NR==1 && $0!="---" {exit} NR==1 {inside=1; next}
+       inside && $0=="---" {exit} inside {print}' "$1"
+}
+
+# Load-tier classification per the skill's tier model (path + frontmatter
+# heuristic; the judgment layer owns ambiguous cases). $2 is the path relative
+# to its scan root: a root-level CLAUDE.md/AGENTS.md is always-loaded, but the
+# same basename nested deeper is a SUBTREE file — loaded when Claude reads
+# that directory, i.e. invocation tier (per context/tier-model.md). An absolute
+# path to the repository-root file does not equal the bare basename; at_repo_root
+# still classifies that file always-loaded. A nested file keeps invocation.
+classify_tier() {
+  local path="$1" rel="$2" base fm repo_root
+  base="$(basename "$path")"
+  case "$base" in
+  CLAUDE.md | CLAUDE.local.md | AGENTS.md | MEMORY.md)
+    # Call at_repo_root outside the if. Inside the condition, set -e is
+    # suppressed for that function (SC2310). A repository-root MEMORY.md is
+    # not session-loaded (only the auto-memory path is), so it skips the test.
+    repo_root=no
+    [[ "$base" == MEMORY.md ]] || repo_root="$(at_repo_root "$path")"
+    if [[ "$rel" == "$base" || "$repo_root" == yes ]]; then
+      printf 'always'
+    else
+      printf 'invocation'
+    fi
+    return
+    ;;
+  SKILL.md)
+    printf 'invocation'
+    return
+    ;;
+  *) ;;
+  esac
+  case "$path" in
+  */.claude/rules/*.md | .claude/rules/*.md)
+    fm="$(frontmatter "$path")"
+    if printf '%s\n' "$fm" | grep -Eq '^[[:space:]]*paths[[:space:]]*:'; then
+      printf 'invocation'
+    else
+      printf 'always'
+    fi
+    return
+    ;;
+  */.claude/agents/*.md | .claude/agents/*.md | */agents/*.md | \
+    */.claude/commands/*.md | .claude/commands/*.md | */commands/*.md)
+    printf 'invocation'
+    return
+    ;;
+  */context/*.md | */reference/*.md | */references/*.md | */docs/*.md | docs/*.md)
+    printf 'on-demand'
+    return
+    ;;
+  *) ;;
+  esac
+  printf 'unknown'
+}
+
+# yes when the file's own directory is a git repository root: a .git directory
+# or a worktree gitfile sits beside the file. Absolute and lexically indirect
+# paths (foo/../AGENTS.md) still name that root. A nested copy's directory has
+# no .git entry, so the basename alone does not make it always-loaded.
+at_repo_root() {
+  local dir
+  dir="$(dirname "$1")"
+  if [[ "$dir" == "." ]]; then
+    dir="$PWD"
+  fi
+  if [[ -e "$dir/.git" ]]; then
+    printf 'yes'
+  else
+    printf 'no'
+  fi
+}
+
+# TOC heuristic: >=3 in-page anchor LINKS (grep -o counts occurrences, so a
+# compact one-line TOC counts every link) within the first 40 lines — a TOC
+# lives at the top; scattered anchor links deep in the body are not one.
+has_toc() {
+  local n
+  n="$(head -40 "$1" 2>/dev/null | grep -o '](#' | wc -l | tr -d '[:space:]')"
+  [[ "${n:-0}" -ge 3 ]] && printf 'yes' || printf 'no'
+}
+
+# Relative markdown link targets in a file, one "line<TAB>target<TAB>ctx" per
+# link. Skips absolute URLs, mailto, and pure in-page anchors; strips any
+# #anchor suffix from the target. Inline-code spans are not stripped — the
+# judgment layer sees ctx and can dismiss code-fenced examples.
+md_links() {
+  # `|| true` on the leading grep: a file with no markdown links is the normal
+  # case, not an error, but grep exits 1 for it. Under `set -euo pipefail` that
+  # status propagates and kills the caller mid-function, so ref_candidates never
+  # reaches its backtick branch and reports every backtick-cited spoke as an
+  # orphan.
+  { grep -n -o '\][(][^)#][^)]*[)]' "$1" 2>/dev/null || true; } |
+    sed -E 's/^([0-9]+):\]\(([^)]*)\)$/\1\t\2/' |
+    while IFS=$'\t' read -r ln target; do
+      case "$target" in
+      http://* | https://* | mailto:*) continue ;;
+      *) ;;
+      esac
+      target="${target%%#*}"
+      [[ -z "$target" ]] && continue
+      case "$target" in
+      *.md) ;;
+      *) continue ;;
+      esac
+      ctx="$(sed -n "${ln}p" "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | cut -c1-160)"
+      printf '%s\t%s\t%s\n' "$ln" "$target" "$ctx"
+    done
+}
+
+# Backtick-quoted repo-relative markdown paths, same "line<TAB>target<TAB>ctx"
+# shape as md_links. A span counts when the stripped text contains a slash and
+# ends in .md (a #anchor is removed first). A command (`git status`), a flag
+# (`--force`), or a short token (`SKILL.md`) is not a path. Callers resolve
+# the target the same way they resolve a markdown link.
+backtick_paths() {
+  local hit ln span target ctx
+  # shellcheck disable=SC2016  # literal backticks are the matched delimiters
+  { grep -n -oE '`[^`[:space:]]+`' "$1" 2>/dev/null || true; } |
+    while IFS= read -r hit; do
+      ln="${hit%%:*}"
+      span="${hit#*:}"
+      span="${span//\`/}"
+      case "$span" in
+      http://* | https://* | mailto:*) continue ;;
+      *) ;;
+      esac
+      target="${span%%#*}"
+      case "$target" in
+      */*.md) ;;
+      *) continue ;;
+      esac
+      case "$target" in
+      /* | *[!A-Za-z0-9._+/-]*) continue ;;
+      *) ;;
+      esac
+      ctx="$(sed -n "${ln}p" "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | cut -c1-160)"
+      printf '%s\t%s\t%s\n' "$ln" "$target" "$ctx"
+    done
+}
+
+# --- per-file facts + pointer inventory --------------------------------------
+
+FILE_RECORDS="$(mktemp)"
+POINTER_RECORDS="$(mktemp)"
+CHAIN_RECORDS="$(mktemp)"
+ORPHAN_RECORDS="$(mktemp)"
+SEEN_FILES="$(mktemp)"
+SEEN_PTR="$(mktemp)"
+trap 'rm -f "$FILE_RECORDS" "$POINTER_RECORDS" "$CHAIN_RECORDS" "$ORPHAN_RECORDS" "$SEEN_FILES" "$SEEN_PTR"' EXIT
+
+pointers=0
+unresolved=0
+for i in "${!TARGETS[@]}"; do
+  f="${TARGETS[$i]}"
+  root="${TROOTS[$i]}"
+  # De-duplicate targets named more than once (file + enclosing dir).
+  if grep -Fxq "$f" "$SEEN_FILES" 2>/dev/null; then
+    continue
+  fi
+  printf '%s\n' "$f" >>"$SEEN_FILES"
+
+  rel="${f#"$root"/}"
+  lines="$(wc -l <"$f" | tr -d '[:space:]')"
+  words="$(wc -w <"$f" | tr -d '[:space:]')"
+  h2="$(grep -c '^## ' "$f" 2>/dev/null || true)"
+  tier="$(classify_tier "$f" "$rel")"
+  toc="$(has_toc "$f")"
+  printf 'file\t%s\tlines=%s\twords=%s\th2=%s\ttier=%s\ttoc=%s\n' \
+    "$f" "$lines" "$words" "${h2:-0}" "$tier" "$toc" >>"$FILE_RECORDS"
+
+  dir="$(dirname "$f")"
+  : >"$SEEN_PTR"
+  # Markdown links and backtick paths are one inventory. The same target on
+  # the same line (a code-span label around a markdown link) is one pointer.
+  while IFS=$'\t' read -r ln target ctx; do
+    [[ -z "${target:-}" ]] && continue
+    if grep -Fxq "${ln}"$'\t'"${target}" "$SEEN_PTR"; then
+      continue
+    fi
+    printf '%s\t%s\n' "$ln" "$target" >>"$SEEN_PTR"
+    pointers=$((pointers + 1))
+    if [[ -f "$dir/$target" ]]; then
+      resolved='yes'
+    else
+      resolved='no'
+      unresolved=$((unresolved + 1))
+    fi
+    printf 'pointer\t%s\t%s\t%s\tresolved=%s\tctx=%s\n' \
+      "$f" "$ln" "$target" "$resolved" "$ctx" >>"$POINTER_RECORDS"
+  done < <(
+    md_links "$f"
+    backtick_paths "$f"
+  )
+done
+
+# --- hub-root analysis: orphan spokes + spoke-to-spoke chains ----------------
+
+# De-duplicate hub roots.
+mapfile -t HUB_ROOTS < <(printf '%s\n' "${HUB_ROOTS[@]:-}" | grep -v '^$' | LC_ALL=C sort -u)
+
+chains=0
+orphans=0
+# Lexically normalize a path: drop '.' segments, resolve '..'. Returns 1 when
+# '..' escapes the path root (mirrors the sibling audit-encapsulation
+# resolver; realpath is avoided for Git Bash parity).
+normalize() {
+  local raw="$1" seg prefix=""
+  [[ "$raw" == /* ]] && prefix="/"
+  local -a out=()
+  while IFS= read -r seg; do
+    case "$seg" in
+    '' | '.') continue ;;
+    '..')
+      ((${#out[@]})) || return 1
+      out=("${out[@]:0:${#out[@]}-1}")
+      ;;
+    *) out+=("$seg") ;;
+    esac
+  done < <(printf '%s\n' "${raw//\//$'\n'}")
+  (
+    IFS=/
+    printf '%s%s' "$prefix" "${out[*]}"
+  )
+}
+
+# Candidate spoke references in a file: markdown-link targets plus
+# backtick-quoted .md path mentions (hubs legitimately cite spokes either
+# way; reachability honors both, but only ROOTED at the hub).
+ref_candidates() {
+  {
+    md_links "$1" | cut -f2
+    # shellcheck disable=SC2016  # literal backticks are the matched delimiters
+    { grep -oE '`[^` ]+\.md`' "$1" 2>/dev/null || true; } | tr -d '`'
+    backtick_paths "$1" | cut -f2
+  } | LC_ALL=C sort -u
+}
+
+for hub in "${HUB_ROOTS[@]:-}"; do
+  [[ -n "$hub" && -f "$hub/SKILL.md" ]] || continue
+  # Reachability BFS from the hub: a spoke counts as referenced only when a
+  # chain of links/mentions leads to it FROM SKILL.md — an arbitrary inbound
+  # mention (e.g. two unreferenced spokes citing each other in a cycle) does
+  # not make a file reachable.
+  REACHED="$(mktemp)"
+  printf '%s\n' "$hub/SKILL.md" >"$REACHED"
+  queue=("$hub/SKILL.md")
+  while ((${#queue[@]})); do
+    cur="${queue[0]}"
+    queue=("${queue[@]:1}")
+    curdir="$(dirname "$cur")"
+    while IFS= read -r cand; do
+      [[ -z "$cand" ]] && continue
+      for base_dir in "$curdir" "$hub"; do
+        # shellcheck disable=SC2310  # normalize failure = unresolvable ref; skip is the handling
+        t="$(normalize "$base_dir/$cand")" || continue
+        [[ -f "$t" ]] || continue
+        case "$t" in
+        "$hub"/*) ;;
+        *) continue ;;
+        esac
+        if ! grep -Fxq "$t" "$REACHED"; then
+          printf '%s\n' "$t" >>"$REACHED"
+          queue+=("$t")
+        fi
+      done
+    done < <(ref_candidates "$cur")
+  done
+  # Spokes: md files under the hub's subdirectories (scripts/, vendor/, and
+  # evals are not disclosure spokes — excluded relative to the hub root).
+  while IFS= read -r spoke; do
+    rel="${spoke#"$hub"/}"
+    case "$rel" in
+    scripts/* | vendor/* | evals/* | node_modules/*) continue ;;
+    *) ;;
+    esac
+    if ! grep -Fxq "$spoke" "$REACHED"; then
+      printf 'orphan\t%s\thub=%s\n' "$spoke" "$hub" >>"$ORPHAN_RECORDS"
+      orphans=$((orphans + 1))
+    fi
+    # Spoke-to-spoke chains: a spoke linking onward to another .md.
+    while IFS=$'\t' read -r ln target ctx; do
+      [[ -z "${target:-}" ]] && continue
+      chains=$((chains + 1))
+      printf 'chain\t%s\t%s\t%s\n' "$spoke" "$ln" "$target" >>"$CHAIN_RECORDS"
+    done < <(md_links "$spoke")
+  done < <(find "$hub" -mindepth 2 -type f -name '*.md' | LC_ALL=C sort)
+  rm -f "$REACHED"
+done
+
+# --- emit, deterministically ordered -----------------------------------------
+
+LC_ALL=C sort "$FILE_RECORDS"
+LC_ALL=C sort "$POINTER_RECORDS"
+LC_ALL=C sort "$ORPHAN_RECORDS"
+LC_ALL=C sort "$CHAIN_RECORDS"
+files_n="$(wc -l <"$SEEN_FILES" | tr -d '[:space:]')"
+printf 'summary\tfiles=%s\tpointers=%s\tunresolved=%s\torphans=%s\tchains=%s\n' \
+  "$files_n" "$pointers" "$unresolved" "$orphans" "$chains"
+exit 0

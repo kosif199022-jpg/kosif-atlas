@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-07-22T00:00:00.000Z",
+  "type": "copy",
+  "sources": [
+    {
+      "url": "https://github.com/evilmartians/agent-skills/tree/main/skills/llms-visibility",
+      "repository": "evilmartians/agent-skills",
+      "path": "skills/llms-visibility",
+      "branch": "main",
+      "sha": "a2a83b280a2c5b9a6176c5934298fad0224bbce4",
+      "original_name": "llms-visibility",
+      "fetched_at": "2026-09-21T00:00:00.000Z"
+    }
+  ],
+  "license": "MIT",
+  "copyright": "Copyright (c) evilmartians",
+  "license_override": false,
+  "license_override_reason": null
+}

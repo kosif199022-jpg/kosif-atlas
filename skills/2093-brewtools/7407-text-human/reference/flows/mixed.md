@@ -1,0 +1,108 @@
+# Flow: mixed (dispatcher)
+
+Git commit OR folder with heterogeneous files. Split into blocks, route each file to its correct flow's rules, run parallel sub-agents, aggregate.
+
+## When this flow is chosen
+- Scope is a 7+ hex git commit hash.
+- Scope is a folder containing more than one file type.
+Single file -> do NOT use mixed; pick the file's own flow and process directly.
+
+## Phase 1 -- scope analysis
+
+### Commit mode
+**Commit mode is CURRENT-WORKTREE mode.** The hash selects file NAMES only; every edit lands on
+today's content at that path, not on the historical blob. State it in the `PLAN` block's SCOPE so
+the user reads it before the first edit. Read-only historical output is not offered here -- to
+inspect the old content, use `git show <hash>:<path>` by hand.
+
+List the names, no extension filtering at listing time:
+`git diff --name-only <hash>^..<hash>`
+
+Then, over exactly those paths, before ANY agent is spawned:
+`git status --porcelain -- <path>...`
+
+Non-empty output = the selected paths carry uncommitted work that "use git to revert" cannot
+recover. ONE `main-chat user gate` listing every dirty path: proceed on them / skip them and process
+only the clean ones / abort. Never edit a dirty path without that explicit answer. A path that has
+changed since `<hash>` but is committed is fine -- it is still not the content the hash names, which
+is why the current-worktree semantic is announced up front.
+
+### File inclusion
+| Include | Exclude |
+|---------|---------|
+| Source (`*.java`, `*.kt`, `*.py`, `*.ts`, `*.js`, `*.go`, `*.rs`, ...) | Binary (`*.class`, `*.pyc`, `*.exe`) |
+| Config (`*.xml`, `*.yaml`, `*.yml`, `*.json`, `*.toml`) | Images (`*.png`, `*.jpg`, `*.gif`, `*.ico`) |
+| Docs (`*.md`, `*.mdx`, `*.rst`, `*.txt`) | Archives (`*.zip`, `*.tar`, `*.gz`) |
+| Build (`pom.xml`, `package.json`, `pyproject.toml`) | Generated (`target/`, `build/`, `dist/`, `node_modules/`, `__pycache__/`) |
+| SQL (`*.sql`, `*.ddl`) | Lock files, IDE files |
+
+### Path mode
+`find <path> -type f \( -name "*.java" -o -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.md" \) | grep -v -E "(target/|node_modules/|\.git/|build/|dist/|__pycache__/)" || true`
+
+### Block count
+| Files | Lines | Blocks |
+|-------|-------|--------|
+| 1-2 | <200 | 1 (direct) |
+| 3-5 | <500 | 3 |
+| 6-10 | 500-1500 | 5 |
+| 11-20 | 1500-3000 | 7 |
+| 21+ | 3000+ | 10 |
+
+## Phase 2 -- classify each file to a flow + model
+Per file, pick the sub-flow (its rules apply inside the block):
+- code extensions, docstrings, JavaDoc -> code flow (`@reference/flows/code.md`)
+- README/docs/guide/changelog/PR/commit text -> docs flow (`@reference/flows/docs.md`)
+- long-form essay/blog `.md`/`.mdx` -> article flow (`@reference/flows/article.md`)
+- chat/forum dumps -> social flow (`@reference/flows/social.md`)
+
+Model split:
+- fast model (simple): config (`*.properties`, `*.yaml`, `*.toml`, `*.ini`), data (`*.json`, `*.csv`), text (`*.txt`, `*.md`), single-statement SQL, files <50 lines no logic.
+- balanced model (complex): source with logic, tests, complex SQL (CTEs/windows/JOINs), config classes.
+
+## Phase 3 -- block formation
+Group by type and complexity (avoid mixing fast model/balanced model in one block), balance line count, keep related files together (same package/dir). Data-file block (YAML/JSON/CSV with comments) -> fast model for unicode fixes.
+
+## Phase 4 -- parallel execution
+Main launches ALL native agent calls in one message. Each brief carries the SKILL.md Delegation fields,
+owned files/sub-flow/two-pass rules and JSON contract; delegates never nest or expand ownership.
+
+```
+spawn_agent({"task_name":"general_purpose_1","message":"Assigned role: general-purpose. The main session supplies matching native role instructions when available; report a role gap rather than claiming a custom type was instantiated. Perform this bounded work only; do not spawn or delegate children.\n[CUSTOM_INSTRUCTIONS_IF_ANY]\nBlock 1 files: [...]. Per file apply its flow rules from <ROOT>/skills/text-human/reference/flows/<flow>.md plus ai-patterns.md / human-patterns.md. Two-pass: STRIP then gated INJECT. Return JSON."})
+spawn_agent({"task_name":"general_purpose_2","message":"Assigned role: general-purpose. The main session supplies matching native role instructions when available; report a role gap rather than claiming a custom type was instantiated. Perform this bounded work only; do not spawn or delegate children.\n[CUSTOM_INSTRUCTIONS_IF_ANY]\nBlock 2 files: [...]. Same rules. Return JSON."})
+```
+
+> Resolve `<ROOT>` to this skill's `<plugin-root>` before handing paths to general-purpose
+> SAs. Plugin-agent definitions substitute their own bare `<plugin-root>`; that does not
+> grant a generic delegate this skill's resource path. Never use removed `$<plugin-root>`.
+
+If a custom prompt was provided, prepend to EVERY sub-agent prompt:
+```
+CUSTOM INSTRUCTIONS (highest priority, override defaults):
+<user prompt text>
+---
+```
+
+JSON output per agent:
+```
+{
+  "files_processed": N,
+  "changes": [{"file": "path", "flow": "code|docs|article|social", "stripped": N, "injected": N, "surfaced": N}],
+  "surfaced_for_review": [{"file": "path", "line": N, "issue": "..."}]
+}
+```
+
+## Phase 5 -- aggregation
+Collect JSON from all agents -> merge stats -> unified Humanization Report (see SKILL.md report format). Surface every `surfaced_for_review` item; never auto-applied.
+
+## Error handling
+| Error | Action |
+|-------|--------|
+| Agent failure/partial output | Keep completed edits/evidence, report incomplete block, continue others; never count unverified work done |
+| File read error | Skip, note in report |
+| Binary file | Skip, note in report |
+| No changes | Report "No humanization required" |
+
+
+## Native user gates
+
+Required approval: main presents a concrete, reviewable proposal in chat and waits for an actual user reply before dependent action. Existing authorization for the same scope remains valid; do not ask again. Optional clarification: use `request_user_input_async` only if exposed, or `request_user_input` only if available in the current runtime/mode, for optional choices and never approval. Otherwise ask in main chat. Delegated agents return unresolved questions to main. Silence, elapsed time and tool errors are not approval.

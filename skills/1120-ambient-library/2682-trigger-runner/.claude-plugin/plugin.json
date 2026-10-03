@@ -1,0 +1,11 @@
+{
+  "name": "trigger-runner",
+  "description": "Runs a folder's declared .aai/triggers.md standing intentions \u2014 compares each to last-run stamps in .aai/memory/, runs what's due, and can offer promotion to native hooks/cron on a capable harness; use for \"check triggers\", \"run due triggers\", \"session-start due-check\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

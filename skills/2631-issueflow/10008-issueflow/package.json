@@ -1,0 +1,48 @@
+{
+  "name": "@natjswenson/issueflow",
+  "version": "0.18.0",
+  "description": "Takes one open GitHub issue to a reviewed pull request with a red-teamed plan, proven implementation, and converging review loop on Claude Code or Codex.",
+  "license": "MIT",
+  "author": "Nate Swenson",
+  "homepage": "https://github.com/natejswenson/claude-skills",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/natejswenson/claude-skills.git"
+  },
+  "bugs": {
+    "url": "https://github.com/natejswenson/claude-skills/issues"
+  },
+  "keywords": [
+    "issueflow",
+    "claude-code",
+    "claude-skill",
+    "codex",
+    "codex-skill"
+  ],
+  "type": "module",
+  "bin": {
+    "issueflow": "scripts/issueflow.js"
+  },
+  "files": [
+    "scripts/",
+    "references/",
+    "skill-invariants.json",
+    "memory-policy.json",
+    "SKILL.md",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test \"scripts/**/*.test.mjs\"",
+    "eval:harness": "node evals/harness.mjs run --mode offline",
+    "test:native:codex": "ISSUEFLOW_NATIVE_HOST=codex node --test scripts/tests/execution.test.mjs",
+    "test:native:claude": "ISSUEFLOW_NATIVE_HOST=claude node --test scripts/tests/execution.test.mjs",
+    "audit": "npm audit --audit-level=moderate",
+    "prepack": "cp ../../README.md ../../LICENSE ../../CHANGELOG.md .",
+    "postpack": "rm -f README.md LICENSE CHANGELOG.md"
+  }
+}

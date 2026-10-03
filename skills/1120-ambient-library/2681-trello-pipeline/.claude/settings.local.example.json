@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 trello_ops.py status)",
+      "Bash(python3 trello_ops.py cards *)",
+      "Bash(python3 trello_ops.py card_detail *)",
+      "Bash(python3 trello_ops.py comments *)",
+      "Bash(python3 trello_ops.py move *)",
+      "Bash(python3 trello_ops.py comment *)",
+      "Bash(python3 trello_ops.py add_label *)",
+      "Bash(python3 trello_ops.py remove_label *)",
+      "Bash(python3 trello_ops.py attach *)",
+      "Bash(python3 trello_ops.py submit *)",
+      "Bash(python3 trello_ops.py create *)",
+      "Bash(python3 trello_ops.py find_idea_brief *)",
+      "Bash(python3 trello_ops.py approved_specs *)",
+      "Bash(python3 trello_ops.py update_desc *)",
+      "Bash(python3 trello_ops.py delete_all)",
+      "Read(./agents/*.md)",
+      "Read(./CLAUDE.md)",
+      "Read(./.env.example)"
+    ]
+  }
+}

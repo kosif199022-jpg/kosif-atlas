@@ -1,0 +1,60 @@
+<overview>
+
+Runtime variable scopes and how to reference skill-bundled files.
+
+</overview>
+
+<skill_file_references>
+
+{!# Source-only maintainer guidance: author CLAUDE_SKILL_DIR once. The build
+rewrites that token to SKILL_DIR for Codex output. Generated runtime guidance
+must describe only its own runtime token. #!}
+
+Use `${CLAUDE_SKILL_DIR}` to reference files within the current skill directory.
+
+Examples using files bundled with the skill that contains the prose:
+
+```markdown
+Read `${CLAUDE_SKILL_DIR}/references/<bundled-reference>.md`
+Run `python3 "${CLAUDE_SKILL_DIR}/scripts/<bundled-script>.py" <args>`
+```
+
+NEVER reference a skill-bundled file through repository-local source or generated plugin paths, or through legacy plugin-root paths. If the file is not bundled with the current skill, name the capability or owning workflow instead of inventing a filesystem path.
+
+Do NOT define aliases, add troubleshooting sections, or explain compatibility tokens.
+
+</skill_file_references>
+
+<variable_scopes>
+
+{!% if target == 'claude' %!}
+
+| Variable                | Scope                      | Skill content (`!` commands) | Hook `command:` field |
+| ----------------------- | -------------------------- | ---------------------------- | --------------------- |
+| `${CLAUDE_SKILL_DIR}`   | Skill's SKILL.md directory | Yes                          | **No**                |
+| `${CLAUDE_PLUGIN_ROOT}` | Plugin installation root   | No                           | **Yes**               |
+| `${CLAUDE_PLUGIN_DATA}` | Plugin persistent data dir | No                           | **Yes**               |
+| `$CLAUDE_PROJECT_DIR`   | Product working directory  | No                           | **Yes**               |
+
+For hook scripts bundled with a plugin skill, use `${CLAUDE_PLUGIN_ROOT}`:
+
+```yaml
+hooks:
+  PostToolUse:
+    - matcher: "Skill"
+      hooks:
+        - type: command
+          command: "if [ \"${MY_PLUGIN_HOOK:-1}\" = \"0\" ]; then exit 0; fi; python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\" || echo '{}'"
+          timeout: 10
+```
+
+{!% else %!}
+
+| Variable              | Scope                      | Skill content |
+| --------------------- | -------------------------- | ------------- |
+| `${CLAUDE_SKILL_DIR}` | Skill's SKILL.md directory | Yes           |
+
+Codex exposes the rendered skill-directory token for bundled references and scripts. This reference declares no plugin-root, plugin-data, project-root, or hook-command variable without a Codex runtime contract.
+{!% endif %!}
+
+</variable_scopes>

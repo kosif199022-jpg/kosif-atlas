@@ -1,0 +1,158 @@
+---
+description: "Verify the typos-format hook's runtime prerequisites and configuration for this repository. Use when: 'set up typos-format', 'configure typos-format', 'is typos-format working', spell-fixing silently isn't happening, or the hook reported a missing prerequisite. Actions: check (read-only verification, default) | apply (resolve what check found). Re-runnable and safe."
+argument-hint: "[check|apply]"
+user-invocable: true
+disable-model-invocation: true
+shell: bash
+---
+
+## Pre-computed context
+
+`check`'s tool probes ran at load time. Read these rows instead of re-issuing them; each shows the
+tool's path when present, or `absent` when missing:
+
+- `jq`: !`{ command -v jq 2>/dev/null || echo "absent"; }`
+- `typos`: !`{ command -v typos 2>/dev/null || echo "absent"; }`
+
+A row reading `[shell command execution disabled by policy]` carries no result: run that tool's
+`command -v` probe via Bash instead.
+
+Verification record. Claim: with `disableSkillShellExecution` set, each injected command is
+replaced by the literal `[shell command execution disabled by policy]` and not run. Basis:
+[Inject dynamic context](https://code.claude.com/docs/en/skills#inject-dynamic-context), which
+documents the setting and the string. As of 2026-09-29. Recheck when a re-read of that section no
+longer names the setting or the string.
+
+## Purpose
+
+Thin check-centric setup per the uniform setup contract (`docs/plugin-philosophy.md`
+"Setup is explicit and repeatable" in the marketplace repository): `check` inspects and
+reports, `apply` resolves. This plugin owns no consumer-project configuration. Rules come
+from the repository's own typos config, and the only tunables are the native `userConfig`
+options (the on/off toggle and the write-mode switch). Unlike sibling formatter plugins
+(Ruff, markdownlint-cli2), typos has no per-repo dependency-manager install path. It is a
+standalone Rust binary installed at the machine level (cargo, Homebrew, Conda, pacman, or
+a pre-built binary), never as a project dependency. `apply` is therefore guidance-only: it
+never installs anything, matching the hook's own PATH-only resolution and the plugin
+philosophy's never-download-silently rule.
+
+Action routing: no argument or `check` runs the check; `apply` runs the check first, then
+prints remediation guidance for each FAIL. Both are non-interactive. Never prompt when the
+action is given.
+
+Step 1 of `check` only reports a Bash version because the skill cannot load where bash is missing:
+with `shell: bash` on Windows without Git Bash the invocation fails before any command runs, so
+this skill never gets to diagnose the missing Git Bash. The README Requirements section carries
+that answer. Verification record. Claim: `shell: bash` without bash available fails the
+invocation before any command runs, showing ``Skill <name> requires bash (`shell: bash` in
+frontmatter) but Git Bash was not found``, and a failed injected command aborts the skill before
+Claude sees its content. Basis: [How injected commands
+run](https://code.claude.com/docs/en/skills#how-injected-commands-run) and [When an injected
+command fails](https://code.claude.com/docs/en/skills#when-an-injected-command-fails). As of
+2026-09-29. Recheck when a re-read of either section no longer describes that failure.
+
+## `check` (read-only)
+
+The hook script (`${CLAUDE_PLUGIN_ROOT}/hooks/typos-format.sh`) is the single source of truth
+for what it requires and how it resolves things.
+
+**Read it first.** Probe what it actually does, don't recite this file. Then read the
+pre-computed tool rows, run the remaining probes via Bash, and report a PASS/FAIL/INFO
+table with one remediation line per FAIL. Do not modify anything.
+
+When the plugin's toggle is disabled, every prerequisite absence downgrades from FAIL to
+INFO. The hook exits through its enabled-gate before probing anything, so a deliberately
+disabled plugin is not broken. Report the probes informationally and note that re-enabling
+restores the FAIL semantics. Node.js (step 8) is the exception: the enabled-gate runs inside the
+`node` launcher, so its absence is a FAIL either way.
+
+1. **Bash version.** Check against the hook's documented floor (README Requirements),
+   noting any features the hook degrades without (telemetry's `EPOCHREALTIME`, Bash 5.0+).
+2. **`jq`.** The pre-computed `jq` row. FAIL if absent: the hook then skips with a visible
+   notice, once per session and agent and renewed every eighth skip, instead of running.
+3. **typos binary.** The pre-computed `typos` row (the hook resolves PATH only, with no
+   `.venv`-style per-repo convention). Report the resolved path and `typos --version` output when
+   found. FAIL when absent; the hook then skips with a visible notice, once per session and shared by all
+   agents, renewed every eighth skip with the install route kept, instead of running.
+4. **Consumer typos config (informational only).** The hook runs unconditionally and never
+   gates on a config existing; typos resolves its own governing config (if any) directly from
+   the file path it is given. The hook also injects its bundled `config/default-typos.toml`
+   via `typos -c` (SHA `extend-ignore-re`); `extend-*` keys merge with the discovered file
+   rather than replacing it. Report whether a `typos.toml`, `_typos.toml`, `.typos.toml`, a
+   `Cargo.toml` with `[workspace.metadata.typos]`/`[package.metadata.typos]`, or a
+   `pyproject.toml` with `[tool.typos]` governs the repo, purely as INFO. Its presence or
+   absence never changes whether the hook runs.
+5. **Hook toggle.** Report the effective `typos_format_enabled` value:
+   `${user_config.typos_format_enabled}` (unexpanded or empty means default `true`).
+6. **Write mode.** Report the effective `typos_format_write_changes` value:
+   `${user_config.typos_format_write_changes}` (unexpanded or empty means the shipped default
+   `false`, and only the literal `true` enables writes. Any other value stays report-only).
+   Report-only is therefore what a default installation does: the hook still runs, still
+   reports findings, and never modifies a file. Report that as **INFO, not PASS**. Every
+   prerequisite can pass while the one behavior the consumer came here for was never turned
+   on, and the commonest reason to invoke this skill is that spell-fixing is not happening.
+   Name the remediation in the same line rather than leaving the reader to infer it.
+7. **Hook registration.** INFO: confirm the plugin is enabled for this project
+   (`/plugin` → Installed) rather than parsing settings files.
+8. **Node.js.** Run `node --version` via Bash, which works without the launcher. A
+   `command -v node` hit is not enough: a version-manager shim or a shell function resolves
+   there yet cannot run the launcher. FAIL when the command is absent or exits non-zero, even
+   with the toggle off: the hook row runs `node hooks/exec-bash.mjs`, so a missing
+   `node` is a hook launch error and the hook never runs. Verification record. Claim: Claude
+   Code's native binary neither ships nor uses Node. Basis: [Set
+   up](https://code.claude.com/docs/en/setup). As of 2026-09-29. Recheck when a re-read of that
+   page no longer says the native install does not use Node.
+
+## `apply` (idempotent)
+
+Run `check`, then for each FAIL print remediation guidance. Never install anything. There is
+no `apply install-typos` write path. This skill follows the refusal template in
+[docs/plugin-philosophy.md](../../../../docs/plugin-philosophy.md) `### Install subactions and refusal`
+and prints the consumer-run install method instead. Both reasons apply: (1) every install is
+machine-level (cargo, Homebrew, Conda, pacman, or a pre-built binary), not a dependency recorded
+through the repo's package manager; (2) typos publishes several official install methods
+(`https://github.com/crate-ci/typos#install`), so choosing one is the consumer's call. Surface the
+platform-appropriate method.
+
+After the consumer installs `typos` themselves, re-run `check` with live Bash probes (the
+pre-computed rows predate the install) and report its actual result.
+Never claim resolved without re-verifying. For everything else `apply` only points:
+
+- missing `jq` / Bash / Node.js: platform install instructions from the README Requirements section;
+  this skill never installs system packages.
+- toggle off: reconfigure through Claude Code's native flow, per the marketplace's
+  plugin-reconfiguration convention
+  (<https://github.com/melodic-software/claude-code-plugins/blob/main/docs/conventions/plugin-reconfiguration/README.md>,
+  which owns the verified-version record): interactive `/plugin configure typos-format@<marketplace>`
+  any time, or headless `claude plugin install typos-format@<marketplace> -s <scope> --config typos_format_enabled=true`
+  (repeatable per key). Against an already-installed plugin it prints `already installed` and
+  still writes the value. Do **not** uninstall to reconfigure: that drops this plugin's entire
+  stored `pluginConfigs` entry, resetting every option in the README's Options reference to its
+  manifest default. `-s` defaults to `user`; pass the scope `claude plugin list` reports, and run
+  from that project's directory for a `project`/`local` scope. A rerun at another scope adds an
+  install record at that scope and enables the plugin there (measured in both directions); the
+  value itself always lands in user settings. A rejected value prints a warning yet exits 0, so read the output. This skill
+  never writes user settings or `pluginConfigs`. Afterwards rerun
+  `check` in a **fresh session**. The rendered `${user_config.*}` is injected at skill load and
+  each hook's `CLAUDE_PLUGIN_OPTION_*` is fixed at session start, so a same-session `check` still
+  reports the OLD value; report the observed effective value, never an unobserved change.
+- report-only mode (`typos_format_write_changes` unset, or set to anything but `true`): the
+  hook is working as shipped. Writes were never turned on, so this is a configuration
+  answer, not a repair. Say so, then offer the same `/plugin configure typos-format` route
+  (or the headless install rerun above, with `--config typos_format_write_changes=true`),
+  and state what turning it on accepts: last-writer-wins ordering against any
+  sibling hook that rewrites the same file. For the opposite case, writes already on and a
+  few corrections unwanted, the fit is allow-listing those words in the repository's typos
+  config, not switching the whole hook back to report-only.
+- no typos config: offer to create a minimal `_typos.toml` in the repository root only when
+  explicitly asked. The plugin imposes no rules of its own.
+
+Re-running `apply` after everything passes changes nothing and reports "already configured".
+
+## What this skill does NOT do
+
+- Run the spell-checker. Editing any file exercises the hook end-to-end.
+- Write the plugin cache, Claude Code user settings, or `pluginConfigs`.
+- Install `typos`. Installation is always the consumer's own choice and command, at the
+  machine level, never a project dependency this skill records.
+- Download or execute tools during `check` or `apply`.

@@ -1,0 +1,107 @@
+{
+  "skill_name": "improve",
+  "evals": [
+    {
+      "id": 1,
+      "name": "empty-args-routes-to-deepening",
+      "prompt": "/architecture:improve",
+      "expected_output": "Empty args route to the deepening lens (not a missing-action error). Reads the nearest project glossary (if any) and relevant architecture decision records, walks the codebase via the Explore subagent, applies the deletion test, and writes BOTH the HTML report and the machine-readable candidate artifact before asking which candidate to explore.",
+      "files": [],
+      "expectations": [
+        "Routes empty `$ARGUMENTS` to the `deepening` action — does NOT error on a missing/unknown action",
+        "Reads the nearest project glossary (if the project maintains one) and any relevant architecture decision records before exploring",
+        "Uses the Agent tool with subagent_type=Explore (or an equivalent read-only exploration subagent) to walk the codebase rather than reading inline",
+        "Applies the deletion test to anything suspected shallow (concentrates vs moves complexity)",
+        "Writes the durable machine-readable candidate artifact to the memory tier (default `.work/<topic-slug>/deepening-candidates-<timestamp>.md`, honoring a working-docs root the consuming repo declares, with the path announced) alongside the HTML report",
+        "Does NOT propose interfaces in Phase 2; ends by asking which candidate to explore"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "shallow-cluster-classified-strong",
+      "prompt": "/architecture:improve deepening — focus on the order intake path: OrderHandler calls OrderValidator calls OrderRepo, and each is a one-method wrapper that forwards its argument and returns the next call's result. Validation and pricing logic actually live spread across the three.",
+      "expected_output": "Classifies the OrderHandler->OrderValidator->OrderRepo chain as shallow (interface nearly as complex as implementation). Deletion test returns 'concentrates'. Recommendation badge Strong, dependency category in-process or local-substitutable with the testing strategy tied to it. Candidate written to the candidate artifact with status proposed.",
+      "files": [],
+      "expectations": [
+        "Identifies the wrapper chain as shallow — interface nearly as complex as the implementation",
+        "Deletion-test verdict is 'concentrates complexity' (earning-its-keep / candidate signal), not 'just moves it'",
+        "Assigns the recommendation badge Strong for an unambiguous shallow pass-through cluster",
+        "Assigns a dependency category (in-process or local-substitutable) and ties the testing strategy to that category per dependencies.md",
+        "Uses ONLY deepening vocabulary (module, interface, seam, adapter, leverage, locality) — never component, service, or boundary",
+        "Records the candidate in the candidate artifact with status: proposed and a one-sentence problem + one-sentence deepening"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "deep-module-not-over-flagged",
+      "prompt": "/architecture:improve deepening — review the pricing engine: a single Price(order) entry point backed by ~600 lines of rules, tax tables, and rounding policy, with a focused test suite that drives it only through Price(order). An architecture decision record already records keeping the rules in-process.",
+      "expected_output": "Does NOT propose deepening an already-deep module (small interface, large well-tested implementation). Deletion test shows complexity would only move, not concentrate. If surfaced at all, badge is Speculative with explicit rationale; respects the existing decision record rather than re-litigating it.",
+      "files": [],
+      "expectations": [
+        "Does NOT recommend deepening a module that is already deep (small interface hiding large, tested behavior)",
+        "Deletion-test verdict is 'would just move complexity' — correctly NOT a candidate",
+        "If surfaced at all, badge is Speculative with explicit rationale — never Strong",
+        "Respects the existing architecture decision record (keep rules in-process); only revisits it if friction is real enough, and marks the conflict clearly if so",
+        "Does not invent shallowness where the interface-to-implementation ratio is already favorable"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "design-it-twice-branch-on-selected-candidate",
+      "prompt": "/architecture:improve deepening — I've picked the order intake candidate from the report. Before we lock a shape, show me a few radically different interface designs and tell me which one you'd pick.",
+      "expected_output": "Enters the Design-It-Twice exploration mode: frames the problem space (constraints, dependency categories, an illustrative sketch labeled not-a-proposal) and shows it to the user first, fans out 3-4 parallel subagents each under a deliberately orthogonal design constraint, presents the six-part designs sequentially, compares on interface depth/leverage, locality of change, and seam placement, reads what the spread of designs itself says, and closes with an opinionated recommendation (hybrid allowed, carrying a graft record).",
+      "files": [],
+      "expectations": [
+        "Frames the problem space FIRST — constraints any new interface must satisfy, dependency categories, and a small illustrative sketch explicitly labeled as not a proposal — and shows it to the user before any design is produced",
+        "Fans out 3-4 subagents in parallel, each under a deliberately orthogonal design constraint (minimal interface, maximum flexibility, optimize the common caller, ports and adapters only when cross-seam dependencies warrant)",
+        "Briefs each subagent with the concrete technical context (file paths, coupling details, dependency category, what sits behind the seam) and requires the six-part structured result (interface incl. invariants/error modes; usage example; what the implementation hides; dependency strategy; trade-offs; rejected shapes with their rejected-reason)",
+        "Presents the designs sequentially, then compares on exactly three axes: interface depth/leverage, locality of change, and seam placement",
+        "Reads the spread of returns as evidence: convergence despite orthogonal constraints is treated as a strong consensus signal, divergence in shape is treated as the expected null result rather than a reason to re-frame, and divergence in the designs' assumptions about callers/invariants/ordering sends step 1's framing back to be pinned",
+        "Closes with an opinionated recommendation — possibly a hybrid — a strong read, not a menu of equally weighted options",
+        "Any proposed hybrid carries a graft record: what was taken from which design, and what was considered and left behind with its reason"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "resolved-vocabulary-routes-to-owner",
+      "prompt": "/architecture:improve deepening — while grilling the selected candidate we resolved a new project term, Fulfillment Window. /domain-driven-design:curate-language is available in this session. Preserve the term and continue.",
+      "expected_output": "Invokes /domain-driven-design:curate-language for active glossary maintenance, then resumes the architecture interview. Architecture does not duplicate the glossary contract or discover bounded contexts; when that skill is unavailable it preserves only the consumer-owned fallback.",
+      "files": [],
+      "expectations": [
+        "Invokes /domain-driven-design:curate-language because the skill is available in the current session",
+        "Does not reimplement a glossary filename, location, or entry contract in architecture",
+        "Does not perform bounded-context discovery as part of preserving the term",
+        "Continues the selected-candidate interview after the glossary update"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "multi-candidate-handoff-stops-before-implementation",
+      "prompt": "/architecture:improve deepening — the report is out. Take candidates 2, 5 and 7, agree their shapes with me, then hand them off together. Candidate 5 renames the public helper load_config to read_config.",
+      "expected_output": "Interviews each selected candidate to its own agreed shape and implements none of them. Before the handoff it re-runs the base-freshness check and reports the behind count. The handoff records the landing order and why, the files two or more candidates touch, and which candidates depend on another landing first, leaving commit granularity and PR shape to the implementing lane. It states that a suite skipped for a missing tool is not a pass and a stub is not the tool, and that retiring load_config sweeps call sites, comments, and test assertions, keeping changelog history entries that record the old name.",
+      "files": [],
+      "expectations": [
+        "Interviews candidates 2, 5 and 7 one at a time, each to its own agreed shape",
+        "Does NOT implement any candidate or offer an implement-all mode; stops at the handoff",
+        "Re-checks the branch's freshness against its base before handing off and reports the behind count",
+        "The handoff names landing order with rationale, file overlaps between the candidates, and inter-candidate dependencies",
+        "The handoff states that a skipped suite is not a pass and a stub is not the tool",
+        "The handoff's rename step for load_config covers comments and test assertions as well as call sites, and exempts changelog history passages"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "report-bands-by-badge-and-artifact-records-verification",
+      "prompt": "/architecture:improve deepening — scope is the whole repository, which splits into four top-level packages. Run the scan through to the report.",
+      "expected_output": "Before scanning, checks the branch against its base with separate git calls and reports the behind count. It names four scan subagents, one per package, before dispatching, and notes that scan cost rises with the count; no fixed default width is asserted. The HTML report groups cards into Strong, Worth exploring, and Speculative bands in that order, with no cap, pagination, or collapsed card. The candidate artifact ends with a phase-1.5 line carrying downgraded, dropped, and corrected counts, then the top-recommendation line, and leaves agreed-shape and graft-record out of entries that have not reached Phase 3.",
+      "files": [],
+      "expectations": [
+        "Runs the base-freshness check as separate git calls before the scan and reports the behind count or an unknown freshness",
+        "Dispatches one scan subagent per package and names the count and areas before dispatching, without citing a fixed default fan-out number",
+        "Renders cards in badge bands ordered Strong, Worth exploring, Speculative, with no cap, pagination, or collapsed disclosure",
+        "The candidate artifact carries a phase-1.5 line with downgraded, dropped, and corrected counts, even when all are zero",
+        "Does not leave empty agreed-shape or graft-record fields on entries that have not reached Phase 3"
+      ]
+    }
+  ]
+}

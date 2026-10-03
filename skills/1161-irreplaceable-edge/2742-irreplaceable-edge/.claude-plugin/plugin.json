@@ -1,0 +1,11 @@
+{
+  "name": "irreplaceable-edge",
+  "description": "Guided live discovery of a professional's irreplaceable competitive edge against AI-first competition; use for \"find my edge\", \"what's my moat\", \"how do I compete with AI\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

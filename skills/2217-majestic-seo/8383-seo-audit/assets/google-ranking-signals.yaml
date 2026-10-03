@@ -1,0 +1,126 @@
+# Grounded audit reference.
+# This file records observable evidence categories and current primary guidance.
+# It is not a ranking-factor database and does not define scores, penalties, or gates.
+
+purpose: "Use attributable observations to prioritize an SEO audit; do not infer undocumented ranking mechanics."
+
+evidence_states:
+  - observed
+  - partial
+  - unknown
+  - unavailable
+  - hypothesis
+
+technical:
+  http:
+    inspect:
+      - status_code
+      - redirect_chain
+      - final_url
+      - response_headers
+      - rendered_content
+    evidence: "A direct fetch or crawl can establish the response observed at the collection time."
+  indexability:
+    inspect:
+      - robots_txt
+      - meta_robots
+      - x_robots_tag
+      - rel_canonical
+      - authentication
+      - sitemap_membership
+    rule: "Confirm owner intent and the eligible URL before labeling a control a defect."
+  mobile_and_performance:
+    inspect:
+      - mobile_rendering
+      - interaction
+      - measured_core_web_vitals
+      - test_device_and_network
+    rule: "Report the measurement method, scope, and date; do not use a universal speed threshold."
+  structured_data:
+    inspect:
+      - parse_validity
+      - schema_org_validity
+      - visible_content_match
+      - documented_google_eligibility
+      - deployment_verification
+      - observed_search_appearance
+    rule: "Validity and eligibility do not guarantee a search appearance."
+
+content:
+  intent:
+    inspect:
+      - target_query_or_task
+      - audience
+      - page_purpose
+      - answer_coverage
+    rule: "Judge usefulness for the intended reader, not keyword quotas."
+  quality:
+    inspect:
+      - factual_accuracy
+      - source_attribution
+      - original_experience
+      - examples_or_method
+      - completeness_for_intent
+      - clarity_and_structure
+    rule: "Google does not publish a preferred word count or a numeric E-E-A-T score."
+  freshness:
+    inspect:
+      - substantive_change
+      - visible_publish_or_update_date
+      - source_currency
+      - changed_claims
+    rule: "A changed timestamp alone is not evidence of a meaningful update."
+  authorship_and_trust:
+    inspect:
+      - author_identity
+      - relevant_credentials
+      - ownership_or_contact_details
+      - editorial_process
+      - review_evidence
+    rule: "Missing fields identify an unresolved reader question, not an automatic demotion."
+
+measurement:
+  search_console:
+    inspect:
+      - impressions
+      - clicks
+      - click_through_rate
+      - average_position
+      - query_scope
+      - page_scope
+      - country_device_and_search_type
+    rule: "Use comparable finalized windows and preserve filters, dates, and missing-data states."
+  analytics:
+    inspect:
+      - sessions
+      - referrals
+      - conversions
+      - attribution_model
+      - consent_and_sampling
+    rule: "Analytics cannot establish complete raw crawler activity or response citations."
+  server_or_cdn_logs:
+    inspect:
+      - request_time
+      - path
+      - status
+      - user_agent
+      - verified_crawler_identity
+      - referrer_when_present
+    rule: "A fetch is access evidence, not evidence that a response mentioned or cited a page."
+
+unsupported_claims_to_avoid:
+  - fixed ranking pipelines or named internal stages
+  - universal authority caps or site-age sandbox timelines
+  - URL-history reset rules or required history windows
+  - leaked machine-learning score names or numeric scales
+  - universal keyword density, character, paragraph, or word-count formulas
+  - automatic trust, click, engagement, or conversion diagnoses
+  - ranking, traffic, recommendation, or citation guarantees
+
+primary_guidance:
+  search_essentials: "https://developers.google.com/search/docs/essentials"
+  helpful_content: "https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+  traffic_drops: "https://developers.google.com/search/docs/monitor-debug/debugging-search-traffic-drops"
+  title_links: "https://developers.google.com/search/docs/appearance/title-link"
+  snippets: "https://developers.google.com/search/docs/appearance/snippet"
+  structured_data_policies: "https://developers.google.com/search/docs/appearance/structured-data/sd-policies"

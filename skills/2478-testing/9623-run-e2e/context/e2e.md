@@ -1,0 +1,147 @@
+# End-to-End (E2E) App Testing
+
+Autonomous application testing: start the app, navigate, interact, take screenshots, verify behavior. This mode activates when end-to-end live verification of a running application is needed (UI flows, API contracts, distributed traces, structured logs).
+
+## Prerequisites check
+
+Before live testing, verify tool availability. The e2e orchestrator and any prerequisite MCP come from the consuming project's conventions (Aspire, docker-compose, tilt, a dev-server script). Universal browser-automation tooling stays prose.
+
+The Playwright CLI row's version floor was verified 2026-09-06 against the package registry entry
+for `@playwright/cli`, whose latest published version that day is 0.1.19. Two names exist and only
+one is live: the unscoped `playwright-cli` package is deprecated and sits at a different, much
+higher version, so a floor read against that name means nothing. Recheck the floor when the scoped
+package publishes a 0.2 or 1.0 release, or when the binary the row invokes stops resolving to it.
+
+| Requirement | How to check | Required? | Purpose |
+|------------|-------------|-----------|---------|
+| Orchestrator tooling/MCP | per the consuming project's orchestrator convention | YES (when orchestrator configured) | App orchestration, start/stop, health, logs |
+| Playwright CLI | `playwright-cli --version` (the package is `@playwright/cli`, published at 0.1.19 on 2026-09-06; expect 0.1.x or later) | Recommended | Token-efficient browser automation, screenshots, form filling |
+| Chrome DevTools MCP | `mcp__chrome-devtools__list_pages` | Optional | Lighthouse audits, performance traces, network inspection |
+| Claude in Chrome | `mcp__claude-in-chrome__tabs_context_mcp` | Optional | GIF recording, natural language element finding |
+| App running | orchestrator's resource-list call shows healthy resources | YES | Something to test |
+
+**If the project's orchestrator MCP is not connected:** STOP. Report what's missing and how to fix it. Do not attempt workarounds. A substitute path produces unverified pass/fail results, defeating live verification.
+
+**If app not running:** suggest starting via the project's documented start command, then re-check via the orchestrator's health/resource-list call.
+
+**If Playwright CLI missing:** tell the user to install it (`npm install -g @playwright/cli`) rather than substituting another automation surface; when the `playwright` plugin is enabled, invoke `/playwright:playwright` via the Skill tool for usage. It owns defaults, sessions, and per-scenario references.
+
+**If only orchestrator tooling available (no browser automation):** degrade to API + log verification and report that visual/UI testing is unavailable.
+
+## Token Optimization: CLI by default
+
+**Critical for context budget.** Playwright MCP streams snapshots and screenshots into context on every step; Playwright CLI writes them to disk so the agent reads only what it needs, a substantially smaller per-workflow token cost.
+
+| Approach | When to use | Token cost |
+|----------|------------|------------|
+| **Playwright CLI** (via `/playwright:playwright` when enabled) | Default: all navigation, interaction, snapshots, screenshots | Low: artifacts on disk, paths in context |
+| **Playwright MCP** | Opt-in for stateful exploratory flows needing a continuous in-context browser (check how the consuming project enables/disables it in its MCP config) | High: payloads stream into context |
+| **Orchestrator MCP + curl** | API-only verification, health checks, structured log inspection | Minimal |
+
+**CLI mechanics** (commands, sessions, snapshots, storage, tracing, network mocking, Windows quirks): see `/playwright:playwright`, when the playwright plugin is enabled. This skill (`/testing:run-e2e`) owns the broader orchestrator + API + UI story.
+
+## Browser-tool fit triage
+
+Browser-adjacent surfaces with overlapping but distinct fit. Pick by what evidence the change needs, not by what's most familiar.
+
+| Tool | When it fits | When it does NOT fit |
+|---|---|---|
+| Playwright CLI | **Default**: token-efficient capture, headless, deterministic Chromium; pre/post snapshots + screenshots + console + network | Real-Chrome-fingerprint flows; Lighthouse perf evidence |
+| Claude in Chrome (built-in CC feature) | GIF recording for multi-step demos; natural-language find on flaky locators; auth carry-through to real personal Chrome | Token-efficient autonomous E2E (use Playwright CLI instead); CI |
+| Chrome DevTools MCP (when configured) | Lighthouse audits; Core Web Vitals (LCP/FCP/TBT/CLS); performance traces; protocol-level network inspection | UI navigation/interaction flows (Playwright CLI is faster) |
+| Orchestrator MCP + `curl` | API-only verification; structured-log inspection; distributed-trace introspection | Anything user-facing |
+
+## UI evidence contract
+
+For UI changes, capture verifiable evidence rather than asserting "looks right": pre/post accessibility snapshots, screenshots of the changed state, a console check (no new errors), and network verification (correct calls, status codes). An authored E2E/integration test asserting the user-visible behavior also satisfies the contract. When the consuming project documents its own evidence requirements, those govern.
+
+### Recording tier (optional)
+
+Recording is off by default. The screenshot evidence above is the floor. When the `recording` key ([e2e-config.md](e2e-config.md)) is set, a run also captures a moving record; it supplements the screenshots, never replaces them.
+
+| `recording` | Capture path | Fits |
+|---|---|---|
+| `video` | playwright CLI video | long or multi-page flows where a screenshot set loses the sequence |
+| `gif` | `gif_creator` | short demos, a few steps worth showing inline |
+| `off` | none (screenshots only) | default |
+
+### Session artifacts
+
+When a run produces a recording or drives a named session, record its artifacts in the evidence output so a reviewer can retrace it:
+
+| Artifact | Points to |
+|---|---|
+| Recording path | the video/GIF file on disk (gitignored, alongside the other capture artifacts) |
+| Session ID | the playwright CLI / browser session name the run drove |
+| Transcript pointer | the run's evidence output: console/network capture and snapshot files |
+
+## E2E Testing Workflow
+
+### 1. Plan what to verify
+
+Use the test plan from `/testing:plan` or generate scenarios from changes:
+
+- Which endpoints changed?
+- Which UI flows are affected?
+- What does "working correctly" look like?
+
+### 2. Verify health
+
+Call the orchestrator's resource-list/health MCP or CLI → check all resources are running and healthy.
+
+If any resource is unhealthy, read its logs before proceeding (orchestrator's console + structured-log MCP calls per resource).
+
+### 3. Test API endpoints
+
+For backend changes, verify endpoints directly via `curl` or Playwright CLI:
+
+```bash
+curl -s http://localhost:{port}/health | jq .
+playwright-cli -s=test open http://localhost:{port}/health
+```
+
+### 4. Test UI flows (if applicable)
+
+Navigate to the app and interact using Playwright CLI in a named session (keeps browser alive across commands):
+
+```bash
+playwright-cli -s=uitest open http://localhost:{port}      # opens browser, emits snapshot file path
+playwright-cli -s=uitest snapshot                          # refresh accessibility tree (YAML with element refs: e37, e48, ...)
+playwright-cli -s=uitest click e48                         # interact by element ref from snapshot
+playwright-cli -s=uitest fill e37 "test input"             # fill text into an input
+playwright-cli -s=uitest press Enter                       # keyboard
+playwright-cli -s=uitest screenshot                        # writes PNG to .playwright-cli/ (not context)
+playwright-cli -s=uitest console                           # summarize console messages
+playwright-cli -s=uitest network                           # list network requests
+playwright-cli -s=uitest close                             # close session
+```
+
+Artifacts land in `.playwright-cli/` **relative to CWD when each command runs** (gitignored). Read the YAML snapshot file directly to locate element refs. Do not dump it into context blindly; keep the token savings.
+
+**Use semantic locators** (the snapshot's element refs `e2`, `e37` etc. are stable accessibility-based handles; CSS selectors break on cosmetic changes):
+
+- `click e48` where the snapshot shows `- button "Submit" [ref=e48]` (good)
+- CSS selectors like `#submit-btn` (bad: breaks on cosmetic changes)
+
+### 5. Capture evidence
+
+For each verified scenario:
+
+- Screenshot of the expected state
+- Console log check (no errors)
+- Network request verification (correct API calls, status codes)
+
+When `recording` resolves to `gif`, record the sequence with Claude in Chrome's `gif_creator`; when it resolves to `video`, record via the playwright CLI. See the recording tier above. Under `off`, the screenshots are the evidence.
+
+### 6. Check distributed traces (for multi-service flows)
+
+When the orchestrator exposes trace MCP calls (e.g. `list_traces` + `list_trace_structured_logs`), use them to find the trace for the request and inspect the full request path. Skip when no orchestrator-side tracing available. Degrade to per-service log inspection.
+
+## Self-Healing Locators
+
+When a test element can't be found:
+
+1. **Don't fail immediately**. Take an accessibility snapshot to see what's on the page
+2. **Look for equivalent elements**: same text, same role, nearby position
+3. **If the element genuinely moved or was removed**, that's a real change, not a locator bug. Report it as a finding
+4. **Update locators to semantic ones**. If the test used a fragile selector, upgrade to accessibility-based

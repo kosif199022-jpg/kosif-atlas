@@ -1,0 +1,1707 @@
+:root {
+  --ground: #0e1114;
+  --surface: #171b20;
+  --surface-2: #1e242b;
+  --rule: #262c33;
+  --text: #d2d8df;
+  --muted: #7c8794;
+  --faint: #4c555f;
+  --state-flight: #c3843f;
+  --state-done: #5fa249;
+  --state-ready: #4e97a1;
+  --state-blocked: #4f5b69;
+  --state-alert: #fa6b66;
+
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 16px;
+  --text-xl: 22px;
+  /* Off the scanning scale on purpose. Every other size on the deck is sized for
+     a value read at a glance down a column; this one is sized for the judge's
+     rationale, which is the only place a reader spends four hundred words. */
+  --text-reading: 14px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+
+  --border-width: 1px;
+  /* Token budget tiers, thresholds in modules/format.js. Warning and danger
+     reuse the state palette so one amber and one red mean one thing across the
+     whole deck. Normal is deliberately brighter than --muted: the count is a
+     figure to read, not a caption. */
+  --token-normal: var(--text);
+  --token-warn: var(--state-flight);
+  --token-danger: var(--state-alert);
+  /* The external engine's ink, used only where tiers do not reach — the lane card.
+     In the fleet the codex figure takes the same tier colours as the Claude one, so
+     a single amber means a single amount down that column. */
+  --token-codex: var(--state-ready);
+  --header-min-height: 64px;
+  --ring-size: 32px;
+  --ring-stroke: 2px;
+  --focus-width: 2px;
+  --focus-offset: 2px;
+  --motion-duration: 150ms;
+  --flight-duration: 2s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+html {
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  min-width: 0;
+}
+
+button {
+  color: inherit;
+  font: inherit;
+}
+
+#app {
+  display: grid;
+  grid-template-rows: auto minmax(40vh, 1fr) 1fr;
+  height: 100vh;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.deck-header {
+  align-items: center;
+  background: var(--surface);
+  border-block-end: var(--border-width) solid var(--rule);
+  box-shadow: 0 var(--border-width) 0 var(--rule);
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto auto auto;
+  min-height: var(--header-min-height);
+  padding: var(--space-2) var(--space-4);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.plan-identity {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.eyebrow,
+.plan-counts dt {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.plan-identity > h1 {
+  font-size: var(--text-lg);
+  line-height: 1;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slug {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The repo anchors the plan: same line as the slug, read as one path. */
+.repo {
+  color: var(--text);
+
+  &::after {
+    color: var(--faint);
+    content: "/";
+    margin-inline: var(--space-1);
+  }
+}
+
+/* The wave figure is a countdown, so it reads in the ready hue — the colour of
+   work cleared to fly — while the wave number beside it stays an index, not a
+   status, and keeps the muted label colour. */
+.plan-waves {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: end;
+
+  > .label {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  > .value {
+    align-items: baseline;
+    color: var(--state-ready);
+    display: grid;
+    font-size: var(--text-lg);
+    font-variant-numeric: tabular-nums;
+    grid-auto-flow: column;
+  }
+
+  .current {
+    color: var(--muted);
+    font-size: var(--text-xs);
+
+    &::after {
+      color: var(--faint);
+      content: "·";
+      margin-inline: var(--space-1);
+    }
+  }
+
+  /* A task no wave can reach means the countdown is not the whole story. */
+  &.-stalled > .value {
+    color: var(--state-alert);
+  }
+}
+
+.plan-elapsed {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: end;
+
+  > .label {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  > .value {
+    align-items: center;
+    display: grid;
+    font-size: var(--text-lg);
+    font-variant-numeric: tabular-nums;
+    gap: var(--space-2);
+    grid-auto-flow: column;
+  }
+
+  &.-live > .value {
+    color: var(--state-flight);
+  }
+}
+
+.plan-tokens {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: end;
+
+  > .label {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  > .value {
+    font-size: var(--text-lg);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.plan-progress {
+  align-items: center;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.progress-ring {
+  height: var(--ring-size);
+  overflow: visible;
+  transform: rotate(-90deg);
+  width: var(--ring-size);
+}
+
+.progress-ring > circle {
+  fill: none;
+  stroke-width: var(--ring-stroke);
+}
+
+.progress-ring > .track {
+  stroke: var(--rule);
+}
+
+.progress-ring > .value {
+  stroke: var(--state-done);
+  stroke-linecap: butt;
+  transition: stroke var(--motion-duration);
+}
+
+.plan-counts {
+  display: grid;
+  gap: var(--space-3);
+  grid-auto-flow: column;
+  margin: 0;
+}
+
+.plan-counts > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.plan-counts dd {
+  font-size: var(--text-sm);
+  line-height: 1.2;
+  margin: 0;
+}
+
+.plan-counts .-done dd {
+  color: var(--state-done);
+}
+
+.plan-counts .-flight dd {
+  color: var(--state-flight);
+}
+
+.plan-counts .-ready dd {
+  color: var(--state-ready);
+}
+
+.plan-counts .-blocked dd {
+  color: var(--state-blocked);
+}
+
+/* A malformed completion state is an alert, not a status — it reuses the alert
+   colour so an invalid task can never read as ordinary progress. */
+.plan-counts .-invalid dd {
+  color: var(--state-alert);
+}
+
+.status-dot {
+  animation: flight-pulse var(--flight-duration) ease-in-out infinite;
+  background: var(--state-flight);
+  border-radius: var(--radius-sm);
+  display: inline-block;
+  height: var(--space-1);
+  margin-inline-end: var(--space-1);
+  transition: background-color var(--motion-duration);
+  vertical-align: middle;
+  width: var(--space-1);
+}
+
+.view-toggle {
+  border: var(--border-width) solid var(--rule);
+  border-radius: var(--radius-sm);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+}
+
+.view-toggle > button {
+  background: var(--surface);
+  border: 0;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  transition: color var(--motion-duration);
+}
+
+.view-toggle > button + button {
+  border-inline-start: var(--border-width) solid var(--rule);
+}
+
+.view-toggle > button[aria-pressed="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.view-toggle > button[aria-pressed="false"] {
+  color: var(--muted);
+}
+
+.view-toggle > button:focus-visible {
+  outline: var(--focus-width) solid var(--state-flight);
+  outline-offset: calc(var(--focus-offset) * -1);
+}
+
+.header-state {
+  background: var(--surface-2);
+  border-block-start: var(--border-width) solid var(--rule);
+  color: var(--muted);
+  display: grid;
+  gap: var(--space-2);
+  grid-column: 1 / -1;
+  margin-inline: calc(var(--space-4) * -1);
+  margin-block-end: calc(var(--space-2) * -1);
+  padding: var(--space-2) var(--space-4);
+}
+
+.header-state.-alert {
+  color: var(--state-alert);
+}
+
+.header-state > ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-inline-start: var(--space-6);
+}
+
+.deck-top,
+.deck-fleet {
+  background: var(--ground);
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.deck-top {
+  border-block-end: var(--border-width) solid var(--rule);
+}
+
+.c-dependency-graph {
+  align-content: safe center;
+  block-size: 100%;
+  display: grid;
+  justify-content: safe center;
+  min-inline-size: 0;
+  overflow: auto;
+  padding: var(--space-2);
+
+  /* The panel fits the pane by compressing its gaps, but a long enough plan
+     still outruns the floor. Past it the pane scrolls, and the scrollbar is the
+     only thing telling the reader a berth exists off the right edge — so it is
+     drawn from the palette rather than left to the browser, which would ship a
+     control belonging to no design system.
+
+     The two syntaxes are mutually exclusive, not layered: Chromium drops every
+     ::-webkit-scrollbar rule as soon as the standard properties are set, and
+     `scrollbar-width` alone leaves macOS's overlay bar, which fades out while
+     idle — measured, it consumed 0px of the pane and showed nothing at rest.
+     So the pseudo-elements own Chromium, where they force a bar that is always
+     present, and the standard properties are fenced off for engines that have
+     no pseudo-elements to use. */
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-color: var(--rule) transparent;
+    scrollbar-width: thin;
+  }
+
+  &::-webkit-scrollbar {
+    block-size: var(--space-2);
+    inline-size: var(--space-2);
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--rule);
+    border-radius: var(--radius-sm);
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--state-blocked);
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+.dependency-graph {
+  /* Lit, base, unlit — one hue, three values. A signalling panel does not fill
+     a segment, it lights one, and the approved comps light at #4dc74c / #0fa804
+     against the pinned #5fa249. Value alone carries it, so this needs no
+     gradient and no glow, both of which Hangar's anti-goals forbid. */
+  --lit-done: color-mix(in oklab, var(--state-done) 78%, white);
+  --lit-flight: color-mix(in oklab, var(--state-flight) 78%, white);
+  --lit-ready: color-mix(in oklab, var(--state-ready) 70%, white);
+  --lit-alert: color-mix(in oklab, var(--state-alert) 72%, white);
+  --unlit: color-mix(in oklab, var(--state-blocked) 45%, var(--ground));
+  /* A berth one step above the rail it sits on. The two shared a value at first
+     and a blocked task vanished outright — the panel's whole job at 2am is to
+     answer "what is holding this up", and the answer was invisible. PRODUCT.md
+     has blocked recede into slate *without disappearing*. */
+  --unlit-berth: color-mix(in oklab, var(--state-blocked) 75%, var(--ground));
+  /* One travelling segment per period, with a long dark gap after it, so the eye
+     follows a single light rather than a moving ladder. */
+  --graph-flow-dash: 26px;
+  --graph-flow-gap: 82px;
+  --graph-flow-duration: 1.25s;
+
+  display: block;
+  min-inline-size: 100%;
+
+  /* The road exists whether or not the plan reaches the end of it. */
+  .graph-road > .rail {
+    stroke: var(--unlit);
+    stroke-linecap: butt;
+  }
+
+  .graph-road-name {
+    fill: var(--muted);
+    font-family: var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .graph-road-name.-left {
+    text-anchor: end;
+  }
+
+  .graph-road-name.-right {
+    text-anchor: start;
+  }
+
+  /* A berth is a plate standing on the road, carrying its own ref and token.
+     State is still lit rather than filled — the leading edge takes the full lit
+     value and the plate body a held-down wash of the same hue, so a road reads
+     as a row of records whose left edges are the signal. A plate filled solid
+     at the lit value would put white-on-green text at the one contrast the
+     panel cannot afford at 2am.
+
+     `--berth-state` is the one variable each state sets. Everything downstream
+     mixes off it, so a new state is one declaration, not four. */
+  .graph-berth {
+    --berth-state: var(--unlit-berth);
+  }
+
+  .graph-berth > .segment {
+    fill: color-mix(in oklab, var(--berth-state) 22%, var(--ground));
+    stroke: color-mix(in oklab, var(--berth-state) 45%, var(--ground));
+    stroke-width: var(--border-width);
+    transition:
+      fill var(--motion-duration),
+      stroke var(--motion-duration);
+  }
+
+  .graph-berth > .status {
+    fill: var(--berth-state);
+    transition: fill var(--motion-duration);
+  }
+
+  .graph-berth.-done {
+    --berth-state: var(--lit-done);
+  }
+  .graph-berth.-in-progress {
+    --berth-state: var(--lit-flight);
+  }
+  .graph-berth.-ready {
+    --berth-state: var(--lit-ready);
+  }
+  .graph-berth.-blocked {
+    --berth-state: var(--unlit-berth);
+  }
+  .graph-berth.-alert,
+  .graph-berth.-invalid,
+  .graph-berth.-cyclic {
+    --berth-state: var(--lit-alert);
+  }
+
+  /* The pulse rides the leading edge alone. On the whole plate it dragged the
+     ref and the token in and out of legibility once a second. */
+  .graph-berth.-in-progress > .status {
+    animation: flight-pulse var(--flight-duration) ease-in-out infinite;
+  }
+
+  /* Crossovers are track too, at the road's weight, so a dependency that leaves
+     its bucket reads as a physical connection and not as an annotation. */
+  .graph-crossover {
+    fill: none;
+    stroke: var(--unlit);
+    stroke-linejoin: miter;
+    transition:
+      stroke var(--motion-duration),
+      opacity var(--motion-duration);
+  }
+
+  .graph-crossover.-cleared {
+    stroke: color-mix(in oklab, var(--state-done) 50%, var(--ground));
+  }
+
+  /* The running line inside one bucket. It lies over the rail at the rail's own
+     weight and colour, so it shows only once a route is set through it. */
+  .graph-link {
+    stroke: var(--unlit);
+    stroke-linecap: butt;
+    transition:
+      stroke var(--motion-duration),
+      opacity var(--motion-duration);
+  }
+
+  /* Signal heads: the housing is a backplate the rail runs behind, so it takes
+     the ground rather than a surface — a head lighter than the track would read
+     as a label on it. Every head carries all three lamps and lights exactly one;
+     the two dark ones are what make the lit one legible as an aspect. */
+  .graph-signal > .housing {
+    fill: var(--ground);
+    stroke: var(--rule);
+    stroke-width: var(--border-width);
+  }
+
+  .graph-signal > .lamp {
+    fill: color-mix(in oklab, var(--state-blocked) 30%, var(--ground));
+  }
+
+  .graph-signal.-clear > .lamp.-clear {
+    fill: var(--lit-done);
+  }
+  .graph-signal.-caution > .lamp.-caution {
+    fill: var(--lit-flight);
+  }
+  .graph-signal.-danger > .lamp.-danger {
+    fill: var(--lit-alert);
+  }
+
+  .graph-ref,
+  .graph-tokens,
+  .graph-elapsed,
+  .graph-cycle-label,
+  .graph-cycle-note,
+  .graph-empty {
+    fill: var(--text);
+    font-family: var(--font-mono);
+    text-anchor: middle;
+  }
+
+  /* All three live inside the plate, so they set against its edges rather than
+     centring: the ref owns the first line off the leading edge, and the two
+     figures split the second between the leading and trailing edges. Each then
+     forms a column down its road and can be compared by shape. */
+  .graph-ref {
+    font-weight: 600;
+    text-anchor: start;
+  }
+
+  /* Untiered — a berth totals several agents, so the fleet's per-agent
+     thresholds would light every berth on a real run. */
+  .graph-tokens {
+    fill: var(--muted);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-anchor: start;
+  }
+
+  /* Quieter than the tokens: the wall clock is the secondary reading of the
+     two, and it ticks — a figure changing once a second at full weight pulls
+     the eye off the route the reader is actually tracing. */
+  .graph-elapsed {
+    fill: var(--muted);
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    opacity: 0.8;
+    text-anchor: end;
+  }
+
+  .graph-cycle-label {
+    fill: var(--state-alert);
+    letter-spacing: 0.08em;
+  }
+
+  .graph-cycle-note {
+    fill: var(--state-alert);
+    font-size: var(--text-xs);
+  }
+
+  .graph-empty {
+    font-size: var(--text-md);
+    fill: var(--muted);
+  }
+
+  /* THE SET ROUTE. Hovering a berth darkens the whole panel and lights one
+     lineage end to end — the approved hover comp. Everything off the route
+     drops to the panel's own dark rather than fading out, because an unlit
+     segment is a real state on this instrument, not an absence. */
+  &.-focus .graph-berth:not(.-lit) > :is(.segment, .status),
+  &.-focus :is(.graph-crossover, .graph-link):not(.-lit) {
+    opacity: 0.18;
+  }
+
+  &.-focus
+    .graph-berth:not(.-lit)
+    :is(.graph-ref, .graph-tokens, .graph-elapsed),
+  &.-focus .graph-berth:not(.-lit) .graph-signal {
+    opacity: 0.22;
+  }
+
+  &.-focus :is(.graph-crossover, .graph-link).-lit {
+    stroke: var(--lit-done);
+  }
+
+  /* Current running through a set route.
+     Drawn only while a route is set, and only on the segments in it. The base rail
+     stays solid underneath — a dashed rail would say the track is broken, which is
+     the opposite of what a lit route means — so the flow is a second, narrower
+     stroke laid inside it.
+     Discrete segments travelling, not a gradient sweeping: the panel's contract is
+     "segments light, never fade", and a dash pattern marching along the path is the
+     only way to show direction that obeys it. Negative dashoffset carries them along
+     the path's own direction, which is always source -> dependent, so the light runs
+     downstream to the end of the lineage no matter which berth is hovered.
+     The global prefers-reduced-motion rule stops the march; the route stays lit. */
+  .graph-flow {
+    fill: none;
+    stroke: transparent;
+    stroke-linecap: butt;
+  }
+
+  &.-focus .graph-flow.-lit {
+    animation: graph-flow-run var(--graph-flow-duration) linear infinite;
+    stroke: color-mix(in oklab, var(--lit-done) 22%, white);
+    stroke-dasharray: var(--graph-flow-dash) var(--graph-flow-gap);
+  }
+
+  &.-focus .graph-berth.-self > .segment {
+    stroke: var(--text);
+    stroke-width: calc(var(--border-width) * 2);
+  }
+
+  .graph-berth,
+  .graph-crossover,
+  .graph-link,
+  .graph-signal {
+    transition: opacity var(--motion-duration) ease;
+  }
+}
+
+.c-task-lanes {
+  --task-lanes-lane-min: calc(var(--space-8) * 8);
+  --task-lanes-lane-max: calc(var(--space-8) * 10);
+  --task-lanes-status-size: 6px;
+  --task-lanes-meter-height: var(--space-1);
+
+  block-size: 100%;
+  container-type: inline-size;
+  min-inline-size: 0;
+
+  > .empty {
+    color: var(--muted);
+    display: grid;
+    margin: 0;
+    min-block-size: 100%;
+    place-items: center;
+    padding: var(--space-6);
+  }
+
+  > .strip {
+    align-items: start;
+    block-size: 100%;
+    display: grid;
+    gap: var(--space-3);
+    grid-auto-columns: minmax(
+      var(--task-lanes-lane-min),
+      var(--task-lanes-lane-max)
+    );
+    grid-auto-flow: column;
+    justify-content: start;
+    min-inline-size: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: var(--space-3);
+  }
+
+  .c-task-lane {
+    background: var(--surface);
+    border: var(--border-width) solid var(--rule);
+    border-radius: var(--radius-md);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    max-block-size: 100%;
+    min-inline-size: 0;
+    overflow: hidden;
+
+    > .heading {
+      align-items: center;
+      background: var(--surface-2);
+      border-block-end: var(--border-width) solid var(--rule);
+      display: grid;
+      gap: var(--space-2);
+      grid-template-columns: minmax(0, 1fr) auto;
+      padding: var(--space-2) var(--space-3);
+    }
+
+    > .heading > h2 {
+      font-size: var(--text-sm);
+      letter-spacing: 0.02em;
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    > .heading > span {
+      color: var(--muted);
+      font-size: var(--text-xs);
+    }
+
+    > .stack {
+      display: grid;
+      gap: var(--space-2);
+      overflow-y: auto;
+      padding: var(--space-2);
+    }
+
+    .lane-empty {
+      color: var(--faint);
+      font-size: var(--text-xs);
+      margin: 0;
+      padding: var(--space-4) var(--space-2);
+      text-align: center;
+    }
+  }
+
+  .c-task-card {
+    background: var(--surface);
+    border: var(--border-width) solid var(--rule);
+    border-radius: var(--radius-md);
+    display: grid;
+    overflow: hidden;
+
+    > .summary {
+      background: transparent;
+      border: 0;
+      cursor: default;
+      display: grid;
+      gap: var(--space-2);
+      inline-size: 100%;
+      padding: var(--space-3);
+      text-align: start;
+    }
+
+    > .summary.-expandable {
+      cursor: pointer;
+    }
+
+    > .summary.-expandable:hover {
+      background: var(--surface-2);
+    }
+
+    > .summary:disabled {
+      color: inherit;
+    }
+
+    > .summary:focus-visible {
+      outline: var(--focus-width) solid var(--state-flight);
+      outline-offset: calc(var(--focus-offset) * -1);
+    }
+
+    > .summary > .identity {
+      align-items: center;
+      display: grid;
+      gap: var(--space-2);
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    > .summary .status {
+      border-radius: var(--radius-sm);
+      block-size: var(--task-lanes-status-size);
+      inline-size: var(--task-lanes-status-size);
+    }
+
+    > .summary .ref {
+      color: var(--muted);
+      font-size: var(--text-xs);
+    }
+
+    > .summary .state-label {
+      block-size: var(--border-width);
+      clip-path: inset(50%);
+      inline-size: var(--border-width);
+      overflow: hidden;
+      position: absolute;
+      white-space: nowrap;
+    }
+
+    > .summary > .title {
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: var(--text-md);
+      line-height: 1.4;
+    }
+
+    > .summary > .badges {
+      display: grid;
+      gap: var(--space-1);
+      grid-template-columns: repeat(auto-fit, minmax(min-content, max-content));
+    }
+
+    > .summary .badge {
+      border: var(--border-width) solid currentColor;
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+      font-size: var(--text-xs);
+      letter-spacing: 0.02em;
+      padding: var(--space-1) var(--space-2);
+      text-transform: uppercase;
+    }
+
+    /* Placement only. The type and the tier ink live with the fleet's figure,
+       so the same count reads the same way in both views. */
+    > .summary > .token-figure {
+      justify-self: end;
+    }
+
+    &.-done > .summary .status {
+      background: var(--state-done);
+    }
+
+    &.-done > .summary .badge {
+      color: var(--state-done);
+    }
+
+    &.-in-progress > .summary .status {
+      background: var(--state-flight);
+    }
+
+    &.-in-progress > .summary .badge {
+      color: var(--state-flight);
+    }
+
+    &.-ready > .summary .status {
+      background: var(--state-ready);
+    }
+
+    &.-ready > .summary .badge {
+      color: var(--state-ready);
+    }
+
+    &.-blocked > .summary .status {
+      background: var(--state-blocked);
+    }
+
+    &.-blocked > .summary .badge {
+      color: var(--state-blocked);
+    }
+
+    &.-invalid > .summary .status {
+      background: var(--state-alert);
+    }
+
+    &.-invalid > .summary .badge {
+      color: var(--state-alert);
+    }
+  }
+
+  .c-score-meter {
+    align-items: center;
+    display: grid;
+    gap: var(--space-2);
+    grid-template-columns: minmax(0, 1fr) auto;
+
+    > .track {
+      background: var(--surface-2);
+      block-size: var(--task-lanes-meter-height);
+      position: relative;
+    }
+
+    > .track > .fill {
+      block-size: 100%;
+      display: block;
+    }
+
+    > .track > .fill.-passed {
+      background: var(--state-done);
+    }
+
+    > .track > .fill.-failed {
+      background: var(--state-alert);
+    }
+
+    > .track > .fill.-pending {
+      background: var(--state-flight);
+    }
+
+    > .track > .threshold {
+      background: var(--text);
+      block-size: 100%;
+      inline-size: var(--border-width);
+      position: absolute;
+      inset-block-start: 0;
+    }
+
+    > .value {
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+    }
+  }
+
+  /* The well itself is the scrollport here, unlike the fleet's, where the prose
+     scrolls inside a still well. petite-vue owns this element's innerHTML and
+     re-sets it on every frame, which destroys anything scrolling inside it and
+     sends the reader back to line one — but the element it is setting survives,
+     and a surviving scrollport keeps its offset. So the port has to be the part
+     petite-vue does not replace. The meters scroll away with the prose, which is
+     the price: a lane card is one column of a strip and has no room to pin them.
+     Capped because a rationale runs to hundreds of words and a card that grew to
+     fit one would stretch its whole lane. */
+  .c-rubric-breakdown {
+    background: var(--surface-2);
+    border-block-start: var(--border-width) solid var(--rule);
+    display: grid;
+    gap: var(--space-2);
+    max-block-size: 24lh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--space-3);
+
+    > .dimension {
+      align-items: center;
+      display: grid;
+      gap: var(--space-2);
+      grid-template-columns: minmax(calc(var(--space-8) * 3), 1fr) minmax(
+          0,
+          2fr
+        ) auto;
+    }
+
+    > .dimension > .label {
+      color: var(--muted);
+      font-size: var(--text-xs);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    > .dimension > .bar {
+      background: var(--rule);
+      block-size: var(--task-lanes-meter-height);
+      display: block;
+    }
+
+    > .dimension > .bar > .fill {
+      background: var(--state-ready);
+      block-size: 100%;
+      display: block;
+    }
+
+    > .dimension > .score {
+      color: var(--muted);
+      font-size: var(--text-xs);
+    }
+
+    /* The cap and the scroll live on the well above, so the prose here is a
+       plain block that grows to its full height inside it. */
+    > .rationale {
+      max-block-size: none;
+      overflow: visible;
+    }
+  }
+
+  @container (inline-size < 600px) {
+    > .strip {
+      grid-auto-columns: minmax(
+        var(--task-lanes-lane-min),
+        calc(100cqi - var(--space-6))
+      );
+    }
+  }
+}
+
+.deck-fleet {
+  background: var(--surface);
+}
+
+.c-fleet {
+  /* Role and verdict are held to their own ink and nothing more: the role cell
+     heads a short badge over a two-column table of engine and spend, and the score
+     meter reads fine at half the width it used to take. Every pixel they give back
+     goes to the message, which is the only column whose content has no natural end.
+
+     The role floor is the measured max-content of the widest real line — a codex
+     engine name beside its figure, 121px. It was 80px while the cell stacked one
+     item per row, and holding it there after the pairing spilled that line into the
+     task column below the container's 690px threshold, where the floors are all a
+     column gets. The table is already wider than that 690px minimum at those sizes
+     and scrolls, so the 44px is paid in scroll distance, not in another column. */
+  --fleet-columns: 18px minmax(124px, 0.4fr) minmax(72px, 0.6fr) 48px 76px
+    minmax(104px, 0.45fr) minmax(200px, 3fr);
+  --fleet-meter-height: var(--space-1);
+  /* The heading is pinned to this height and the column header sticks exactly
+     below it. One declaration for both, because the two used to be a rendered
+     height and a guess at it — and the guess lost the moment the heading grew. */
+  --fleet-heading-height: 44px;
+
+  container-type: inline-size;
+  font-size: var(--text-sm);
+  min-inline-size: 0;
+}
+
+.fleet-heading {
+  align-items: center;
+  background: var(--surface);
+  block-size: var(--fleet-heading-height);
+  border-block-end: var(--border-width) solid var(--rule);
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  padding: 0 var(--space-4);
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+}
+
+.fleet-heading > h2 {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  margin: 0;
+}
+
+.fleet-toggle {
+  align-items: center;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  display: grid;
+  gap: var(--space-2);
+  grid-auto-flow: column;
+  justify-content: start;
+  padding: 0;
+
+  > .chevron {
+    border-inline-start: 5px solid currentColor;
+    border-block: 4px solid transparent;
+    block-size: 0;
+    color: var(--muted);
+    inline-size: 0;
+    rotate: 90deg;
+    transition: rotate var(--motion-duration);
+  }
+
+  &[aria-expanded="false"] > .chevron {
+    rotate: 0deg;
+  }
+
+  &:focus-visible {
+    outline: var(--focus-width) solid var(--state-ready);
+    outline-offset: var(--focus-offset);
+  }
+}
+
+/* Collapsed, the panel is just its heading — hand the height back to the tree. */
+#app:has(.c-fleet.-collapsed) {
+  grid-template-rows: auto minmax(40vh, 1fr) auto;
+}
+
+.connection,
+.entry-count,
+.row-count,
+.hidden-count {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.connection::before {
+  background: currentColor;
+  border-radius: var(--radius-sm);
+  content: "";
+  display: inline-block;
+  block-size: 6px;
+  inline-size: 6px;
+  margin-inline-end: var(--space-1);
+}
+
+.connection.-live {
+  color: var(--state-done);
+}
+
+.connection.-waiting {
+  color: var(--state-ready);
+}
+
+.connection.-reconnecting {
+  color: var(--state-flight);
+}
+
+.fleet-table {
+  min-inline-size: 690px;
+}
+
+.fleet-row,
+.fleet-columns {
+  /* Top, not centre: the message note is the tallest thing in the row, and centring
+     against it floats the status dot and the role badge into the middle of nowhere. */
+  align-items: start;
+  border-block-end: var(--border-width) solid var(--rule);
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: var(--fleet-columns);
+  line-height: 1.2;
+  min-inline-size: 0;
+  padding: var(--space-2) var(--space-3);
+}
+
+.fleet-columns {
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  position: sticky;
+  inset-block-start: var(--fleet-heading-height);
+  text-transform: uppercase;
+  z-index: 1;
+}
+
+.fleet-row.-expandable {
+  cursor: pointer;
+}
+
+.fleet-row.-expandable:hover,
+.fleet-row.-expandable:focus-visible {
+  background: var(--surface-2);
+}
+
+.fleet-row:focus-visible {
+  outline: var(--focus-width) solid var(--state-flight);
+  outline-offset: calc(var(--focus-offset) * -1);
+}
+
+.fleet-cell {
+  min-inline-size: 0;
+}
+
+.fleet-status {
+  background: var(--state-done);
+  border-radius: var(--radius-sm);
+  display: block;
+  block-size: 6px;
+  inline-size: 6px;
+}
+
+.fleet-row.-flight .fleet-status {
+  animation: flight-pulse var(--flight-duration) ease-in-out infinite;
+  background: var(--state-flight);
+}
+
+.fleet-row.-failed .fleet-status {
+  background: var(--state-alert);
+}
+
+.fleet-row.-rejected .fleet-status {
+  background: var(--state-alert);
+}
+
+/* Muted, not alarming: an abandoned agent reported no verdict either way, and
+   the default dot is the green of a clean finish. */
+.fleet-row.-abandoned .fleet-status {
+  background: var(--state-blocked);
+}
+
+/* A two-column table, not a stack. Column one names the engine, column two prints what
+   that engine spent, so each line answers one question about one engine and the two
+   figures form a column that can be compared without being read. Stacked, the same five
+   children made a codex row nearly twice the height of a Claude row and split one
+   reading unit — this model, this spend — across two lines.
+
+   The tracks are content-sized, so the second column starts right after the longest
+   model name in this row. Rhythm is the contrast between the two gaps: 4px down, 8px
+   across, tight enough that the two engine lines read as one group under the badge. */
+.fleet-cell.-role {
+  align-items: center;
+  column-gap: var(--space-2);
+  display: grid;
+  grid-template-columns: max-content max-content;
+  justify-items: start;
+  row-gap: var(--space-1);
+}
+
+/* Both span the tracks: the badge heads the table rather than sitting in a column of
+   it, and an unknown role's raw label is a caption on the whole cell. */
+.fleet-cell.-role > .role-badge,
+.fleet-cell.-role > .raw-label {
+  grid-column: 1 / -1;
+}
+
+/* Pinned, not auto-placed. A row whose Claude transcript reported no model renders no
+   chip for it, and auto-placement then slid the Claude figure into column one and pulled
+   the codex model up beside it — one line claiming the other engine's name. Naming the
+   column keeps the figures under each other whichever chips are present. */
+.fleet-cell.-role > .role-tokens {
+  grid-column: 2;
+}
+
+/* Nothing in the model column means no column to gap away from, and the lone figure
+   would otherwise hang 8px off the badge above it. */
+.fleet-cell.-role:not(:has(.role-model)) {
+  column-gap: 0;
+}
+
+.role-badge {
+  border: var(--border-width) solid currentColor;
+  border-radius: var(--radius-sm);
+  color: var(--state-done);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  padding: var(--space-1) var(--space-2);
+  text-transform: uppercase;
+}
+
+.fleet-row.-flight .role-badge {
+  color: var(--state-flight);
+}
+
+.fleet-row.-failed .role-badge {
+  color: var(--state-alert);
+}
+
+.fleet-row.-rejected .role-badge {
+  color: var(--state-alert);
+}
+
+.fleet-row.-abandoned .role-badge {
+  color: var(--state-blocked);
+}
+
+/* Quiet on purpose: no border, no uppercase, muted ink — the eye lands on role,
+   then model, then tokens, and a chip competing with .role-badge would reverse that. */
+.role-model {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+}
+
+/* The same vendor accent the codex token figure would carry if tiers didn't own its
+   ink — see the comment on .role-tokens.-codex. The model chip has no tier to defer
+   to, so it takes that accent directly. */
+.role-model.-codex {
+  color: var(--token-codex);
+}
+
+/* The message is where a rejected gate says WHY, so it stops being secondary. */
+.fleet-row.-rejected .fleet-cell.-message {
+  color: var(--text);
+}
+
+/* One rule for every token figure on the deck: the fleet's under-chip count and
+   the lane card's. Tabular figures so a stack of them lines up on the decimal,
+   and --text-sm rather than --text-xs — this stopped being a caption the moment
+   it started carrying a warning.
+
+   The lane selector has to spell out its nesting to reach the rule it replaces
+   inside .c-task-lanes. That makes it four classes deep, which would then
+   outrank the tier variants below — so the ink travels as a custom property,
+   which each variant sets on the element itself and specificity never touches. */
+.role-tokens,
+.c-task-lanes .c-task-card > .summary > .token-figure {
+  color: var(--token-ink, var(--token-normal));
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Tiers are the fleet's alone. A lane card and a graph berth both total several
+   agents, so per-agent thresholds would light them up on every real run. */
+.role-tokens.-warn {
+  --token-ink: var(--token-warn);
+}
+
+.role-tokens.-danger {
+  --token-ink: var(--token-danger);
+}
+
+/* No measurement, no reading: N/A stays caption grey wherever it prints. Absence is
+   not a tier — the lane card carries no thresholds but still has to say "unknown". */
+.role-tokens:not(.-normal, .-warn, .-danger),
+.token-figure.-absent {
+  --token-ink: var(--muted);
+}
+
+/* The external engine's spend, as a second smaller figure on the line below the Claude
+   one. It sets size only and deliberately NOT --token-ink: the fleet's tier rules above
+   have to reach it, so one amber means one amount down the whole column. The model name
+   in the column beside it carries the vendor instead. */
+.role-tokens.-codex {
+  font-size: var(--text-xs);
+}
+
+/* The lane card carries no tiers at all — a card totals several agents — so there
+   the codex figure keeps its own ink as the only thing telling the two apart. */
+.c-task-lanes .c-task-card > .summary > .token-figure.-codex {
+  --token-ink: var(--token-codex);
+  font-size: var(--text-xs);
+}
+
+.raw-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The message is a note pinned in the row, not a clipped cell. It used to truncate
+   to one line ("not caused by thi…"), which cut the half that said whose fault it
+   was; a two-line clamp only moved the cut. It now carries the whole text.
+
+   `pre-wrap`, so a message an agent wrote across several lines keeps them.
+   `:not(:empty)`, so the many rows with no message render no empty card.
+
+   Held inside its own column rather than spanning the row: a full-width note would
+   double every row's height and break the column alignment that makes the table
+   scannable. The surface is what sets it apart, not its width. */
+.fleet-cell.-message:not(:empty) {
+  background: var(--surface-2);
+  border-inline-start: var(--space-1) solid var(--rule);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: var(--space-2);
+  white-space: pre-wrap;
+}
+
+/* PASS / FAIL leads the message often enough to be structure rather than prose,
+   so it reads as a chip and the eye can skip the sentence when the verdict is all
+   it wanted. The em dash that followed it is dropped — the chip is the separator. */
+.msg-verdict {
+  border: var(--border-width) solid currentColor;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  margin-inline-end: var(--space-1);
+  padding: 0 var(--space-1);
+}
+
+.msg-verdict.-pass {
+  color: var(--state-done);
+}
+
+.msg-verdict.-fail {
+  color: var(--state-alert);
+}
+
+/* Identifiers the agents write bare — cms_kit, db:prepare, a migration timestamp,
+   a commit sha. Tinted rather than boxed: a row can hold several, and a background
+   on each would turn the sentence into a row of buttons. */
+.fleet-cell.-message code {
+  color: var(--state-ready);
+  font-family: var(--font-mono);
+  font-size: inherit;
+}
+
+.raw-label {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  max-inline-size: 100%;
+}
+
+.c-fleet-score {
+  align-items: center;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(40px, 1fr) auto auto;
+}
+
+.c-fleet-score > .track {
+  background: var(--surface-2);
+  block-size: var(--fleet-meter-height);
+  position: relative;
+}
+
+.c-fleet-score > .track > .fill {
+  background: var(--state-flight);
+  block-size: 100%;
+  display: block;
+}
+
+.c-fleet-score.-passed > .track > .fill {
+  background: var(--state-done);
+}
+
+.c-fleet-score.-failed > .track > .fill {
+  background: var(--state-alert);
+}
+
+.c-fleet-score > .track > .threshold {
+  background: var(--text);
+  block-size: 100%;
+  inline-size: var(--border-width);
+  position: absolute;
+  inset-block-start: 0;
+}
+
+.c-fleet-score > .value,
+.c-fleet-score > .failure {
+  font-size: var(--text-xs);
+}
+
+.c-fleet-score > .failure {
+  color: var(--state-alert);
+}
+
+.c-fleet-rubric {
+  background: var(--surface-2);
+  border-block-end: var(--border-width) solid var(--rule);
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-8);
+}
+
+.c-fleet-rubric > .dimension {
+  align-items: center;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(96px, 1fr) minmax(0, 2fr) 40px;
+}
+
+.c-fleet-rubric .label,
+.c-fleet-rubric .score {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.c-fleet-rubric .bar {
+  background: var(--rule);
+  block-size: var(--fleet-meter-height);
+  display: block;
+}
+
+.c-fleet-rubric .fill {
+  background: var(--state-ready);
+  block-size: 100%;
+  display: block;
+}
+
+/* A fleet row spans the panel, so its well gets the taller cap of the two. */
+.c-fleet-rubric > .rationale {
+  max-block-size: 32lh;
+}
+
+/* ── The judge's rationale ──────────────────────────────────────────────────
+   The deck's one reading surface. Everything else here is set to be scanned
+   down a column; this is set to be read start to finish, so it takes the sans
+   face, the reading size, a loose leading, and full-strength ink — muted at
+   text-xs was a caption's treatment applied to four hundred words of evidence.
+   `renderRationale` in modules/format.js builds the markup it styles. */
+.rationale {
+  border-block-start: var(--border-width) solid var(--rule);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-reading);
+  line-height: 1.65;
+  margin: 0;
+  /* The measure, not the well: the well spans its panel so a code block can use
+     the width, while the prose inside it stays at a readable line length. */
+  max-inline-size: 78ch;
+  overflow-y: auto;
+  /* The well is a scrollport inside two more; without this, reaching its end
+     hands the wheel to the fleet pane and the reader loses their place. */
+  overscroll-behavior: contain;
+  padding-block: var(--space-3) var(--space-2);
+}
+
+.rationale > :first-child {
+  margin-block-start: 0;
+}
+
+.rationale > :last-child {
+  margin-block-end: 0;
+}
+
+.rationale p,
+.rationale ul,
+.rationale ol,
+.rationale pre {
+  margin-block: 0 0.9em;
+}
+
+/* Headings start at h3 — see renderRationale. Two grades, not four: the judge
+   writes a title and its sections, so h3 takes a size step and everything under
+   it becomes a section label. A third grade would be a distinction the source
+   text does not make. */
+.rationale h3,
+.rationale h4,
+.rationale h5,
+.rationale h6 {
+  color: var(--text);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+  margin-block: 1.5em 0.5em;
+}
+
+.rationale h4,
+.rationale h5,
+.rationale h6 {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.rationale strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The judge's own emphasis, which lands mid-sentence — italic alone, because a
+   second bold weight in a paragraph that already has one would flatten both. */
+.rationale em {
+  font-style: italic;
+}
+
+.rationale ul,
+.rationale ol {
+  padding-inline-start: var(--space-6);
+}
+
+.rationale li {
+  margin-block-end: 0.35em;
+}
+
+.rationale li::marker {
+  color: var(--faint);
+}
+
+.rationale hr {
+  border: 0;
+  border-block-start: var(--border-width) solid var(--rule);
+  margin-block: 1.4em;
+}
+
+/* Tinted rather than boxed, the same way the fleet message cell marks the
+   identifiers agents write bare — a paragraph can hold several, and a
+   background on each would turn the sentence into a row of buttons. */
+.rationale code {
+  color: var(--state-ready);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+}
+
+/* A block does get a box: it is a quoted artefact, not a word in a sentence,
+   and the reader has to be able to tell where the judge's prose stops. */
+.rationale pre {
+  background: var(--ground);
+  border: var(--border-width) solid var(--rule);
+  border-radius: var(--radius-md);
+  line-height: 1.5;
+  overflow-x: auto;
+  padding: var(--space-3);
+}
+
+.rationale pre code {
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.fleet-empty,
+.hidden-count {
+  margin: 0;
+  padding: var(--space-4);
+}
+
+.visually-hidden {
+  block-size: 1px;
+  clip-path: inset(50%);
+  inline-size: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+}
+
+@container (inline-size < 690px) {
+  .fleet-table {
+    overflow-x: auto;
+  }
+
+  /* `overflow-x: auto` forces `overflow-y` to `auto` — the pair cannot be split
+     — so the table becomes a scroll container and the column header's nearest
+     scrollport stops being `.deck-fleet` and becomes the table itself. Its
+     offset was measured to clear the heading, which is outside that scrollport,
+     so it stopped clearing anything and simply pushed the header 44px down,
+     leaving a blank band under the title bar.
+
+     The header cannot stick here in any case: the table has no height of its
+     own, so its scrollport never moves vertically and there is nothing for
+     `sticky` to react to. Pinning it to 0 costs a behaviour that this width had
+     already lost, and buys back the band. */
+  .fleet-columns {
+    inset-block-start: 0;
+  }
+}
+
+@keyframes flight-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (max-width: 899px) {
+  #app {
+    grid-template-rows: auto minmax(40vh, auto) minmax(40vh, auto);
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .deck-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .plan-identity {
+    grid-column: 1 / -1;
+  }
+
+  .plan-counts {
+    grid-column: 1 / -1;
+    grid-auto-flow: row;
+    grid-template-columns: repeat(5, 1fr);
+  }
+
+  .deck-top,
+  .deck-fleet {
+    overflow: visible;
+  }
+
+  .deck-top {
+    min-block-size: 40vh;
+    overflow: hidden;
+  }
+}
+
+/* The period is dash + gap, so one cycle of the offset moves each segment exactly
+   into the place the one behind it left — the loop has no seam. */
+@keyframes graph-flow-run {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: calc(
+      (var(--graph-flow-dash) + var(--graph-flow-gap)) *
+      -1
+    );
+  }
+}

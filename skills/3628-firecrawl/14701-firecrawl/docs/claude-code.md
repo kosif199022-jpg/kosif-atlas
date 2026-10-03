@@ -1,0 +1,57 @@
+> Source: https://docs.firecrawl.dev/quickstarts/claude-code.md
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.firecrawl.dev/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# MCP Web Search & Scrape in Claude Code
+
+> Add web scraping and search to Claude Code in 2 minutes
+
+Connect Claude Code to Firecrawl through the hosted MCP server. OAuth is the recommended interactive setup because the key never enters the command line, project files, or conversation.
+
+## Quick setup
+
+### 1. Add Firecrawl
+
+Run:
+
+```bash theme={null}
+claude mcp add --transport http firecrawl https://mcp.firecrawl.dev/v2/mcp-oauth
+```
+
+`https://mcp.firecrawl.dev/v2/mcp-oauth` is a client configuration value, not a page to open directly in a browser.
+
+### 2. Sign in and verify
+
+Enter `/mcp` in Claude Code, choose `firecrawl`, and complete the browser sign-in. Start a new Claude Code session if you changed an existing Firecrawl connection.
+
+Confirm that only one `firecrawl` server is active, then try:
+
+```text theme={null}
+Search for the latest Next.js release notes and summarize the sources.
+```
+
+```text theme={null}
+Scrape https://firecrawl.dev and explain what it does.
+```
+
+## Other connection modes
+
+* [Try keyless MCP](/mcp-server/keyless#try-keyless) for Search, Scrape, and Parse without an account or key.
+* [Configure an API key](/mcp-server/keyless#add-an-api-key) for unattended use. Keep the secret outside agent chat and use an environment-variable reference.
+* [Run MCP locally](/mcp-server/local) only when you need a local process or a self-hosted Firecrawl API. The local package requires Node.js 22 or newer.
+
+## Optional: literature research
+
+For paper and literature work, the research-index skill routes those queries to the `firecrawl_research_*` tools and the [Research Index](/features/research) instead of general web search:
+
+```bash theme={null}
+npx skills add firecrawl/skills@firecrawl-research-index
+```
+
+## Troubleshooting
+
+* **A Firecrawl server already exists:** run `claude mcp remove firecrawl`, add the intended connection once, then start a new session.
+* **The browser does not open:** enter `/mcp`, select `firecrawl`, and start authentication from the client.
+* **The server shows `401`:** sign in again through `/mcp`; do not paste an API key into the conversation or OAuth URL.

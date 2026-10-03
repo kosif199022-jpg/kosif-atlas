@@ -1,0 +1,20 @@
+[
+  {"query": "ok the article's done — final.md in article-studio/articles/transfer-your-intelligence. get it online", "should_trigger": true},
+  {"query": "publish ~/Documents/drafts/why-files-beat-chat.md to the hub", "should_trigger": true},
+  {"query": "can you put my new piece 'your next buyer isn't a beginner' up on aimmhub.coachlou.com? the md is in my downloads", "should_trigger": true},
+  {"query": "the writing team finished the draft and ed signed off. ship it to the site", "should_trigger": true},
+  {"query": "post this article to aimmhub please: /Volumes/Extreme Pro/users/loudalo/articles/compounding-returns.md", "should_trigger": true},
+  {"query": "I want members to be able to read this essay on the hub tonight. here's the markdown file: essays/gate-before-you-generate.md", "should_trigger": true},
+  {"query": "save this article to the kb but don't put it live yet, I want to review it on the hub later — drafts/ambient-memory.md", "should_trigger": true},
+  {"query": "this article is final. make it live on the aimm hub site and give me the link", "should_trigger": true},
+  {"query": "write me an article about why AI adoption stalls in corporate rollouts", "should_trigger": false},
+  {"query": "edit this draft for me, it's too long and the opening is weak — drafts/why-files-beat-chat.md", "should_trigger": false},
+  {"query": "evaluate this article against the thought-leadership bar before I publish it", "should_trigger": false},
+  {"query": "run npm run deploy in aimm-hub, I changed the header component", "should_trigger": false},
+  {"query": "process the okf-kb inbox, there's a new mastermind transcript in aimm-transcript", "should_trigger": false},
+  {"query": "send this week's newsletter to the AIMM members group", "should_trigger": false},
+  {"query": "publish the ambient-library release — add publish-article to RELEASE.yaml and build production", "should_trigger": false},
+  {"query": "turn this session transcript into a LinkedIn post and an article", "should_trigger": false},
+  {"query": "the hub's articles page is showing the wrong date for 'transfer your intelligence' — fix the astro template", "should_trigger": false},
+  {"query": "publish my notion page about the software factory to the web so I can share the link", "should_trigger": false}
+]

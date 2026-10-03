@@ -1,0 +1,156 @@
+> Source: https://chat-sdk.dev/adapters/official/messenger.md
+
+---
+title: Messenger
+description: Facebook Messenger adapter using the Messenger Platform API.
+tagline: Build bots for Facebook Messenger with templates, buttons, reactions, and postbacks.
+package: @chat-adapter/messenger
+---
+
+# Messenger
+
+
+  Building for Instagram Direct Messages? Use the [Instagram adapter](/adapters/official/instagram) instead. It connects through Instagram API with Instagram Login and does not require a Facebook Page.
+
+
+## Install
+
+
+## Quick start
+
+
+  The adapter auto-detects `FACEBOOK_APP_SECRET`, `FACEBOOK_PAGE_ACCESS_TOKEN`, and `FACEBOOK_VERIFY_TOKEN` from the environment.
+
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMessengerAdapter } from "@chat-adapter/messenger";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    messenger: createMessengerAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post("Hello from Messenger!");
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+```typescript title="app/api/webhooks/messenger/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function GET(request: Request) {
+  return bot.webhooks.messenger(request);
+}
+
+export async function POST(request: Request) {
+  return bot.webhooks.messenger(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+### 1. Create a Meta app
+
+1. Go to [developers.facebook.com/apps](https://developers.facebook.com/apps).
+2. Create an app and select **"Engage with customers on Messenger from Meta"**.
+3. Under **App Settings** then **Basic**, copy the **App Secret** to `FACEBOOK_APP_SECRET`.
+
+### 2. Create a Facebook Page
+
+Users interact with your bot by messaging a Facebook Page, so the bot needs one to send and receive messages. If you don't already have a Page, create one under a Facebook Business profile.
+
+### 3. Get credentials
+
+1. In your Meta app dashboard, open **Use Cases** then **Messenger API Settings**.
+2. Under **Generate access tokens**, click **Add or remove Pages** and select your Page.
+3. Generate the token and copy it to `FACEBOOK_PAGE_ACCESS_TOKEN`.
+
+Choose your own random string for `FACEBOOK_VERIFY_TOKEN`. You enter the same value in the next step.
+
+### 4. Configure webhooks
+
+Deploy the GET and POST route shown above to a public HTTPS URL first, then, in **Messenger API Settings**:
+
+1. Click **Add Callback URL** and enter `https://your-domain.com/api/webhooks/messenger`.
+2. Set **Verify Token** to the same value as `FACEBOOK_VERIFY_TOKEN`.
+3. Click **Verify and Save**.
+4. Add subscriptions: `messages`, `messaging_postbacks`, `messaging_reactions`, `message_deliveries`, `message_reads`.
+
+## Configuration
+
+
+### Environment variables
+
+| Variable                     | Required | Description                                               |
+| ---------------------------- | -------- | --------------------------------------------------------- |
+| `FACEBOOK_APP_SECRET`        | Yes      | App secret used to verify webhook signatures              |
+| `FACEBOOK_PAGE_ACCESS_TOKEN` | Yes      | Access token for the Facebook Page the bot sends as       |
+| `FACEBOOK_VERIFY_TOKEN`      | Yes      | Your chosen secret for the webhook verification handshake |
+
+## Webhooks
+
+The route handles two kinds of request from Meta:
+
+* GET verification handshake: Meta sends a `hub.verify_token` challenge that must match `FACEBOOK_VERIFY_TOKEN`.
+* POST event delivery: incoming messages, reactions, and postbacks, signed with `X-Hub-Signature-256` and verified against `FACEBOOK_APP_SECRET`.
+
+## Interactive messages
+
+The adapter converts card elements to Messenger templates:
+
+* Generic Template: used when the card has a `title` or `imageUrl`. Up to 3 buttons.
+* Button Template: used when the card has text content and buttons but no title or image. Max 640 characters.
+* Text fallback: used when the card contains unsupported elements (tables, select menus) or exceeds these constraints.
+
+Constraints:
+
+* Max 3 buttons per template.
+* Button titles limited to 20 characters (truncated with ellipsis).
+* Subtitles limited to 80 characters.
+* Button Template text limited to 640 characters.
+
+## Inbound attachments
+
+Inbound attachment URLs remain available as `attachment.url`. The adapter's
+`fetchData` function downloads media only from Meta's `fbsbx.com` and
+`fbcdn.net` hosts, refuses private and internal addresses (including after
+redirects), limits responses to 25 MB, and times out after 30 seconds.
+External fallback and link-share URLs are preserved but rejected before any
+network request.
+
+## Read receipts
+
+Use `thread.markAsRead()` in a message handler to send Messenger's `mark_seen` sender action:
+
+```typescript
+bot.onDirectMessage(async (thread) => {
+  await thread.markAsRead();
+  await thread.post("Thanks, I have seen your message.");
+});
+```
+
+Messenger applies this action to the conversation's seen state rather than a single message, even when you pass a message or message ID.
+
+## Thread IDs
+
+```
+messenger:{recipientId}
+```
+
+Example: `messenger:27161130920158013`.
+
+`recipientId` is the user's ID as Meta sends it in the webhook's `sender.id`. Each conversation between the Page and one user is one thread.
+
+## Feature support
+
+

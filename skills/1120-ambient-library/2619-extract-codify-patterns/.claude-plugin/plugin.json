@@ -1,0 +1,11 @@
+{
+  "name": "extract-codify-patterns",
+  "description": "Packages a working session into a shareable look-over-my-shoulder artifact bundle; use for \"package this session\", \"codify this session\", \"turn this conversation into a teaching resource\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

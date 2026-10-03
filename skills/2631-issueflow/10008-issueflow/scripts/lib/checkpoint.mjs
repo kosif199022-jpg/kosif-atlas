@@ -1,0 +1,431 @@
+/**
+ * Getting the run off this machine, at every gate.
+ *
+ * issueflow 0.1.0 wrote to GitHub in exactly one place — `ship`, the last step.
+ * On the run this was measured against, `ship` never ran: 23 minutes of opus and
+ * sonnet output existed only as untracked files under `$HOME` and one unpushed
+ * local commit. Nothing about the run was visible to anyone but the person
+ * watching the terminal, and nothing would have survived losing the machine.
+ *
+ * So every state transition checkpoints. Two writes, both cheap and both
+ * reversible:
+ *
+ *   1. the lane's branch is pushed, so the commits exist somewhere else;
+ *   2. ONE comment on the issue is rewritten in place, carrying the board, the
+ *      lanes, and every approved artifact.
+ *
+ * The comment is the durable part. It is what lets a run be picked up on
+ * another machine, and it is what makes the issue — rather than a terminal
+ * scrollback — the record of how the change was decided.
+ *
+ * **A checkpoint failure never rolls back an approval.** The approval happened;
+ * pretending otherwise would lose the very state this module exists to keep. It
+ * is reported instead, loudly, as a row the caller prints.
+ */
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { addIssueComment, commentIdFromUrl, issueComments, issueCommentsAll, updateIssueComment, viewerLogin } from './gh.mjs';
+import { artifactPath, board, gateSteps, saveRun } from './run.mjs';
+import { operation } from './operations.mjs';
+import { hash } from './contracts.mjs';
+import { specEntryActive } from './approved-spec.mjs';
+
+/** How much artifact prose the sticky comment may carry, in characters. */
+const ARTIFACT_BUDGET = 20000;
+
+/**
+ * The line that identifies the comment as this run's.
+ *
+ * Without it, a run resumed on a machine with no `run.json` would open a second
+ * comment and the issue would grow one per machine. With it, the comment is
+ * found and adopted.
+ */
+export const markerFor = (owner, name, number) => `<!-- issueflow:run ${owner}/${name}#${number} -->`;
+
+export const marker = (run) => markerFor(run.repo.owner, run.repo.name, run.issue.number);
+
+/**
+ * A second marker, inside the same comment, saying the run it belongs to is
+ * over. Without it the sticky comment outlives the run that wrote it — nothing
+ * ever removes it — so `claimedIn` would keep matching a dead marker forever:
+ * work an issue to a merged pull request, lose the local `run.json` (a wiped
+ * home, a different machine, a `--run-dir` under a temp dir), and a later
+ * `start` on the same, possibly-reopened issue finds its own old comment and
+ * refuses as if a stranger held it.
+ */
+export const FINISHED_MARKER = '<!-- issueflow:finished -->';
+
+const escapeRe = (s) => s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+
+/**
+ * The part of a sticky comment the run itself wrote.
+ *
+ * `renderComment` splices up to 20000 characters of approved-artifact prose
+ * into the same body, verbatim, inside `<details>` blocks — and an artifact can
+ * say anything, including the markers this module matches on. The investigate
+ * plan for #251 quotes `<!-- issueflow:finished -->` while describing this very
+ * design; approve it and a live run's own comment carries the literal finished
+ * marker. Everything from the first `<details>` on is somebody else's prose and
+ * must never be read as this module's own bookkeeping.
+ */
+const runRegion = (body) => String(body ?? '').split(/\n<details>/)[0];
+
+/**
+ * Whether a comment says its run is over.
+ *
+ * Anchored to a whole line, and only in the run's own region: a substring
+ * search anywhere in the body makes an artifact that merely mentions the marker
+ * enough to hide a live run's claim, which is the failure the claim check
+ * exists to prevent, turned invisible. The pattern is built from
+ * `FINISHED_MARKER` and the exact shape `renderComment` emits, so a producer
+ * that stops emitting it is a consumer that stops matching it, not two
+ * spellings that quietly drift apart.
+ */
+const FINISHED_LINE = new RegExp(`^${escapeRe(FINISHED_MARKER)} \\*\\*Finished\\*\\*`, 'm');
+
+/**
+ * The finished line as every issueflow release before 0.8.0 wrote it — no
+ * `FINISHED_MARKER` in front, because the marker did not exist yet.
+ * `renderComment` only ever emitted this exact prefix for a finished run
+ * (`${FINISHED_MARKER} **Finished** …` is additive, not a rename), so a
+ * comment carrying an unmarked `**Finished**` line was written by that older
+ * code and means exactly what the marked line means now. Without this,
+ * `finishedIn` on a pre-0.8.0 comment returns false, `claimedIn` reads it as
+ * a live claim, and a run this repo already finished (natejswenson/local
+ * -fitness#132 and #133 among them) becomes an unrecoverable claim a plain
+ * `start` refuses forever, and `--take-over` then adopts and PATCHes over as
+ * if it were live — the CHANGELOG's "a finished run's comment is never
+ * adopted" and "a reopened or twice-worked issue is not refused forever"
+ * both depended on the marker existing, and neither held for a comment
+ * written before this file did (f-9d600850).
+ */
+const LEGACY_FINISHED_LINE = /^\*\*Finished\*\*/m;
+
+export const finishedIn = (body) => {
+  const region = runRegion(body);
+  return FINISHED_LINE.test(region) || LEGACY_FINISHED_LINE.test(region);
+};
+
+/**
+ * The comment on an issue that already claims this run, or null.
+ *
+ * Takes the comments a caller already has rather than fetching them: both
+ * callers — `start`'s refusal and `board`'s Run column — are handed every
+ * comment body by the payload they already fetched, so a claim costs no extra
+ * `gh` call. It goes through `markerFor` for the reason `marker` now does too:
+ * two spellings of the marker is exactly how a claim check silently stops
+ * matching the comment it is supposed to find.
+ *
+ * `comments` is defended the same way `board.mjs` already defends it: a
+ * hand-written or older `--issues-json` payload, or a `gh` build whose
+ * `--json comments` answers with a count instead of an array, must read as
+ * "no comments", never throw. A comment that also carries `FINISHED_MARKER` is
+ * a closed run's own sticky note and is skipped rather than matched — it
+ * proves the issue was worked, not that it is claimed.
+ *
+ * `commentId` is synthesized from the URL, the same way `gh.mjs` already
+ * builds it for the payload shapes that carry one — neither caller's raw
+ * `gh` payload has a `commentId` field of its own, so reading one off `c`
+ * directly always returned null.
+ */
+export function claimedIn(comments, owner, name, number) {
+  const mine = markerFor(owner, name, number);
+  for (const c of Array.isArray(comments) ? comments : []) {
+    const body = String(c?.body ?? '');
+    if (!body.includes(mine)) continue;
+    if (finishedIn(body)) continue;
+    return { url: c.url ?? null, commentId: c.url ? commentIdFromUrl(c.url) : null };
+  }
+  return null;
+}
+
+const git = (args, cwd) =>
+  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+
+const tryGit = (args, cwd) => {
+  try {
+    return { ok: true, out: git(args, cwd) };
+  } catch (err) {
+    return { ok: false, out: String(err.stderr ?? err.message ?? '').trim().split('\n').filter(Boolean).pop() ?? 'git failed' };
+  }
+};
+
+const bar = (headers, rows) =>
+  [`| ${headers.join(' | ')} |`, `|${headers.map(() => '---').join('|')}|`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n');
+
+/** The short sha at the tip of a lane's branch, or null when the branch has no commits yet. */
+export function tipOf(repoPath, branch) {
+  const r = tryGit(['rev-parse', '--short', `refs/heads/${branch}`], repoPath);
+  return r.ok ? r.out : null;
+}
+
+/**
+ * Push one lane's branch, if it has anything to push.
+ *
+ * A branch with no commits is not a failure — the lane simply has not been
+ * implemented yet — so it reports `skipped`, never an error the user has to
+ * read past on every early checkpoint.
+ */
+export function pushLane(repoPath, lane) {
+  const tip = tipOf(repoPath, lane.branch);
+  if (!tip) return { lane: lane.slug, state: 'skipped', detail: 'no commits yet' };
+  // A plain push, deliberately: a rejected non-fast-forward means local and
+  // remote have diverged, and the user needs to hear that at the gate it
+  // happened rather than have a force flag quietly resolve it.
+  const pushed = tryGit(['push', '-u', 'origin', `${lane.branch}:${lane.branch}`], repoPath);
+  if (!pushed.ok) return { lane: lane.slug, state: 'failed', detail: pushed.out };
+  return { lane: lane.slug, state: 'pushed', detail: tip, sha: tip };
+}
+
+/**
+ * The sticky comment's body.
+ *
+ * Pure given the run and what is on disk, so it can be byte-compared by the
+ * baseline instead of being taken on trust — the same reason the dispatch
+ * briefs are rendered rather than improvised.
+ */
+export function renderComment(dir, run, { budget = ARTIFACT_BUDGET } = {}) {
+  const steps = gateSteps(run);
+  // The lead-in is the run's honesty: on a gated run a human approved every
+  // stage, on an auto run the red team did, and saying the wrong one would be
+  // a claim about an approval that never happened. Gated strictly on
+  // `run.auto` so the frozen (gated) golden stays byte-identical.
+  const approvedBy = run.approvedSpec
+    ? ['Initial planning and plan review were skipped for a user-approved specification; subsequent amendments retain their review gates.',
+       'Implementation evidence and independent pull-request code review remain required.']
+    : run.auto
+    ? [
+        'The plan requires an independent red-team review. Implementation has an',
+        'evidence gate; code review happens on the pull request. The board below',
+        'records completed gates. This comment is rewritten at every gate.',
+      ]
+    : [
+        'Each stage below ran as its own subagent and was approved by a human before',
+        'the next one started. This comment is rewritten at every gate.',
+      ];
+  const lines = [
+    marker(run),
+    '',
+    `### 🤖 issueflow — ${run.repo.owner}/${run.repo.name}#${run.issue.number}`,
+    '',
+    ...approvedBy,
+    '',
+    bar(
+      ['Step', 'Model', 'State', 'Took'],
+      board(run).map((r) => [r.step, r.model, r.state === 'approved' ? '✅ approved' : r.state, r.took]),
+    ),
+    '',
+    bar(
+      ['Lane', 'Branch', 'Base', 'Pushed'],
+      run.lanes.map((l) => [l.slug, `\`${l.branch}\``, `\`${l.base}\``, run.checkpoint?.pushed?.[l.slug] ?? '—']),
+    ),
+  ];
+
+  // Persist renewal history in the remote comment, not only in run.json.
+  if (run.budgetRenewals?.length) {
+    lines.push('', bar(
+      ['Budget renewed at', 'Allowance (seconds)', 'Deadline'],
+      run.budgetRenewals.map((r) => [
+        r.at, r.budgetSeconds, new Date(Date.parse(r.at) + r.budgetSeconds * 1000).toISOString(),
+      ]),
+    ));
+  }
+
+  // Conditional like every review-aware rendering: a run with no rounds
+  // renders exactly as before reviews existed. Timestamp-free, so the frozen
+  // comment's no-wall-clock rule holds here too.
+  const reviewed = steps.filter((s) => (s.stage.review?.rounds.length ?? 0) > 0);
+  if (reviewed.length > 0) {
+    lines.push(
+      '',
+      bar(
+        ['Step', 'Rounds', 'Blocking found', 'Notes'],
+        reviewed.map((s) => {
+          const rounds = s.stage.review.rounds;
+          const sum = (keys) => rounds.reduce((n, r) => n + keys.reduce((m, k) => m + (r.findings?.[k] ?? (r.items??[]).filter(f=>f.severity===k).length), 0), 0);
+          return [s.key, String(rounds.length), String(sum(['critical', 'high'])), String(sum(['medium', 'low']))];
+        }),
+      ),
+    );
+  }
+
+  // Both blocks are conditional on purpose: an unfinished run must render
+  // identically to before `finish` existed, which is what lets the frozen
+  // `checkpoint-comment.md` stay byte-identical.
+  const landed = run.lanes.filter((l) => l.landed);
+  if (landed.length > 0) {
+    lines.push(
+      '',
+      bar(
+        ['Lane', 'Pull request', 'Merged at'],
+        landed.map((l) => [l.slug, `#${l.landed.pr}`, l.landed.mergedAt ?? '—']),
+      ),
+    );
+  }
+  if (run.finished) {
+    lines.push(
+      '',
+      `${FINISHED_MARKER} **Finished** ${run.finished.at} — every lane landed` +
+        `${run.finished.issueClosed ? ', issue closed' : ''}.`,
+    );
+  }
+
+  const skipped = steps.filter((s) => s.stage.state === 'skipped' && !(s.stage.id === 'investigate' && specEntryActive(run)));
+  if (specEntryActive(run)) lines.push('', '**Planning skipped — using the approved specification:**', '',
+    `- Spec SHA-256: \`${run.approvedSpec.sha256}\`; implementation and code-review gates remain required.`);
+  if (skipped.length > 0) {
+    lines.push(
+      '',
+      '**Skipped — these are holes, not passes, and `ship` keeps refusing them:**',
+      '',
+      ...skipped.map((s) => `- \`${s.key}\` — ${s.stage.skipReason ?? 'no reason recorded'}`),
+    );
+  }
+
+  const approved = steps.filter((s) => s.stage.state === 'approved');
+  if (approved.length > 0) {
+    lines.push('', '---', '');
+    let left = budget;
+    for (const step of approved) {
+      const path = artifactPath(dir, step);
+      if (!existsSync(path)) continue;
+      const text = readFileSync(path, 'utf8').trim();
+      const body = text.length <= left
+        ? text
+        : `${text.slice(0, Math.max(0, left))}\n\n… truncated at ${left} characters. The whole artifact is at \`${step.stage.artifact}\` in the run directory.`;
+      left -= Math.min(text.length, Math.max(0, left));
+      lines.push(`<details><summary><b>${step.key}</b> — ${step.stage.artifact}</summary>`, '', body, '', '</details>', '');
+      if (left <= 0) {
+        lines.push('_Remaining artifacts omitted — the comment reached its size budget._', '');
+        break;
+      }
+    }
+  }
+  return `${lines.join('\n').trimEnd()}\n`;
+}
+
+/**
+ * Find this run's comment on the issue when `run.json` does not know it.
+ *
+ * This is what makes a run resumable from a machine that never saw it: the
+ * marker is the identity, not the local state file.
+ *
+ * A comment that carries the finished marker is skipped, for the same reason
+ * `claimedIn` skips it and with the same predicate: it is a *completed* run's
+ * record — its pull request links, merge times and approved artifacts — and
+ * adopting it means PATCHing a fresh all-pending board over the only account of
+ * a change that already landed. A reopened issue gets a new comment instead,
+ * which costs one comment and preserves an irreplaceable one.
+ */
+function adoptComment(repoPath, run) {
+  const mine = marker(run);
+  const comments = run.harness ? issueCommentsAll(repoPath, run.repo.owner, run.repo.name, run.issue.number) : issueComments(repoPath, run.issue.number);
+  const viewer = run.harness ? viewerLogin(repoPath) : null;
+  for (const c of comments) {
+    if (run.checkpoint?.preservedComments?.includes(c.commentId)) continue;
+    const body = String(c.body ?? '');
+    if (body.includes(mine) && !finishedIn(body) && c.commentId) {
+      if (run.harness && c.author !== viewer) throw new Error('checkpoint belongs to another author; preserve it and resolve ownership before writing');
+      return { commentId: c.commentId, url: c.url };
+    }
+  }
+  return null;
+}
+
+/**
+ * Write the run's state to GitHub: push every lane, then sync the comment.
+ *
+ * Returns one row per action for the caller to print. Nothing here throws —
+ * a checkpoint that failed is a fact to report, not a reason to unwind a gate
+ * the user already passed.
+ */
+export function checkpoint(dir, run, { offline = false, push = true, comment = true } = {}) {
+  if (run.execution) saveRun(dir, run);
+  if (offline || run.offline) return [{ action: 'checkpoint', state: 'offline', detail: 'nothing sent' }];
+  if (run.harness) { run.checkpoint.pending = true; saveRun(dir, run); }
+
+  const repoPath = run.repo.path;
+  const rows = [];
+
+  if (push) {
+    for (const lane of run.lanes) {
+      if (run.harness) {
+        const store = gitStore(dir, run);
+        const branch = execFileSync('git', ['for-each-ref', '--format=%(refname)', `refs/heads/${lane.branch}`], { cwd: store, encoding: 'utf8' }).trim();
+        if (!branch) continue;
+        try {
+          const head = execFileSync('git', ['rev-parse', branch], { cwd: store, encoding: 'utf8', stdio: 'pipe' }).trim();
+          operation(dir, run, { kind: 'checkpoint-push', target: lane.branch, intent: { head }, retrySafe: true,
+            read: () => {
+              const remote = execFileSync('git', ['ls-remote', 'origin', branch], { cwd: store, encoding: 'utf8', stdio: 'pipe', timeout: 60000 }).trim().split(/\s+/)[0];
+              return remote === head ? { head } : null;
+            }, write: () => { const result = pushLane(store, lane); if (result.state !== 'pushed') throw new Error(result.detail ?? 'branch not pushed'); } });
+          run.checkpoint.pushed[lane.slug] = head;
+          rows.push({ action: `push ${lane.slug}`, state: 'pushed', detail: `origin/${lane.branch} @ ${head}` });
+        } catch (err) { rows.push({ action: `push ${lane.slug}`, state: 'failed', detail: String(err.message).split('\n')[0] }); }
+        continue;
+      }
+      const result = pushLane(gitStore(dir, run), lane);
+      if (result.state === 'pushed') {
+        run.checkpoint.pushed[lane.slug] = result.sha;
+        rows.push({ action: `push ${lane.slug}`, state: 'pushed', detail: `origin/${lane.branch} @ ${result.sha}` });
+      } else if (result.state === 'failed') {
+        rows.push({ action: `push ${lane.slug}`, state: 'failed', detail: result.detail });
+      }
+    }
+  }
+
+  if (comment) {
+    try {
+      if (!run.checkpoint.commentId) {
+        const found = adoptComment(repoPath, run);
+        if (found) {
+          run.checkpoint.commentId = found.commentId;
+          run.checkpoint.commentUrl = found.url;
+        }
+      }
+      const body = renderComment(dir, run) + (run.harness ? `\n<!-- issueflow:instance ${hash(run.createdAt)} -->\n` : '');
+      const bodyFile = join(dir, 'checkpoint.md');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(bodyFile, body);
+
+      let result;
+      if (run.harness) {
+        const viewer = viewerLogin(repoPath);
+        const target = `${run.repo.owner}/${run.repo.name}#${run.issue.number}`;
+        result = operation(dir, run, { kind: 'checkpoint-comment', target, intent: { bodyHash: hash(body) }, retrySafe: Boolean(run.checkpoint.commentId),
+          read: () => {
+            const matches = issueCommentsAll(repoPath, run.repo.owner, run.repo.name, run.issue.number).filter((c) => c.author === viewer && c.body?.trimEnd() === body.trimEnd() && (!run.checkpoint.commentId || c.commentId === run.checkpoint.commentId));
+            if (matches.length > 1) throw new Error('multiple checkpoint comments match; reconcile before writing');
+            return matches[0] ?? null;
+          }, write: () => {
+            if (run.checkpoint.commentId) {
+              const inputFile = join(dir, 'checkpoint.json'); writeFileSync(inputFile, JSON.stringify({ body }));
+              updateIssueComment(repoPath, { owner: run.repo.owner, name: run.repo.name, commentId: run.checkpoint.commentId, inputFile });
+            } else addIssueComment(repoPath, { number: run.issue.number, bodyFile });
+          } });
+        rows.push({ action: 'issue comment', state: 'confirmed', detail: result.url });
+      } else if (run.checkpoint.commentId) {
+        const inputFile = join(dir, 'checkpoint.json');
+        writeFileSync(inputFile, `${JSON.stringify({ body })}\n`);
+        result = updateIssueComment(repoPath, {
+          owner: run.repo.owner, name: run.repo.name, commentId: run.checkpoint.commentId, inputFile,
+        });
+        rows.push({ action: 'issue comment', state: 'updated', detail: result.url });
+      } else {
+        result = addIssueComment(repoPath, { number: run.issue.number, bodyFile });
+        rows.push({ action: 'issue comment', state: 'posted', detail: result.url });
+      }
+      run.checkpoint.commentId = result.commentId ?? run.checkpoint.commentId;
+      run.checkpoint.commentUrl = result.url ?? run.checkpoint.commentUrl;
+    } catch (err) {
+      rows.push({ action: 'issue comment', state: 'failed', detail: String(err.message ?? err).split('\n')[0] });
+    }
+  }
+
+  if (run.harness) run.checkpoint.pending = rows.some((r) => r.state === 'failed');
+  saveRun(dir, run);
+  return rows.length > 0 ? rows : [{ action: 'checkpoint', state: 'nothing to send', detail: '—' }];
+}
+import { gitStore } from './execution.mjs';

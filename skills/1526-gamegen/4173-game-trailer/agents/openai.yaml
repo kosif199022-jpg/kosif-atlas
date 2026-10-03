@@ -1,0 +1,6 @@
+interface:
+  display_name: "Game Trailer"
+  short_description: "Beat-synced trailers and GIFs from real gameplay"
+  default_prompt:
+    "Use $game-trailer to make a gameplay trailer, vertical cut and GIF for this Godot game, following saved GameGen
+    preferences when the project has them."

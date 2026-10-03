@@ -1,0 +1,228 @@
+---
+description: "Verify or configure an ai-briefing profile and, only when explicitly requested, install the deterministic HTML/PDF/PPTX build toolchain. Use when: 'set up ai-briefing', 'configure ai-briefing', 'add an ai-briefing profile', 'is ai-briefing working', or 'ai-briefing setup'. Actions: check (read-only verification, default) | apply (scaffold the profile) | apply install-build-deps (also install the build toolchain). Idempotent, safe to re-run."
+argument-hint: "[check|apply] [install-build-deps] [--profile <name>]"
+user-invocable: true
+disable-model-invocation: true
+allowed-tools:
+  - "Bash(node --version*)"
+  - "Bash(npm --version*)"
+shell: bash
+---
+
+## Pre-computed context
+
+`check`'s build-preflight version probes ran at load time. Read these rows instead of re-issuing
+them; each shows the reported version, or `unavailable` when the tool is absent or fails to run:
+
+- `node --version`: !`{ node --version 2>/dev/null || echo "unavailable"; }`
+- `npm --version`: !`{ npm --version 2>/dev/null || echo "unavailable"; }`
+
+A row reading `[shell command execution disabled by policy]` carries no result: run that probe via
+Bash instead. `apply install-build-deps` still runs its own live guards.
+
+## Variables
+
+Arguments: `$ARGUMENTS`
+Configured active profile: `${user_config.active_profile}`
+
+## Purpose
+
+Bring a repository-owned briefing profile to a working state and, only when explicitly
+requested, install the optional deterministic presentation build toolchain. The plugin is
+repository- and organization-agnostic; consumers supply their own authorized sources,
+audience lens, and branding.
+
+Check-centric per the uniform setup contract (`docs/plugin-philosophy.md`
+"Setup is explicit and repeatable" in the marketplace repository): `check` inspects and
+reports, `apply` scaffolds the profile, and the build-toolchain install is a distinct
+opt-in subaction rather than fused behind a flag. Tracked profile configuration belongs in
+the consuming repository, never in `${CLAUDE_PLUGIN_DATA}`, which is reserved for
+machine-local state and generated artifacts.
+
+Action routing: no argument or `check` runs the check; `apply` runs the check first, then
+scaffolds; `apply install-build-deps` additionally authorizes the build-toolchain install
+below. `--profile <name>` selects the profile for either action and wins over the configured
+active profile. All actions are non-interactive when the profile is unambiguous. Never
+prompt when the action and profile are given.
+
+## Profile contents
+
+Files at `.claude/ai-briefing/` form the default profile. Each
+`.claude/ai-briefing/<name>/` directory is a named profile. Selecting a named
+profile is profile selection, not resolution of a `*.local.*` cascade layer.
+
+| Artifact | Purpose |
+|---|---|
+| `sources.md` | Approved RSS/Atom feeds, official release pages, GitHub repositories, and user-supplied URLs. |
+| `brand.json` (optional) | Declarative organization name, tagline, local logo assets, and theme tokens. |
+| `audience.md` (optional) | Stack/audience lens used for impact annotations. |
+
+## `check` (read-only)
+
+Resolve the profile, then probe its state and the build toolchain and report a
+PASS/FAIL/INFO table with one remediation line per FAIL. Do not create, modify, or install
+anything.
+
+1. **Resolve the profile.** Parse `--profile <name>` from `$ARGUMENTS`; otherwise use the
+   rendered `${user_config.active_profile}` value when non-empty, else the root `default`
+   profile. A per-run `--profile` wins. Require a 1-63 character lowercase-kebab slug and
+   reject reserved Windows device names. Report the resolved profile path, which of the three
+   sources supplied it. When the resolved value came from `${user_config.active_profile}` or
+   the configured value is wrong for this repository, also report the reconfiguration route:
+   - **Interactive, any time:** `/plugin configure ai-briefing@<marketplace>`. The recommended
+     route; this skill never writes `pluginConfigs`.
+   - **Headless:** rerun the install with the new value, per the marketplace's
+     plugin-reconfiguration convention
+     (<https://github.com/melodic-software/claude-code-plugins/blob/main/docs/conventions/plugin-reconfiguration/README.md>,
+     which owns the verified-version record): `claude plugin install ai-briefing@<marketplace>
+     -s <scope> --config active_profile=<name>` (repeatable per key). Against an
+     already-installed plugin it prints `already installed` **and still writes the value**. Do
+     **not** uninstall to reconfigure: that drops this plugin's entire stored `pluginConfigs`
+     entry, resetting every option in the README's Options reference to its manifest default.
+     `-s` defaults to `user`; pass the scope `claude plugin list` reports for this plugin, and
+     run from that project's directory for a `project`/`local` scope, or the rerun adds a
+     second install record at the scope passed and enables the plugin there; the value itself
+     always lands in user settings. A rejected value prints a warning yet exits 0, so read the
+     output. Afterwards rerun `check` in a **fresh session**. The rendered
+     `${user_config.*}` is injected at skill load, so a same-session `check` still reports the
+     OLD value; report the observed effective value, never an unobserved change.
+   - **Neither, for a one-off:** a per-run `--profile <name>` selects a different profile without
+     touching stored config.
+2. **`sources.md`.** FAIL if the resolved profile has no `sources.md`: `/ai-briefing:generate`
+   has no authorized sources to collect from. Remediation: `apply`.
+3. **Optional profile files.** INFO: report whether `audience.md` and declarative `brand.json`
+   exist; their absence is expected and never a FAIL.
+4. **Build toolchain.** INFO unless the consumer intends `--format html`/`--format slides`.
+   Report whether the locked runtime at `${CLAUDE_PLUGIN_DATA}/runtime/build` exists and whether
+   the version recorded in its `.plugin-version.json` stamp matches the plugin's `plugin.json`
+   version (a mismatch means a rebuild is due).
+   Read-only: never launch a browser here. Missing or stale is INFO with remediation
+   `apply install-build-deps`, because the toolchain is opt-in. Markdown output needs none
+   of it.
+5. **Build preflight.** INFO: report the pre-computed `node --version` and `npm --version`
+   rows, and the OS family
+   against Playwright's current supported environment matrix. The README's matrix is a dated
+   snapshot (verified against
+   [Playwright system requirements](https://playwright.dev/docs/intro#system-requirements));
+   the linked page is authoritative. Re-check it before installing.
+
+## `apply` (idempotent)
+
+Run `check`, then scaffold the resolved profile. Re-running after everything passes changes
+nothing and reports "already configured".
+
+1. **Scaffold authorized sources.** Create the profile directory when absent. If `sources.md`
+   does not exist, create it with short sections for official vendor feeds, GitHub
+   repositories/releases, reputable secondary sources, and user-supplied URLs. Leave an
+   existing file unchanged. Do not seed X handles, navigate X, scrape following graphs, or
+   install an X API provider. Note the current X access restriction and link the
+   authoritative terms: <https://x.com/en/tos>.
+2. **Offer optional profile files.** Offer `audience.md` and declarative `brand.json`, creating only
+   the files the consumer requests. Keep local logo assets beside `brand.json`. These files are
+   team-tracked in the selected profile directory. This surface has no gitignored `*.local.*`
+   overlay.
+3. **`apply install-build-deps` installs the optional build toolchain.** Parse the subaction
+   before invoking a shell and never interpolate raw arguments into a command. Without it,
+   skip this step and change no existing runtime. With it, build and validate a temporary
+   locked runtime first, then replace the current runtime with same-filesystem renames. A
+   dependency, browser-install, or launch failure must leave the working runtime untouched.
+   The plugin cache is read-only, and Node ESM does not use `NODE_PATH` for bare-package
+   resolution.
+
+   ```bash
+   command -v node >/dev/null 2>&1 || {
+     echo "ai-briefing setup requires Node.js" >&2
+     exit 1
+   }
+   command -v npm >/dev/null 2>&1 || {
+     echo "ai-briefing setup requires npm" >&2
+     exit 1
+   }
+   NODE_MAJOR=$(node -p "Number(process.versions.node.split('.')[0])")
+   case "$NODE_MAJOR" in
+     22|24|26) ;;
+     *) echo "ai-briefing setup requires the latest Node.js 22.x, 24.x, or 26.x" >&2; exit 1 ;;
+   esac
+   PLATFORM=$(uname -s)
+   case "$PLATFORM" in
+     Linux|Darwin|MINGW*|MSYS*|CYGWIN*) ;;
+     *) echo "ai-briefing setup does not support platform: $PLATFORM" >&2; exit 1 ;;
+   esac
+
+   MANIFEST="${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json"
+   VER=$(node -p "require('$MANIFEST').version")
+   RT="${CLAUDE_PLUGIN_DATA}/runtime"
+   CURRENT="$RT/build"
+   STAMP=".plugin-version.json"
+
+   CURRENT_VER=$(node -p "require('$CURRENT/$STAMP').version" 2>/dev/null)
+   if [ "$CURRENT_VER" != "$VER" ]; then
+     mkdir -p "$RT"
+     STAGE=$(mktemp -d "$RT/.build-stage.XXXXXX")
+     BACKUP="$RT/.build-backup.$$"
+     cleanup() { rm -rf "$STAGE"; }
+     trap cleanup EXIT INT TERM
+
+     cp -R "${CLAUDE_PLUGIN_ROOT}/skills/generate/output/build/." "$STAGE"
+     if ! (
+       cd "$STAGE" &&
+       npm ci --no-fund --no-audit &&
+       case "$(uname -s)" in
+         Linux*) npx playwright install --with-deps --only-shell chromium ;;
+         *)      npx playwright install --only-shell chromium ;;
+       esac &&
+       node --input-type=module -e \
+         "import { chromium } from 'playwright'; const b = await chromium.launch(); await b.close();" &&
+       cp "$MANIFEST" "$STAMP"
+     ); then
+       echo "ai-briefing build setup failed; preserved the existing runtime" >&2
+       exit 1
+     fi
+
+     rm -rf "$BACKUP"
+     if [ -d "$CURRENT" ] && ! mv "$CURRENT" "$BACKUP"; then
+       echo "ai-briefing could not preserve the existing runtime; refusing to replace it" >&2
+       exit 1
+     fi
+     if mv "$STAGE" "$CURRENT"; then
+       STAGE=""
+       rm -rf "$BACKUP"
+       trap - EXIT INT TERM
+     else
+       if [ -d "$BACKUP" ]; then mv "$BACKUP" "$CURRENT"; fi
+       exit 1
+     fi
+   fi
+   ```
+
+   The runtime's version stamp is the plugin manifest copied into the staged tree, never file
+   content this step composes with a shell redirect. Agent sessions commonly gate shell
+   file-writes behind a hook that routes content authoring through the Write and Edit tools, and
+   an `echo`/`printf`/`cat` redirect into a file is the shape those hooks block; a step that
+   prescribes one cannot be carried out where such a hook is on. `cp` of a file that already
+   exists composes no content and is unaffected. Keep the stamp readable by the `check` probe:
+   the `.json` suffix is what lets `node -p "require(...)"` parse it.
+
+   `npm ci` uses the committed lockfile and fails on dependency drift. Playwright is retained
+   only to render and inspect generated local HTML/PDF artifacts; it must not be used as a
+   collection browser. On Linux, Playwright's documented `--with-deps` path installs required
+   operating-system packages. Other supported platforms install the browser shell and rely
+   on their platform prerequisites. Supported OS and Node targets are whatever
+   [Playwright's system requirements](https://playwright.dev/docs/intro#system-requirements)
+   currently list (the README's matrix is a dated snapshot of that page. The link is
+   authoritative). The launch probe runs before the runtime swap.
+
+   After the install, re-run the `check` build-toolchain probe and report its actual result.
+   Never claim the toolchain is ready on the swap's exit code alone.
+
+4. **Confirm.** Report the profile path, whether `sources.md` was created or preserved, which
+   optional profile files were created, and whether build dependencies were installed or
+   intentionally skipped. Point the consumer to `/ai-briefing:generate`.
+
+## This skill does not
+
+- Run a briefing.
+- Write curated configuration into `${CLAUDE_PLUGIN_DATA}`.
+- Automate X/Twitter access or configure an X API provider.
+- Install the optional build tree unless `apply install-build-deps` is invoked.
+- Write the plugin cache, Claude Code user settings, or `pluginConfigs`.

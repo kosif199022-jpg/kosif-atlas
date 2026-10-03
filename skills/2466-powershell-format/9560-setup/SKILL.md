@@ -1,0 +1,143 @@
+---
+description: "Verify the powershell-format hook's runtime prerequisites and configuration for this repository. Use when: 'set up powershell-format', 'configure powershell-format', 'is powershell-format working', PowerShell formatting or linting silently isn't happening, or the hook reported a missing prerequisite. Actions: check (read-only verification, default) | apply (resolve what check found). Re-runnable and safe."
+argument-hint: "[check|apply]"
+user-invocable: true
+disable-model-invocation: true
+shell: bash
+---
+
+## Pre-computed context
+
+`check`'s `jq` probe ran at load time. Read this row instead of re-issuing it; it shows
+the tool's path when present, or `absent` when missing:
+
+- `jq`: !`{ command -v jq 2>/dev/null || echo "absent"; }`
+
+A row reading `[shell command execution disabled by policy]` carries no result: run that tool's
+`command -v` probe via Bash instead.
+
+## Purpose
+
+Thin check-centric setup per the uniform setup contract (`docs/plugin-philosophy.md`
+"Setup is explicit and repeatable" in the marketplace repository): `check` inspects and
+reports, `apply` resolves. This plugin owns no consumer-project configuration. Formatting
+and linting rules come from the repository's own `PSScriptAnalyzerSettings.psd1`, and the
+only tunable is the native `userConfig` toggle. The `pwsh` runtime and the PSScriptAnalyzer
+module are resolved from the environment (never bundled, never downloaded), and the plugin
+installs nothing, so `apply` is guidance-only with **no write path**. It never modifies
+the repository, user settings, or the plugin cache.
+
+Note the deliberate asymmetry vs the sibling formatter plugins: only `jq` and `node` absence
+are prerequisite defects here. A machine without PowerShell, or without the PSScriptAnalyzer
+module, or a repo without a settings file, is INFO in `check`, never FAIL: the edit hook stays
+quiet by design. A machine without PowerShell still gets the `SessionStart` probe's notice once per
+session while the plugin is enabled.
+
+Action routing: no argument or `check` runs the check; `apply` runs the check first, then
+offers remediation guidance. Both are non-interactive. Never prompt when the action is given.
+
+## `check` (read-only)
+
+The hook script (`${CLAUDE_PLUGIN_ROOT}/hooks/powershell-format.sh`) is the single source of
+truth for what it requires and how it resolves things.
+
+**Read it first.** Probe what it actually does, don't recite this file. Then read the
+pre-computed `jq` row, run the remaining probes via Bash, and report a PASS/FAIL/INFO
+table with one remediation line per FAIL. Do not modify anything.
+
+When the plugin's toggle is disabled, every prerequisite absence downgrades from FAIL to
+INFO. The hook exits through its enabled-gate before probing anything, so a deliberately
+disabled plugin is not broken. Report the probes informationally and note that re-enabling
+restores the FAIL semantics.
+
+1. **Bash version.** Check against the hook's documented floor (README Requirements),
+   noting any features the hook degrades without (for example telemetry's `EPOCHREALTIME`,
+   a Bash 5.0+ builtin).
+2. **`jq`.** The pre-computed `jq` row. FAIL if absent: the hook then skips with a visible
+   once per session and agent notice instead of running.
+3. **`node`.** Probe via Bash: `command -v node`, then `node --version` when it resolves. FAIL if
+   absent: every handler in `hooks/hooks.json` launches through `node hooks/exec-bash.mjs`, so
+   without `node` the hook never starts and says nothing (README Requirements). The hook process
+   resolves bare `node` from the persisted Machine/User PATH, not from this shell. On Windows a
+   version manager can return a per-call path whose directory name contains a process id (fnm's
+   `fnm_multishells\<pid>_<timestamp>\node`); that path is ephemeral, so FAIL when it is the only <!-- portability-ok: Windows path, not a shell regex -->
+   hit, say so, and report the persisted resolution separately from
+   `[Environment]::GetEnvironmentVariable('Path','Machine')` and `'User'`. A non-ephemeral in-shell
+   hit is INFO beside that result, not a PASS by itself. `jq` and `node` are the only FAIL-class
+   prerequisites.
+4. **`pwsh` (PowerShell 7+).** Probe read-only:
+   `pwsh -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()'`. INFO,
+   not FAIL: the hook probes `pwsh` only (never legacy `powershell.exe`) and the edit hook stays
+   quiet when it is absent, while the `SessionStart` probe reports it once per session on every
+   host where the plugin is enabled. Report the version when present.
+5. **PSScriptAnalyzer module.** Probe **only when `pwsh` resolved** (chain behind step 4 so
+   the probe never errors on a pwsh-less box):
+   `pwsh -NoProfile -NonInteractive -Command 'if (Get-Module -ListAvailable -Name PSScriptAnalyzer) { "present" } else { "absent" }'`.
+   INFO, not FAIL: absent → the hook is a clean quiet no-op, with no probe notice. This probe is read-only. `Get-Module -ListAvailable` inspects, it does
+   not format, lint, or mutate.
+6. **`PSScriptAnalyzerSettings.psd1` opt-in.** INFO: the hook runs **only when a
+   `PSScriptAnalyzerSettings.psd1` governs the edited file** (walking up from the file to the
+   repo root, bounded by `CLAUDE_PROJECT_DIR` when set, stopping at the closest one). Absence
+   is the opt-out and is **by design, not a defect**. The plugin is inert until a repo adopts
+   a settings file. Report whether one exists and its location. When one exists, surface the
+   README **Trust model**: the settings file is executed-adjacent configuration. A
+   `CustomRulePath` it declares would load and run repository-supplied rule modules during
+   analysis, so the hook gates such a settings state on an explicit per-content trust
+   approval (marker under `${CLAUDE_PLUGIN_DATA}/trust-approvals`; any settings change
+   revokes it). It carries the same trust as build/CI configuration.
+7. **Hook toggle.** Report the effective `powershell_format_enabled` value:
+   `${user_config.powershell_format_enabled}` (unexpanded or empty means default `true`; any
+   value other than `true` disables the hook).
+8. **Hook registration.** INFO: confirm the plugin is enabled for this project
+   (`/plugin` → Installed) rather than parsing settings files.
+
+## `apply` (idempotent)
+
+Run `check`, then for each finding point at the resolution. This skill installs nothing:
+
+- missing `jq` / `node` / Bash: platform install instructions from the README Requirements section;
+  this skill never installs system packages.
+- `pwsh` absent (and PowerShell support is wanted): point at installing
+  [PowerShell 7+](https://learn.microsoft.com/powershell/scripting/install/installing-powershell);
+  this skill never installs it. If PowerShell is genuinely not applicable on this machine,
+  leaving it absent is a valid end state. The edit hook stays quiet; the once-per-session probe
+  notice is the only signal, and `powershell_format_enabled` false or disabling the plugin stops it.
+- PSScriptAnalyzer module absent: `Install-Module PSScriptAnalyzer` is **user-scope guidance
+  only**. State the command for the reader to run; this skill never runs it.
+- no `PSScriptAnalyzerSettings.psd1` (and linting/formatting is wanted): explain that adding a
+  settings file at or below the project root opts the repo in, but this skill does not write
+  it. The settings file is the executed-adjacent trust boundary above; the choice and the edit
+  belong to the consumer.
+- toggle off: reconfigure through Claude Code's native flow, per the marketplace's
+  plugin-reconfiguration convention
+  (<https://github.com/melodic-software/claude-code-plugins/blob/main/docs/conventions/plugin-reconfiguration/README.md>,
+  which owns the verified-version record): interactive `/plugin configure powershell-format@<marketplace>`
+  any time, or headless
+  `claude plugin install powershell-format@<marketplace> -s <scope> --config powershell_format_enabled=true`
+  (repeatable per key). Against an already-installed plugin it prints `already installed` and
+  still writes the value. Do **not** uninstall to reconfigure: that drops the plugin's entire
+  stored `pluginConfigs` entry, resetting every option in the README's Options reference to its
+  manifest default. `-s` defaults to `user`; pass the scope `claude plugin list` reports, and run
+  from that project's directory for a `project`/`local` scope, or the rerun adds a second
+  install record at the scope passed and enables the plugin there; the value itself always
+  lands in user settings. A rejected value prints a warning yet exits 0, so read the output.
+  This skill never writes user settings or `pluginConfigs`. Afterwards rerun
+  `check` in a **fresh session**. The rendered `${user_config.*}` and the hook's
+  `CLAUDE_PLUGIN_OPTION_*` are fixed at session start, so a same-session `check` still reports
+  the OLD value; report the observed effective value, never an unobserved change.
+
+After pointing at a remediation, re-run the relevant `check` probe live via Bash (a pre-computed row
+predates the remediation, so never re-read it) and report its actual result. Never claim resolved on
+the reader's report that they installed something.
+
+Re-running `apply` after everything passes changes nothing and reports "already configured".
+
+## What this skill does NOT do
+
+- Run the formatter or linter. Editing any `.ps1`, `.psm1`, or `.psd1` file exercises the
+  hook end-to-end. The `check` pwsh probes are read-only capability checks; they never format,
+  lint, or mutate any file.
+- Write the plugin cache, Claude Code user settings, or `pluginConfigs`. Nor the repository,
+  including `PSScriptAnalyzerSettings.psd1`. The `pwsh` runtime and the PSScriptAnalyzer module
+  are resolved from the environment, never installed, so remediation is guidance only.
+- Download tools during `check` beyond the read-only presence and version probes.

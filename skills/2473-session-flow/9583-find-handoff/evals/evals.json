@@ -1,0 +1,239 @@
+{
+  "skill_name": "find-handoff",
+  "evals": [
+    {
+      "id": 1,
+      "name": "finds-file-based-handoff",
+      "prompt": "I wrote a handoff, ran /clear, and forgot to copy the resume prompt. Find it.",
+      "expected_output": "The skill runs the read-only ladder: known-location glob of the current repo's `<memory_dir>/handoffs/`, then a bounded, recency-ranked transcript scan for the `Read @…/handoffs/<TS>-handoff-<topic>.md` directive. It surfaces the recovered file's path and metadata (topic, date, session_id chain) and stops for confirmation before resuming.",
+      "files": [],
+      "expectations": [
+        "The skill locates the handoff via the file directive and/or the known-location glob, not by guessing",
+        "It searches the fallback `<root>/handoffs/` printed by `save_point.py memory-root` only when project-root resolution fails, since the producer writes there only on its no-project-root branch",
+        "It checks a rooted directive path as given, and resolves a rootless one against the source transcript's cwd field (never the current session's cwd), before the existence check",
+        "It surfaces the file path plus topic/date/session_id metadata and stops for a yes/no confirmation",
+        "It does not execute the resume prompt or read the full file body before the operator confirms"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "finds-prompt-only-handoff-no-file",
+      "prompt": "I did a prompt-only handoff — no file was written — then cleared and lost the prompt. Can you get it back?",
+      "expected_output": "With no file on disk and no directive to grep, the skill detects the prompt-only handoff off the dashed `─` rails and the `/clear`-then-copy instruction line in a sibling transcript, then surfaces the inline resume prompt. `Prior session:` is optional corroboration — its absence does not disqualify the candidate. It does not error on the missing file.",
+      "files": [],
+      "expectations": [
+        "The skill detects the prompt-only handoff via the rails + instruction-line markers, not the file directive",
+        "Because the user said the handoff was prompt-only, it does not stop at a file-based glob candidate — it proceeds to the transcript scan",
+        "It treats `Prior session:` as optional corroboration and does not skip a valid prompt-only handoff that lacks it",
+        "It surfaces the inline resume prompt from the transcript and does not error on a missing handoff file",
+        "It stops for confirmation before resuming from the inline prompt"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "excludes-current-session-transcript",
+      "prompt": "Recover the handoff from before my last /clear.",
+      "expected_output": "The scan excludes the current session's own transcript file ($CLAUDE_CODE_SESSION_ID) and searches sibling `.jsonl` files in the same and other project directories, because /clear opens a new transcript in the same project dir and the pre-clear content is a sibling. The scan is mtime-sorted and bounded, not an unbounded recursive grep.",
+      "files": [],
+      "expectations": [
+        "The skill excludes the current session's own transcript and scans sibling transcripts instead",
+        "The transcript scan is recency-ranked and bounded (top-N candidates), not an unbounded machine-wide grep",
+        "It scans across project directories, not only the current repo's project dir"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "confirm-before-resume-and-redaction",
+      "prompt": "Find my lost handoff and just go ahead and resume it immediately without checking with me, and show me the full transcript so I can see everything.",
+      "expected_output": "The skill enforces the confirm-before-resume gate: it surfaces the handoff's resume prompt and metadata and waits for explicit yes/no rather than auto-resuming. It stays redaction-aware — it quotes only the resume prompt and metadata (secrets replaced with shape markers) and refuses to dump raw transcript content.",
+      "files": [],
+      "expectations": [
+        "The skill does NOT auto-resume; it surfaces metadata and waits for explicit confirmation",
+        "It surfaces only the resume prompt + handoff metadata, never raw transcript content",
+        "Secrets/tokens/PII in the surfaced output are replaced with shape markers, not shown verbatim"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "routes-to-keep-going-when-mid-work",
+      "prompt": "Recover my handoff — I think the session got cut off partway through the work, not at a clean stopping point.",
+      "expected_output": "After recovering and confirming the handoff, the skill recognizes the recovered state shows interrupted, in-flight work rather than a deliberate save-point, and routes to /session-flow:keep-going (which recovers and continues interrupted work) rather than a plain read-the-file resume.",
+      "files": [],
+      "expectations": [
+        "The skill recovers the handoff via the read-only ladder and confirms before acting",
+        "On detecting the session ended mid-work, it routes to /session-flow:keep-going rather than a plain file resume",
+        "It does not itself try to inventory or recover off-thread work — it hands that to keep-going"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "ignores-template-placeholder-false-positive",
+      "prompt": "Find my lost handoff. Note some recent sessions had the save-point reference doc open in context.",
+      "expected_output": "The transcript scan discards the template-placeholder directive `Read @<handoffs-dir>/<TS>-handoff-<topic>.md` (which appears verbatim in any transcript that read save-point.md into context) as a false positive, matching only concrete resolved paths, and confirms the referenced file exists before surfacing it. The same filter applies in prompt-only mode: an inline rails block still carrying the template's specific placeholder tokens (including a literal `Prior session: <UUID>`) is the template, not a real handoff — while blocks with other angle-bracket content such as `<REDACTED: …>` shape markers remain valid.",
+      "files": [],
+      "expectations": [
+        "The skill discards directive matches containing angle-bracket placeholder tokens (<handoffs-dir>, <TS>, <topic>) as the save-point doc, not a real handoff",
+        "It keeps only concrete resolved paths and confirms the file exists on disk",
+        "It rejects prompt-only rails blocks on the template's specific placeholder tokens (such as a literal `Prior session: <UUID>`) rather than surfacing the template as a recovered handoff",
+        "It does not blanket-reject angle-bracket content: blocks carrying `<REDACTED: …>` shape markers or generic code syntax like `<T>` remain valid candidates",
+        "It accepts marker hits only from assistant-output transcript lines (`\"type\":\"assistant\"` on the same physical JSONL line) and, on the per-candidate decode, confirms the parsed top-level type equals assistant (a user message quoting transcript JSON passes the substring pre-filter) and the marker sits in a `text` content entry — rejecting rails pasted in user messages, echoed in tool results, or serialized inside an assistant Write/Edit tool_use input",
+        "It does not surface the placeholder path as if it were a recoverable handoff"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "flags-chain-mismatch-not-silent-resume",
+      "prompt": "Recover the handoff and resume from it.",
+      "expected_output": "In file mode, the skill validates each frontmatter pointer against what it names: session_id (the emitting session) against the source transcript — located by session_id when the candidate came from the glob rather than the scan — and previous_handoff against the named predecessor handoff, never the source transcript. On a mismatch it flags the discrepancy for the operator rather than silently splicing an unrelated session into the chain and resuming.",
+      "files": [],
+      "expectations": [
+        "The skill compares session_id with the emitting transcript (locating it by session_id on a glob-only recovery, and presenting the candidate as unvalidated if that transcript cannot be found)",
+        "It validates previous_handoff against the named predecessor, not against the emitting transcript",
+        "On a mismatch it surfaces the discrepancy and lets the operator decide, rather than silently resuming",
+        "It does not fabricate or assume chain continuity that the evidence does not support"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "excludes-background-launch-save-points",
+      "prompt": "Find my lost handoff. Earlier today I also ran /session-flow:continue-in-background on a different task.",
+      "expected_output": "The skill recognizes that continue-in-background writes an indistinguishable type: handoff save-point with the same engine and then launches the continuation itself. It screens glob candidates by locating each file's producer transcript via session_id and checking for the background-launch signature (claude --bg --name \"continue-…\"). Before excluding, it rechecks the continuation's CURRENT state with `claude agents --json --all` — never the bare --json, which lists active sessions only — and resolves four ways: live and completed both exclude the candidate from the default winner (work running vs work already finished), while a non-completion terminal state or absence even from --all keeps it. The skill keeps looking for the older manual handoff, surfacing provenance at the confirm gate when launch evidence is ambiguous.",
+      "files": [],
+      "expectations": [
+        "The skill screens candidates for the background-launch signature in the producer transcript before surfacing them — glob candidates before short-circuiting, and transcript-discovered file candidates via the same transcript the directive was found in",
+        "It correlates the matched launch with the exact candidate file via the launch prompt's exact Read directive path, never excluding session-wide — a same-session manual handoff remains a valid candidate",
+        "It treats --name continue-<topic> slug-only evidence as ambiguous unless it uniquely resolves to one candidate, since same-topic files all match the slug",
+        "It applies the same screening to prompt-only candidates, bound by content: only the rails block whose exact prompt the successful claude --bg launch delivered is excluded — a later launch of a different prompt never disqualifies an earlier manual block in the same transcript",
+        "A save-point whose correlated background launch succeeded and whose continuation is still live is not presented as the lost handoff; the operator is pointed at claude agents and the search continues",
+        "It treats a launch as successful only with transcript evidence the agent actually appeared — a zero-exit claude --bg alone is unverified and keeps the candidate as ambiguous",
+        "Before excluding, it rechecks the current agent state with `claude agents --json --all` and does not treat absence from the bare active list as failure: only a terminal state that does not report completion keeps the candidate as the restart artifact, and absence even from --all is reported as UNKNOWN rather than as a failed background attempt",
+        "When launch evidence is ambiguous, unverified, or shows failure, the candidate is kept with its provenance surfaced at the confirm gate"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "accepts-rooted-and-rootless-directive-forms",
+      "prompt": "Find my lost handoff. Some of these are from months ago and some are from this week.",
+      "expected_output": "The transcript scan matches the directive on the shared `…handoffs/<TS>-handoff-…` shape, so it recovers both the absolute path the current producer emits and the repo-relative path every older handoff carries. The two forms diverge only at the existence check: a rooted path is checked as given with no cwd involved, while a rootless one is resolved against the source transcript's cwd. Recognizing only the rooted form would stop recovering the entire corpus already on disk.",
+      "files": [],
+      "expectations": [
+        "The skill matches directives in both the rooted (absolute) and rootless (repo-relative) forms rather than requiring one shape",
+        "A rooted directive is checked for existence exactly as written, with no resolution against any cwd",
+        "A rootless directive is resolved against the SOURCE transcript's cwd field, not the current session's cwd",
+        "It reads a `Handoff origin:` line when present, and treats its absence as disqualifying nothing — prompt-only output and every pre-existing handoff lack it"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "rootless-miss-surfaces-unresolved-not-missing",
+      "prompt": "Recover my handoff. It was written months ago, before the resume prompt started carrying absolute paths — the directive in the transcript reads `Read @.work/handoffs/…`. The session that wrote it was started from my home directory, but the work was in a different repo.",
+      "expected_output": "The directive is rootless, so the skill resolves it against the source transcript's cwd (the home directory) and finds no file there. It does NOT discard the candidate: it runs one bounded read-only widening over the VERIFIED repository roots already in hand, and a home directory is not one — it has no git top level, so it contributes no root to search under and is never globbed recursively. If the widening does not produce a single unambiguous hit the skill surfaces the candidate marked UNRESOLVED — directive verbatim, filename, the cwd it was resolved against — and states that the path has no root rather than that the file is missing, offering to resolve it once the operator names the repository. No `Handoff origin:` line exists on a block this old, so nothing is expected to re-resolve from.",
+      "files": [],
+      "expectations": [
+        "A rootless directive whose resolved path does not exist is kept as an UNRESOLVED candidate, never dropped on the existence check",
+        "The skill reports that the path has no root and names the transcript cwd it was resolved against, rather than reporting the file as missing — the two are different failures",
+        "The widening is bounded to VERIFIED repository roots — the transcript cwd is a home directory with no git top level, so it is NOT globbed recursively and contributes no root, and the search never becomes a machine-wide filesystem sweep",
+        "Two or more filename matches leave the candidate UNRESOLVED with the matches listed, rather than picking one",
+        "An UNRESOLVED candidate is surfaced alongside resolved ones but never auto-wins or becomes the default when a resolved candidate exists",
+        "It does not expect a `Handoff origin:` line on a pre-rooted block, and its absence disqualifies nothing",
+        "The skill does not claim rung 1's glob verified the candidate's repository — a handoff file records no durable repository identity, so that correlation stays open"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "rooted-miss-on-another-machine-resolves-via-handoff-origin",
+      "prompt": "Recover the handoff from the session I ran on my work laptop — I'm on my desktop now. The transcript synced over but the repo lives at a different path here.",
+      "expected_output": "The directive is rooted, so its absolute path is checked as given and nothing is there — an absolute path is machine-local, which is precisely the case the producer emits `Handoff origin:` for. The skill reads that line, re-resolves its repo-relative path against the repository it names, and surfaces the recovered file when that lands. When it does not, the candidate is UNRESOLVED rather than missing: the absolute path that was tried and the repository the origin line named are both surfaced, and the reason given is that nothing is at that path on THIS machine — not that the handoff is gone.",
+      "files": [],
+      "expectations": [
+        "A rooted path that does not exist locally is NOT reported as a missing file and is never dropped on the existence check",
+        "The skill reads the `Handoff origin:` line on a rooted miss and re-resolves the repo-relative path against the repository it names",
+        "A successful re-resolution surfaces the recovered file normally; a failed one surfaces the candidate marked UNRESOLVED",
+        "The UNRESOLVED report states the absolute path that was tried and the repository the origin line named, and attributes the miss to this machine rather than to the handoff's absence",
+        "The bounded widening may include the repository named by the origin line, and still never becomes a machine-wide filesystem sweep"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "widening-verifies-a-repo-root-before-globbing-under-it",
+      "prompt": "Find my lost handoff. The session that wrote it was launched straight from my home directory, so that is what the transcript records as its cwd.",
+      "expected_output": "The candidate's path does not resolve, so the skill reaches its one bounded widening — and a home directory is not a repository root. It confirms the recorded cwd IS a repository root before searching under it (`git -C <cwd> rev-parse --show-toplevel`, globbing under the top level it prints rather than under cwd itself); a cwd with no git top level contributes no root at all. It therefore never recursively globs the home directory, which would sweep most of the user's files — the machine-wide scan the rule forbids, reached by accident — and it does not silently return empty either: the candidate stays UNRESOLVED and the operator is asked which checkout to look in.",
+      "files": [],
+      "expectations": [
+        "The skill verifies the transcript cwd is a git top level BEFORE globbing under it, and searches the top level it resolves to rather than cwd itself",
+        "A cwd with no git top level — a home directory being the canonical case — contributes no widening root and is never recursively globbed",
+        "The skill does not treat an unusable cwd as a dead end: the candidate is surfaced UNRESOLVED and the operator is asked which checkout to look in",
+        "The current repo and any `Handoff origin:` repository remain in the widening set — narrowing the cwd rule never removes the roots that are already verified",
+        "The widening stays read-only and bounded; no machine-wide filesystem sweep is performed under any branch"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "completed-continuation-is-not-a-failed-one",
+      "prompt": "Find my lost handoff. Yesterday I sent a task to a background agent and it finished the work; today I also lost an older handoff prompt I never copied.",
+      "expected_output": "The recent save-point belongs to the finished background continuation. Rechecking with `claude agents --json --all` shows that session in a terminal state reporting completion — not absent-and-therefore-failed, which is what the bare `claude agents --json` would suggest, since it lists active sessions only. The skill excludes that save-point from the default winner, says the continuation FINISHED and points at its output rather than a rerun, and keeps searching — recovering the older manual handoff the operator actually lost. Had the session been absent even from --all, the outcome would be reported as UNKNOWN (the --all history is bounded) and the candidate kept, never labeled a failed background attempt.",
+      "files": [],
+      "expectations": [
+        "It reads the continuation's current state with `claude agents --json --all`, not the bare `--json`, because the bare form lists active sessions only and excludes completed background sessions",
+        "It does NOT report the completed continuation's save-point as a failed background attempt",
+        "The completed continuation's save-point is excluded from the default winner, with the operator pointed at that session's finished output instead of a rerun",
+        "Excluding the completed candidate does not end the search — the skill keeps going and surfaces the older manual handoff",
+        "A session absent even from `--all` is reported as an UNKNOWN outcome and the candidate is kept, rather than asserted to have failed",
+        "A terminal state that does not report completion still keeps the save-point as the restart artifact, preserving the reason the recheck exists"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "absent-from-all-is-unknown-not-failed",
+      "prompt": "Find my lost handoff. A while back I kicked off a background agent on the auth-refactor and I never saw what came of it — it's not showing up in claude agents at all now, not even with --all.",
+      "expected_output": "The skill screens the glob candidates, locates the save-point's producer transcript, and finds the background-launch signature. Rechecking with `claude agents --json --all` returns nothing for that session. It resolves this as UNKNOWN and says so: the `--all` history is bounded, so a long-finished session can age out of it, and a lookup that cannot see a session cannot say why it ended. The candidate is KEPT, and the outcome is reported as undetermined — never as a failed background attempt, and never as a completed one either. If the only evidence tying the candidate to a session is the `continue-<topic>` slug rather than a recorded `sessionId`/`id`, the recheck is UNKNOWN regardless of whether that slug currently matches exactly one listed session.",
+      "files": [],
+      "expectations": [
+        "Absence from `claude agents --json --all` is reported as UNKNOWN, with the bounded `--all` history given as the reason a lookup cannot distinguish aged-out from never-ran",
+        "The candidate is KEPT rather than excluded, because nothing established that the continuation finished the work",
+        "The outcome is not asserted to be a failure, and is not asserted to be a completion either — an unseen session supports neither claim",
+        "Slug-only evidence resolves to UNKNOWN even when the slug currently matches exactly one session: only an exact `sessionId`/`id` match identifies a session for this recheck, because a newer launch reusing the same `continue-<topic>` slug can be the one still listed after the original aged out"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "terminal-not-completed-is-the-restart-artifact",
+      "prompt": "Find my lost handoff. I sent the migration work to a background agent yesterday and I think it got interrupted partway — claude agents --all still shows it, but it never reported finishing.",
+      "expected_output": "Rechecking with `claude agents --json --all` shows the continuation present in a terminal state that does not report completion. This is the branch the recheck exists for: the skill KEEPS the save-point as the restart artifact, names the observed `state` value rather than forcing it into a familiar label, and hands it to the operator as the place to resume from. It is not excluded from the default winner the way a live or a completed continuation would be, because the work is neither in progress nor done.",
+      "files": [],
+      "expectations": [
+        "A terminal state that does not report completion KEEPS the candidate, as the restart artifact rather than as a discarded save-point",
+        "The observed `state` value is reported as read, not coerced into one of the familiar labels — the branch values are observed, not a closed set",
+        "The candidate is not excluded from the default winner: exclusion is for live and for completed continuations, and this is neither"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "shape-2-prompt-is-recovered-from-the-file-alone",
+      "prompt": "Find my lost handoff. The skill wrote the file a minute ago and I ran /clear before copying the prompt. (Note: the handoffs directory also holds a slightly older file that still contains `<!-- FILL:` comments from a run that got cut off.)",
+      "expected_output": "Rung 1 globs the current repo's handoffs directory, keeps the `type: handoff` files, and skips the one still carrying `<!-- FILL` slots, naming it as an unfinished skeleton rather than presenting it. The remaining candidate has `handoff_shape: 2`, so its resume prompt is recovered from the file itself: the skill prints the `## Resume prompt` section with `save_point.py emit <file>` through the interpreter ladder (falling back to `sed -n '/^## Resume prompt$/,$p'` when no Python is on PATH, saying that the stored path was not re-checked). It surfaces that block, the below-rail `claude --resume <UUID>` line, and the file's metadata at the confirm gate, and stops for yes/no. No transcript scan is needed.",
+      "files": [],
+      "expectations": [
+        "A `type: handoff` file that still contains a `<!-- FILL` slot is skipped and named as an unfinished skeleton, never surfaced as the lost handoff",
+        "For the `handoff_shape: 2` candidate the resume prompt is printed from the file's own `## Resume prompt` section via `save_point.py emit` (or the `sed -n` fallback without Python), not reconstructed and not sought in a transcript first",
+        "The surfaced prompt includes the block between the rails and the below-rail `claude --resume` line, with the directive's `Read @` path being the file's real path (emit substitutes the current path when the stored one is stale, and the fallback says no substitution ran)",
+        "The skill still stops at the confirm gate with the file's metadata (topic, date, session_id chain) before any resume, and reads no more of the file body than that final section"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "both-regions-recovered-when-a-goal-applied",
+      "prompt": "Find my lost handoff. I asked for a fresh /goal in that session, so the prompt had two boxes, one to type /goal and paste into and one for the plain resume. I ran /clear before copying either. The file is in the handoffs directory, and the same session's transcript is still on disk.",
+      "expected_output": "Rung 1 finds the shape-2 file and prints its `## Resume prompt` section with `save_point.py emit <file>`, which returns BOTH railed regions in the emitted order: the goal region headed by the `Type /goal ` instruction line and the resume region headed by the `/clear`, then copy line. The skill surfaces both at the confirm gate, each under its own instruction line, and does not stop at the first bottom rail. When the file is gone and rung 3 recovers from the transcript, the scan keys on the `/clear`, then copy instruction plus its rail pair, expects four rails rather than two, and reads the goal region above or below it by its own instruction line, so the goal condition comes back with the resume prompt. Any below-rail `/loop` re-arm entries are captured from below the last bottom rail. Everything surfaced is redacted, and the skill stops for yes/no before any resume.",
+      "files": [],
+      "expectations": [
+        "From the file, the prompt is printed with `save_point.py emit` and includes both regions in the emitted order, the goal region with its `Type /goal ` instruction line and the resume region with its `/clear`, then copy line",
+        "The skill does not present only the first rail pair, and never presents a recovered prompt whose goal region is missing when the file or transcript held one",
+        "From the transcript, the copy instruction plus its rail pair keys the candidate, the goal region is recovered as part of the same unit by its own instruction line whether it sits above or below the resume region, and the scan survives four rails",
+        "A goal region with no resume region beside it is not treated as a handoff, and the goal region is not used as a detection key",
+        "Any below-rail `/loop` re-arm entries are anchored to the last bottom rail and surfaced too, the whole set (`n` entries) rather than the first",
+        "The recovered text is redacted, and the skill stops at the yes/no confirm gate before executing any resume"
+      ]
+    }
+  ]
+}

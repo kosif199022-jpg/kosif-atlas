@@ -1,0 +1,11 @@
+{
+  "name": "deep-field",
+  "description": "Integrated insight system combining Eigenthinking, latent-space cartography, and wisdom-of-crowds validation; use for \"run deep field\", frontier-quality insight beyond default reasoning.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

@@ -1,0 +1,503 @@
+/**
+ * Commit plan model.
+ *
+ * A commit run is a short ordered list of commits. Which shape the changeset
+ * takes, whether the plan covers it, what each message reads like, and how much
+ * of the plan a previous run already landed — all of it is decided here, and all
+ * of it is pure. Reading git belongs to `commit.ts`, which hands these functions
+ * what it read.
+ *
+ * These were prose rules spread across three agents before. Prose cannot be
+ * unit-tested, and the staging rules in particular had already been wrong twice.
+ */
+
+import type { ParsedStatus } from "./analyze-changes";
+
+/** One cohesive group of files, as cut by the Lawspeaker. */
+export type CommitGroup = {
+  /** Optional: derived from `type` when absent. See `emojiFor`. */
+  emoji?: string;
+  type: string;
+  subject: string;
+  /** Repo-root-relative. A rename carries both its old and its new path. */
+  files: string[];
+};
+
+/** A group with its prose. */
+export type PlannedCommit = CommitGroup & {
+  /** English markdown body. Omitted for a trivial one-liner. */
+  body?: string;
+  /** 繁體中文摘要. Omitted for a trivial one-liner. */
+  summary?: string;
+};
+
+export type CommitPlan = {
+  shape: "simple" | "atomic";
+  commits: PlannedCommit[];
+};
+
+export type ShapeDecision = {
+  shape: "simple" | "atomic";
+  /** Why — one line per signal that fired. Empty for a simple shape. */
+  reasons: string[];
+};
+
+/**
+ * Simple or atomic, with no human gate.
+ *
+ * `moduleSpread` comes from the plan rather than from the paths here: what
+ * counts as a module is repo-specific (`packages/x` in a monorepo, `app/models`
+ * in a Rails tree), and guessing it from segment counts splits one of those two
+ * repos wrongly every time.
+ */
+export function decideShape(
+  /** One entry per proposed group, in order — only the count and the types matter. */
+  groupTypes: string[],
+  opts: {
+    mode: "auto" | "simple";
+    totalFiles: number;
+    moduleSpread: string[];
+  },
+): ShapeDecision {
+  if (opts.mode === "simple") {
+    return { shape: "simple", reasons: [] };
+  }
+  // Nothing to split. Every signal below would be a lie about a single group.
+  if (groupTypes.length <= 1) {
+    return { shape: "simple", reasons: [] };
+  }
+
+  const reasons: string[] = [];
+  const changeTypes = [...new Set(groupTypes)];
+  if (changeTypes.length >= 2) {
+    reasons.push(
+      `${changeTypes.length} change types: ${changeTypes.join(", ")}`,
+    );
+  }
+  if (opts.moduleSpread.length >= 2) {
+    reasons.push(
+      `spans ${opts.moduleSpread.length} modules: ${opts.moduleSpread.join(", ")}`,
+    );
+  }
+  if (opts.totalFiles > 5) {
+    reasons.push(`${opts.totalFiles} files`);
+  }
+
+  return { shape: reasons.length > 0 ? "atomic" : "simple", reasons };
+}
+
+export type PlanValidation = {
+  ok: boolean;
+  /** Changed paths the plan never assigned. */
+  missing: string[];
+  /** Paths the plan assigned to more than one commit. */
+  duplicated: string[];
+  /** Paths the plan names that the changeset does not hold. */
+  unknown: string[];
+  /** Renames whose two halves are not in the same commit, as `old -> new`. */
+  splitRenames: string[];
+};
+
+/**
+ * Resolve a trailing-slash entry to the changed paths under it, read at apply
+ * time, so a directory still being written to stays excluded as it grows.
+ *
+ * A directory entry that matches nothing is kept as written, so `validatePlan`
+ * reports it as unknown instead of silently excluding nothing.
+ */
+export function expandExclude(
+  exclude: string[],
+  changed: ParsedStatus[],
+): string[] {
+  const paths = [
+    ...new Set(
+      changed.flatMap((entry) =>
+        entry.oldPath ? [entry.path, entry.oldPath] : [entry.path],
+      ),
+    ),
+  ];
+  return [
+    ...new Set(
+      exclude.flatMap((entry) => {
+        if (!entry.endsWith("/")) return [entry];
+        const under = paths.filter((path) => path.startsWith(entry));
+        return under.length > 0 ? under : [entry];
+      }),
+    ),
+  ];
+}
+
+/**
+ * Whether the plan covers the changeset exactly once.
+ *
+ * Run before anything is staged. A plan that drops a file produces a commit that
+ * cannot build, and finding that out from the post-commit verification means
+ * finding it out too late to fix cheaply.
+ *
+ * A rename must carry both halves in the *same* commit. Committing only the new
+ * path leaves the old path's deletion staged behind: the tree ends up holding
+ * both files, and the post-commit check catches it only once the broken commit
+ * is already written. That is why this runs before anything is staged.
+ *
+ * An excluded path counts as assigned to a commit that never runs, so every rule
+ * above applies to it unchanged: planned and excluded is a duplicate, a rename
+ * cannot straddle it, and a path neither planned nor excluded is still missing.
+ */
+export function validatePlan(
+  plan: CommitPlan,
+  changed: ParsedStatus[],
+  exclude: string[] = [],
+): PlanValidation {
+  const required = new Set(changed.map((entry) => entry.path));
+  const allowed = new Set(required);
+  for (const entry of changed) {
+    if (entry.oldPath) allowed.add(entry.oldPath);
+  }
+
+  const owner = new Map<string, number>();
+  const duplicated: string[] = [];
+  const unknown: string[] = [];
+
+  const groups: [number, string[]][] = [
+    [-1, exclude],
+    ...plan.commits.map((commit, index): [number, string[]] => [
+      index,
+      commit.files,
+    ]),
+  ];
+  for (const [index, files] of groups) {
+    for (const path of files) {
+      if (owner.has(path)) {
+        if (!duplicated.includes(path)) duplicated.push(path);
+        continue;
+      }
+      owner.set(path, index);
+      if (!allowed.has(path)) unknown.push(path);
+    }
+  }
+
+  const missing = [...required].filter((path) => !owner.has(path));
+
+  const splitRenames: string[] = [];
+  for (const entry of changed) {
+    if (!entry.oldPath) continue;
+    // An unassigned new path is already reported as missing; don't say it twice.
+    if (!owner.has(entry.path)) continue;
+    if (owner.get(entry.oldPath) !== owner.get(entry.path)) {
+      splitRenames.push(`${entry.oldPath} -> ${entry.path}`);
+    }
+  }
+
+  return {
+    ok:
+      missing.length === 0 &&
+      duplicated.length === 0 &&
+      unknown.length === 0 &&
+      splitRenames.length === 0,
+    missing,
+    duplicated,
+    unknown,
+    splitRenames,
+  };
+}
+
+/** The prose for the collapsed one-commit form. Its files are derived, not written. */
+export type SimpleProse = Omit<PlannedCommit, "files">;
+
+/**
+ * `shape` is absent on purpose: the agent proposes a split and writes both
+ * messages, and the script alone decides which one gets written.
+ *
+ * Carrying both costs about 150 output tokens in the atomic case that discards
+ * `simple`. It buys the round trip a separate `propose` step used to spend
+ * settling the shape before any prose could be written.
+ */
+export type PlanDraft = {
+  commits: PlannedCommit[];
+  /** Required once `commits` holds more than one group. */
+  simple?: SimpleProse;
+  mode?: "auto" | "simple";
+  totalFiles?: number;
+  elidedFiles?: number;
+  /** Top-level modules the changeset spans — repo-shaped, so the agent judges it. */
+  moduleSpread?: string[];
+  /** Why the groups are in this order. */
+  notes?: string[];
+  /** Changed paths the caller asked to leave uncommitted. Never the agent's own call. */
+  exclude?: string[];
+};
+
+/**
+ * A single group stays as it is whatever the shape says: there is nothing to
+ * merge, and its own prose was written for exactly these files. Only a real
+ * collapse reaches for `simple`.
+ */
+export function resolveShapedCommits(
+  plan: PlanDraft,
+  shape: "simple" | "atomic",
+): PlannedCommit[] {
+  if (shape === "atomic" || plan.commits.length === 1) return plan.commits;
+
+  const files = [...new Set(plan.commits.flatMap((commit) => commit.files))];
+  return [{ ...(plan.simple as SimpleProse), files }];
+}
+
+function isFilledString(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Every field here has a plausible way of arriving wrong — a group without
+ * files, an absolute path, the shape it was told not to decide — and the agent
+ * writes this JSON by hand. Naming each fault lets one re-run fix all of them
+ * instead of trading a round trip per complaint.
+ *
+ * Coverage of the changeset is `validatePlan`'s job — it needs git, this does not.
+ */
+export function validatePlanFile(raw: unknown): string[] {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return ["the plan must be a JSON object"];
+  }
+
+  const draft = raw as Record<string, unknown>;
+  const errors: string[] = [];
+
+  for (const key of ["shape", "reasons", "ok"]) {
+    if (key in draft) {
+      errors.push(`remove \`${key}\` — the script decides it, not you`);
+    }
+  }
+
+  if (
+    draft.mode !== undefined &&
+    draft.mode !== "auto" &&
+    draft.mode !== "simple"
+  ) {
+    errors.push('`mode` must be "auto" or "simple"');
+  }
+
+  for (const key of ["moduleSpread", "notes"]) {
+    const value = draft[key];
+    if (value === undefined) continue;
+    if (
+      !Array.isArray(value) ||
+      value.some((item) => typeof item !== "string")
+    ) {
+      // A bare string survives `.length` and then throws inside decideShape's
+      // join, which reaches the agent as a JS error it cannot act on.
+      errors.push(`\`${key}\` must be an array of strings`);
+    }
+  }
+
+  if (draft.exclude !== undefined) {
+    if (
+      !Array.isArray(draft.exclude) ||
+      draft.exclude.some((path) => !isFilledString(path))
+    ) {
+      errors.push("`exclude` must be an array of repo-relative paths");
+    } else {
+      for (const path of draft.exclude as string[]) {
+        if (path.startsWith("/")) {
+          errors.push(`\`exclude\` holds an absolute path: ${path}`);
+        }
+      }
+    }
+  }
+
+  for (const key of ["totalFiles", "elidedFiles"]) {
+    const value = draft[key];
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      errors.push(`\`${key}\` must be a count, not ${JSON.stringify(value)}`);
+    }
+  }
+
+  if (!Array.isArray(draft.commits) || draft.commits.length === 0) {
+    errors.push("`commits` must be a non-empty array, in commit order");
+    return errors;
+  }
+
+  for (const [index, entry] of draft.commits.entries()) {
+    errors.push(...proseErrors(entry, `commits[${index}]`, true));
+  }
+
+  // Demanded up front rather than after the shape is known, because finding out
+  // then costs the round trip this whole file exists to save. Past five files a
+  // split can never collapse (see decideShape), so the fallback would go unread.
+  const plannedFiles = new Set(
+    draft.commits.flatMap((entry) =>
+      Array.isArray((entry as { files?: unknown })?.files)
+        ? (entry as { files: unknown[] }).files
+        : [],
+    ),
+  ).size;
+  const cannotCollapse =
+    draft.mode !== "simple" &&
+    plannedFiles > 5 &&
+    !(typeof draft.totalFiles === "number" && draft.totalFiles <= 5);
+  if (draft.commits.length > 1) {
+    if (draft.simple === undefined) {
+      if (cannotCollapse) return errors;
+      errors.push(
+        "`simple` is missing — write the one-commit message these groups collapse into",
+      );
+    } else {
+      errors.push(...proseErrors(draft.simple, "simple", false));
+    }
+  }
+
+  return errors;
+}
+
+function proseErrors(
+  entry: unknown,
+  at: string,
+  needsFiles: boolean,
+): string[] {
+  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+    return [`${at} must be an object`];
+  }
+
+  const candidate = entry as Record<string, unknown>;
+  const errors: string[] = [];
+  if (!isFilledString(candidate.type)) {
+    errors.push(`${at}.type is missing — feat / fix / docs / chore / …`);
+  }
+  if (!isFilledString(candidate.subject)) {
+    errors.push(`${at}.subject is missing — imperative, no trailing period`);
+  }
+
+  if (!needsFiles) {
+    // Its files are every path in the plan, so one written here would either
+    // repeat them or silently disagree with them.
+    if ("files" in candidate) errors.push(`remove \`${at}.files\``);
+    return errors;
+  }
+
+  const files = candidate.files;
+  if (!Array.isArray(files) || files.length === 0) {
+    return [
+      ...errors,
+      `${at}.files must be a non-empty array of repo-relative paths`,
+    ];
+  }
+  for (const path of files) {
+    if (!isFilledString(path)) {
+      errors.push(`${at}.files holds a non-string path`);
+    } else if ((path as string).startsWith("/")) {
+      errors.push(`${at}.files holds an absolute path: ${path}`);
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * The template's type → emoji table, as code.
+ *
+ * An agent asked for an emoji alongside a type will sometimes return the type
+ * alone — observed on the first live run of this flow. The mapping is fixed, so
+ * deriving it here means no agent can drop it.
+ */
+const EMOJI_FOR_TYPE: Record<string, string> = {
+  feat: "✨",
+  fix: "🐛",
+  docs: "📖",
+  style: "🎨",
+  refactor: "📦",
+  test: "✅",
+  chore: "🔧",
+  remove: "🔥",
+  hotfix: "🚑",
+  security: "🔒",
+  perf: "⚡️",
+};
+
+/** The commit's emoji: what the plan asked for, or the type's own. */
+export function emojiFor(commit: Pick<CommitGroup, "emoji" | "type">): string {
+  return commit.emoji?.trim() || (EMOJI_FOR_TYPE[commit.type] ?? "🔧");
+}
+
+/** The commit message, per `references/commit-template.md`. */
+export function composeMessage(commit: PlannedCommit): string {
+  const subject =
+    `${emojiFor(commit)} ${commit.type}: ${commit.subject}`.trim();
+  const body = commit.body?.trim();
+  const summary = commit.summary?.trim();
+
+  let message = subject;
+  if (body) message += `\n\n${body}`;
+  // The separator is only meaningful when a summary follows it.
+  if (summary) message += `\n\n---\n\n${summary}`;
+  return `${message}\n`;
+}
+
+/** The commit's subject: the first line of its message. */
+export function subjectOf(commit: PlannedCommit): string {
+  return composeMessage(commit).split("\n")[0] ?? "";
+}
+
+export type LogEntry = {
+  sha: string;
+  subject: string;
+  /** The paths that commit changed, renames expanded to both halves. */
+  paths: string[];
+};
+
+function sameFileSet(a: string[], b: string[]): boolean {
+  const left = new Set(a);
+  const right = new Set(b);
+  if (left.size !== right.size) return false;
+  for (const path of left) if (!right.has(path)) return false;
+  return true;
+}
+
+export type Resumption = {
+  /** How many of the plan's commits are already at HEAD, in order. */
+  landed: number;
+  /** The commit the run started from, for the coverage check. */
+  base: string;
+};
+
+/**
+ * How much of this plan a previous run already wrote.
+ *
+ * The signal is the repo, never a stored flag: the tip of the log either spells
+ * out the plan's first `k` commits in reverse or it does not. That is what makes
+ * a re-run after a crash finish the plan instead of duplicating its first half,
+ * and it is also what keeps `base` honest — the coverage check has to diff from
+ * before the *first* plan commit, not from the resumed HEAD.
+ *
+ * A commit counts as landed only when its subject **and** its file set match.
+ * The subject alone is not identity: a repeated subject — `🔧 chore: bump the
+ * version` on two consecutive runs — would otherwise read an older commit as
+ * this plan's first, skip real work, and leave it uncommitted.
+ *
+ * `log` is newest-first. Alignment is tried longest-first so a plan whose
+ * subjects repeat resolves to the longest real run rather than a short accident.
+ */
+export function resolveResumption(
+  log: LogEntry[],
+  plan: CommitPlan,
+  emptyTree: string,
+): Resumption {
+  const subjects = plan.commits.map(subjectOf);
+  const most = Math.min(log.length, subjects.length);
+
+  for (let landed = most; landed > 0; landed--) {
+    const aligned = Array.from({ length: landed }, (_, offset) => {
+      const entry = log[offset];
+      const commit = plan.commits[landed - 1 - offset];
+      if (!entry || !commit) return false;
+      return (
+        entry.subject === subjects[landed - 1 - offset] &&
+        sameFileSet(entry.paths, commit.files)
+      );
+    }).every(Boolean);
+    if (aligned) {
+      return { landed, base: log[landed]?.sha ?? emptyTree };
+    }
+  }
+
+  return { landed: 0, base: log[0]?.sha ?? emptyTree };
+}

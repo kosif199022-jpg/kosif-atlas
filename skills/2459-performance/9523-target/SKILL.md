@@ -1,0 +1,129 @@
+---
+description: "Identify and rank optimization targets by evidence quality, so an unmeasured system yields 'instrument this first' instead of a guess. Accepts session pain, a named path, telemetry, or open-ended 'what is slow here'. Use when: 'what should we optimize', 'find the bottleneck', 'this feels slow', 'is X worth optimizing'. Hands off to /performance:goal. Skip when the target is already chosen and measured, or when a failure needs debugging rather than a candidate ranking."
+user-invocable: true
+argument-hint: "[<path|component|'session'|'telemetry'>]"
+disable-model-invocation: false
+metadata:
+  workflow-stage: explore
+  summary: Rank optimization candidates by evidence quality, not suspicion
+---
+
+**Arguments.** `[<path|component|'session'|'telemetry'>]`. e.g. /performance:target plugins/disk-hygiene/hooks
+
+## Purpose
+
+Answers **"what should we optimize, and how much do we actually know about it?"**
+
+The failure this prevents is picking a target because its mechanism sounds expensive. Take a
+diagnosis of WDAC code-integrity enforcement as the cause of slow process spawns: the mechanism is
+real and the policy may genuinely be enabled, and it is still the wrong answer when the data says
+otherwise. A spread of min 180.5 ms / median 1107.7 ms / max 2841.3 ms across *identical* no-op
+spawns is a contention signature, because a fixed policy check cannot produce a 15x spread.
+**The bimodality is the diagnosis; the plausible mechanism is a distraction.**
+
+So this skill ranks by evidence, and says so when there is none.
+
+## Inputs it accepts
+
+| Source | What to do |
+|---|---|
+| The current session's own pain | Name the operation that felt slow and what was observed. A screenshot or recording counts. Anecdote is a valid *candidate source* and an invalid *ranking basis*. |
+| A named path or component | Enumerate the layers it spans before choosing one (see "Measure the layers first"). |
+| A telemetry store | `/harness-ops:observability` for Claude Code's own; otherwise the project's. Prefer it over every other source, after checking its accuracy and coverage. |
+| Open-ended "what is slow here" | Widest scope, weakest evidence. Expect the output to be "instrument this first". |
+
+## Evidence tiers
+
+Rank every candidate into exactly one. **A lower tier never outranks a higher one**, regardless of
+how compelling the mechanism sounds.
+
+| Tier | Means | Example |
+|---|---|---|
+| **E1, attributed measurement** | A measurement that isolates this component's cost from its neighbors' | A spawn census showing this hook costs 4 of the 7 spawns per tool call |
+| **E2, aggregate measurement** | A real measurement that includes this component but does not isolate it | "The whole pre-tool path takes 1.2 s" |
+| **E3, structural inference** | No measurement; a documented cost model predicts expense | "This is a 125-line shell wrapper that runs per tool call" |
+| **E4, suspicion** | A plausible mechanism and nothing else | "WDAC is probably slowing spawns" |
+
+**Nothing above E3 exists means the top recommendation is "instrument this first"**, naming the
+cheapest instrument that would reach E2. That IS the answer; do not substitute a ranked guess.
+
+Cheap instruments: a [census](../../reference/techniques.md#a-choose-the-target) of what runs on
+the hot interaction, and events tagged with the
+[region and phase](../../reference/techniques.md#c-lab-measurement-and-rigs) the symptom hits.
+
+## Measure the layers before choosing one
+
+When a candidate spans layers (a shell wrapper around a Python program; a route through an ORM
+through a driver), attribute cost *across the layers* before picking one to optimize.
+
+The instinct is to optimize the largest layer: a 1903-line Python guard body over the 125-line shell
+wrapper that execs it. Measurement routinely inverts that, and a wrapper this size can carry roughly
+88% of the cost while the body it wraps is not the bottleneck. Layer attribution is cheap and
+reorders the candidate list.
+
+Trace past the headline event too: work no metric covers (background reloads, idle-state work)
+still costs. For a field report with a recording, follow the diagnosis ladder before theorizing.
+See [diagnose](../../reference/techniques.md#e-diagnose).
+
+## Name the counter, not just the duration
+
+For each ranked candidate, name the **drift-immune counter** that would settle it: process spawns,
+syscalls, queries, allocations, bytes, round trips. A counter is reproducible on a host whose wall
+clock is not.
+
+The [counter catalog](../../reference/techniques.md#c-lab-measurement-and-rigs) lists
+deterministic counters to try before timing. If no counter exists for a candidate, say so explicitly. That is a real property of the target and
+it changes what `/performance:goal` can promise.
+
+Grounding: the counts-over-wall-clock rationale is stated in the literature for **instruction
+counts** specifically (Valgrind's Cachegrind manual; Iai). Extending it to spawns, syscalls and
+queries is this plugin's own generalization, not a sourced claim, and Valgrind's own manual argues
+the other side too: execution time "is a better metric than instruction counts because it's what
+users perceive". Present a counter as *reproducible*, never as *more truthful*.
+
+## Output
+
+A ranked table, highest evidence tier first:
+
+| Rank | Candidate | Tier | What is known | Counter that would settle it | Cheapest next instrument |
+|---|---|---|---|---|---|
+
+Add a **Growing state** column when the candidate reads state whose size grows with use (transcripts,
+logs, histories, accumulating caches): `yes — /performance:goal will require scaling arms` or `no`.
+When `yes`, name what grows and the smallest realistic span of sizes to measure (not a single point).
+
+Then one line naming the recommended target and the tier it rests on. If that tier is E3 or E4, the
+recommendation is to instrument, not to optimize.
+
+On a re-scan after a MET result, look first for the next slow spot in the same journey or path.
+
+## Boundary
+
+- **Does not set a goal or a target number.** That is `/performance:goal`, which is human-gated
+  because it needs the floor computed and the realistic/ideal split agreed.
+- **Does not measure.** It ranks what is known and names what is missing;
+  `/performance:snapshot` captures.
+- **Does not root-cause an observed failure.** A specific broken or slow behavior with a
+  reproduction is a debugging task, not a candidate ranking.
+- **Does not diagnose a slow Claude Code installation.** That is
+  `/harness-ops:audit-performance`, which this skill consumes as a telemetry source rather than
+  duplicating.
+
+## Next
+
+`/performance:goal <chosen target>`. Carry the evidence tier forward: goal stops on an E3 or E4
+candidate, or one this ranking says to instrument, until the named instrument has run.
+
+## Gotchas
+
+- **A plausible mechanism is not evidence.** The WDAC diagnosis above is the worked example. Ask what
+  the mechanism predicts, then check whether the data shows it. A fixed cost cannot produce a
+  variable spread.
+- **Anecdote from this session is a candidate source, not a ranking basis.** "It felt slow" gets a
+  candidate onto the list at E4 and no higher.
+- **The biggest file is not the bottleneck.** Line count is not a cost model. Attribute across the
+  layers before believing size.
+- **A target with no drift-immune counter is a harder target**, not an equal one. Say so here rather
+  than discovering it in `/performance:snapshot` when a wall-clock claim gets refused.
+- **Growing-state reads need a scaling arm in the goal.** Flag them in the table so
+  `/performance:goal` does not settle on one transcript size while production grows without bound.

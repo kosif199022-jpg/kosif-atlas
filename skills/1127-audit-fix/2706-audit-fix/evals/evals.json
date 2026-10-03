@@ -1,0 +1,23 @@
+{
+  "skill_name": "audit-fix",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "audit your thinking for errors, omissions, oversights, blind spots, duplications or room for improvement. when an observation earns its place, update the plan in light of it",
+      "expected_output": "Runs the six-lens adversarial pass on the most recent artifact, presents survivors AND discards (each discard with a one-line reason), fixes survivors at root cause, updates the plan, reports finding→root-cause→fix lines.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "review and audit SPEC.md for blindspots, oversights, or areas for improvement — just report, don't change anything yet",
+      "expected_output": "Detects report-only mode, stops after the earn filter: survivors with concrete failure scenarios, discards with reasons. No edits made.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "the line edit phase is still throwing errors. find and fix the root cause",
+      "expected_output": "Traces the defect to the shared choke point (greps all callers/paths before editing), makes one fix where all paths route through rather than patching the reported path, ripples doc updates, re-verifies and reports evidence faithfully.",
+      "files": []
+    }
+  ]
+}

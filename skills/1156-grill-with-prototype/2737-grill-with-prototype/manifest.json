@@ -1,0 +1,31 @@
+{
+  "name": "grill-with-prototype",
+  "version": "0.1.1",
+  "description": "Interview the owner for functional requirements while a realistic clickable prototype of the product re-renders live; ends with a factory-ready PRD.",
+  "entry_page": "prototype",
+  "pages": [
+    "prototype",
+    "requirements",
+    "models",
+    "help"
+  ],
+  "deps": {
+    "python": ">=3.10",
+    "node": null,
+    "pip": [],
+    "npm": [],
+    "cli": []
+  },
+  "models": {
+    "default": "harness",
+    "roles": {}
+  },
+  "background": {
+    "max_concurrent": 3
+  },
+  "harness_adapters": [
+    "generic",
+    "claude-code",
+    "codex"
+  ]
+}

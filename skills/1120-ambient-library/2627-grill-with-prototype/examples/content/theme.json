@@ -1,0 +1,19 @@
+{
+  "brand": "#8b2e2a",
+  "brand_ink": "#fff8f3",
+  "accent": "#c97d3a",
+  "bg": "#fffdf9",
+  "surface": "#ffffff",
+  "surface_2": "#f6efe6",
+  "ink": "#221c18",
+  "ink_2": "#4d433c",
+  "muted": "#8a7e74",
+  "rule": "#ebe2d6",
+  "radius": "4px",
+  "radius_sm": "3px",
+  "hue": 20,
+  "font": "'Source Serif 4', Georgia, serif",
+  "heading_font": "'Playfair Display', Georgia, serif",
+  "font_url": "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap",
+  "photos": "picsum"
+}

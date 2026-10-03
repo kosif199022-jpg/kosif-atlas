@@ -1,0 +1,46 @@
+{
+  "pipeline_id": "express-5-stage",
+  "name": "Express Pipeline",
+  "description": "Streamlined flow for newsletters and short blog posts. Skips Researcher, Outliner, Analogist, and Emotional Architect. Trusts the Drafter's own knowledge and keeps the piece tight.",
+  "best_for": ["newsletter", "personal-story"],
+  "stages": [
+    {
+      "stage": 1,
+      "name": "Strategy",
+      "roles": ["strategist"],
+      "parallel": false,
+      "gate": { "min_score": 7, "action": "send_back" }
+    },
+    {
+      "stage": 2,
+      "name": "Draft",
+      "roles": ["drafter"],
+      "parallel": false,
+      "gate": { "min_score": 7, "action": "send_back" }
+    },
+    {
+      "stage": 3,
+      "name": "Attack + Reaction",
+      "roles": ["skeptic", "avatar-reviewer:pass-2"],
+      "parallel": true,
+      "gate": null
+    },
+    {
+      "stage": 4,
+      "name": "Polish",
+      "roles": ["line-editor"],
+      "parallel": false,
+      "gate": { "min_score": 9, "action": "surface_to_user" }
+    },
+    {
+      "stage": 5,
+      "name": "Compression Test",
+      "roles": ["compression-agent"],
+      "parallel": false,
+      "gate": { "compression_pass": true, "action": "surface_to_user" }
+    }
+  ],
+  "total_roles": 5,
+  "avg_min_score": null,
+  "runs": 0
+}

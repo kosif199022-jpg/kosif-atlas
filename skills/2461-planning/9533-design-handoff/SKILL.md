@@ -1,0 +1,108 @@
+---
+description: "Gate a finished design for /planning:plan: FAILs on any design thread left unresolved and untagged, then emits a coverage table, the plan-ready summary, and a resume prompt. Use when: 'design handoff', 'hand off the design', 'is the design ready', 'plan-ready summary', 'design gate', or design rounds stop surfacing gaps. Still exploring: /planning:design. Mid-session save-point: a session-handoff capability."
+user-invocable: true
+disable-model-invocation: false
+metadata:
+  workflow-stage: plan
+  summary: Gate a finished design and package it for planning
+---
+
+## Repository context. Gather first
+
+Collect these with **individual** Bash calls, one command per call, never combined into a single
+invocation:
+
+- Current branch, `git branch --show-current`
+
+Treat a failure (not a repository, git unavailable) as an unknown value and carry on. Keep these as
+separate body Bash calls rather than pre-compute lines: the harness runs a skill's whole pre-compute
+block as one shell invocation, and a worktree-isolated session refuses a compound command that
+contains git. The dated record for that composition claim is the worktree skill's
+[reference/gather-block.md](https://raw.githubusercontent.com/melodic-software/claude-code-plugins/main/plugins/source-control/skills/worktree/reference/gather-block.md),
+"The pre-compute block runs as one shell invocation".
+
+## Purpose
+
+The seam between design and planning. `/planning:plan`'s prerequisite check blocks on design-gate evidence; this skill produces that evidence honestly. A binary check read off the artifact, then a handoff summary sourced from the artifacts rather than recalled from conversation memory.
+
+Takes no arguments. It reads the design-threads artifact in the topic's design slice.
+
+Design artifacts live in `<memory_dir>/<topic-slug>/design/` (default `.work/`), never committed; placement per the lifecycle artifact protocol [`${CLAUDE_PLUGIN_ROOT}/reference/artifact-protocol.md`](${CLAUDE_PLUGIN_ROOT}/reference/artifact-protocol.md). Derive `<topic-slug>` from the task or branch name (kebab-case, ≤40 chars; shared with `/planning:design` and `/planning:plan`).
+
+## Binary gate. Check the artifact, not your memory
+
+Read `design-threads.md` in the topic's design slice (`<memory_dir>/<topic-slug>/design/`, default `.work/`) and confirm, thread by thread, that **every** design thread is one of:
+
+- **RESOLVED**. The deciding rationale is recorded in the artifact (not merely "decided"), or
+- **directional**. Direction agreed AND the remaining detail carries a research tag, or
+- **TAGGED-DEFERRED**. An explicit research tag naming the external investigation needed.
+
+A thread that is unresolved AND untagged is a silent gap → **FAIL**: list the offending thread(s), route back by invoking `/planning:design` via the Skill tool (its design-threads and discussion rounds) to resolve or tag, and do NOT hand off. This is a binary check read off `design-threads.md`, not a "did we cover enough?" recap. A producing model rubber-stamps its own recap, so the gate must be read off the file rather than judged from memory.
+
+If `design-threads.md` does not exist, check for `design-resolution.md` at the same path (the `/planning:design` early-exit artifact). Early-exit slices hand off on that artifact alone. Neither present → FAIL: no design evidence; route back by invoking `/planning:design` via the Skill tool.
+
+## Coverage report (advisory)
+
+After the verdict sentence, and on a FAIL after the routing sentence too, emit one table reporting
+coverage across the six dimensions a design answers: what, how, where, who, when, why. Emit it on
+PASS and on FAIL alike. It never contributes to the pass/fail determination, it never blocks a
+handoff, no flag makes it block, and the table is never written to disk.
+
+Read it over `design-threads.md`, or over `design-resolution.md` when the early-exit artifact is
+what the gate read. A row is **covered** when a thread whose status is RESOLVED or directional
+records a decision about that dimension, and the row then names that thread and its status. A
+TAGGED-DEFERRED thread never covers a row: the tag names an investigation still outstanding, so the
+dimension it belongs to is not yet covered.
+
+`design-resolution.md` has no threads and no statuses. There a row is covered when the artifact
+itself records a decision about that dimension; the `Covered by` cell names the recorded decision
+and the `Status` cell reads `recorded`.
+
+The artifact carries no dimension field (a thread is a name, options, a status, and a rationale), so
+coverage is a judgment read over the whole artifact. The reading rule per dimension is the table's
+own second column:
+
+| Dimension | Covered by | Status |
+| --- | --- | --- |
+| what | the thread naming the thing being built or changed | RESOLVED |
+| how | the thread recording the mechanism or algorithm | RESOLVED |
+| where | the thread recording location, topology, or runtime placement | directional |
+| who | the thread recording the actor, owner, operator, or caller | RESOLVED |
+| when | the thread recording timing, sequencing, or lifecycle | directional |
+| why | the thread recording the rationale behind the decision | RESOLVED |
+
+In a real emission each `Covered by` cell carries the thread's own name and each `Status` cell that
+thread's own status. An uncovered row reads `none` in both.
+
+## Handoff summary (gate passed)
+
+Hand off by invoking `/planning:plan` via the Skill tool. Sourced from the artifacts, not recalled from memory:
+
+- Resolved decisions with their recorded rationale (from `design-threads.md`)
+- **ADR candidates.** Each resolved decision that is hard to reverse, surprising without context, and the result of a real trade-off. When the `architecture` plugin is enabled, offer to invoke `/architecture:record-decision` via the Skill tool for each one, passing the decision and its recorded rationale from `design-threads.md`; that skill owns convention discovery, the no-convention offer-and-defer, and the write. Otherwise list them under an "ADR candidates" heading in the summary for the human to record by hand. The offer never blocks the handoff
+- Deferred research items with tags
+- Design artifacts produced
+- Dependency order for implementation (which decisions block others)
+- Extension / config / observability threads **RESOLVED** or **TAGGED-DEFERRED**. `/planning:plan` next walks its design-default checklist against the plan
+- **Review-routing notes**. When the consuming project declares review checklists (architecture, code-design, security, multi-tenancy, messaging, and the like), list which apply to this slice so `/planning:plan` and the implementation stage inherit proactive review targets
+- **Mechanization notes** (optional). When the project distinguishes deterministic mechanization from human judgment, mark per capability whether a sub-step is script-, hook-, agent-, or human-owned; a trivial early-exit records "no deterministic sub-steps"
+- **Uncovered dimensions**. The dimensions the coverage table read as `none`, listed verbatim, so `/planning:plan` can hold them as open questions. Record "none" when all six are covered
+
+Emit a resume prompt so a fresh cleared session can pick up at `/planning:plan` reading only the persisted artifacts. The resume prompt carries the uncovered dimensions verbatim; the coverage table itself stays in the emitted output and is never written to disk.
+
+## What this skill does NOT do
+
+- **Design exploration or thread resolution**. That's `/planning:design` (a FAILed gate routes there; this skill never resolves threads itself)
+- **Implementation planning**. That's `/planning:plan` (this skill packages its input)
+- **Mid-session save-point**. That's a session-handoff capability (a journal entry plus status for a later clear-and-resume). This skill is the design→plan stage seam, not a pause-point
+
+## Next
+
+/planning:plan consumes the plan-ready summary.
+
+## Gotchas
+
+- A thread marked "decided" without recorded rationale is NOT RESOLVED. The rationale must be in the artifact, or `/planning:plan` inherits an unexplainable decision. FAIL it back by invoking `/planning:design` via the Skill tool to record the why
+- Do not soften a FAIL into a warning because the offending thread "feels minor". Silent gaps are exactly what the binary gate exists to catch
+- A coverage gap is information for the human, not a FAIL; do not promote it
+- `/planning:design`'s `handoff` action is an in-session shortcut that delegates here. This skill is the single canonical gate implementation, so criteria changes land here only

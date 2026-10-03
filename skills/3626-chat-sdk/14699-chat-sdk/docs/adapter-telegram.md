@@ -1,0 +1,236 @@
+> Source: https://chat-sdk.dev/adapters/official/telegram.md
+
+---
+title: Telegram
+description: Telegram adapter for Chat SDK with webhook and polling modes.
+tagline: Connect to Telegram with support for groups, channels, inline keyboards, and a polling fallback for local development.
+package: @chat-adapter/telegram
+---
+
+# Telegram
+
+
+## Install
+
+
+## Quick start
+
+
+  The adapter auto-detects `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_MENTION_ON_REPLY` from the environment.
+
+  For managed credentials, see [Vercel Connect](#vercel-connect).
+
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createTelegramAdapter } from "@chat-adapter/telegram";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    telegram: createTelegramAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+```typescript title="app/api/webhooks/telegram/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.telegram(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+Register the webhook URL with the Telegram Bot API:
+
+```bash
+curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-domain.com/api/webhooks/telegram",
+    "secret_token": "your-secret-token"
+  }'
+```
+
+## Authentication
+
+Use Vercel Connect to manage the outbound bot token, or provide the token directly. Both options use Telegram's native webhook verification; polling does not require a webhook secret.
+
+### Vercel Connect
+
+Use [Vercel Connect](/docs/vercel-connect) to resolve the outbound Telegram bot token at runtime:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createTelegramAdapter } from "@chat-adapter/telegram";
+import { connectTelegramAdapter } from "@vercel/connect/chat";
+
+const telegram = createTelegramAdapter({
+  ...connectTelegramAdapter("telegram/acme-telegram"),
+  secretToken: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
+});
+```
+
+
+  Connect does not forward Telegram webhooks. Keep
+  `TELEGRAM_WEBHOOK_SECRET_TOKEN` for native webhook verification, or use
+  polling mode without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed
+  when using `connectTelegramAdapter`.
+
+
+### Bot token
+
+Create a bot via [BotFather](https://t.me/BotFather) and provide its token directly to the adapter:
+
+1. Send `/newbot` and follow the prompts.
+2. Copy the token to `TELEGRAM_BOT_TOKEN`.
+3. Optionally pick a username and copy it to `TELEGRAM_BOT_USERNAME`.
+
+## Configuration
+
+
+`botToken` is always required. Webhook mode also requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
+
+### Environment variables
+
+| Variable                             | Required                                                | Description                                                                                                                             |
+| ------------------------------------ | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`                 | Yes, unless using Vercel Connect                        | Bot token from BotFather.                                                                                                               |
+| `TELEGRAM_WEBHOOK_SECRET_TOKEN`      | In webhook mode, unless unverified webhooks are allowed | Webhook secret token.                                                                                                                   |
+| `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS` | No                                                      | Set to `true` to accept webhooks without secret-token verification. Use only for local development or behind a trusted verifying proxy. |
+| `TELEGRAM_ALLOWED_USER_IDS`          | No                                                      | Comma-separated user IDs allowed to trigger the adapter. All users are allowed when unset.                                              |
+| `TELEGRAM_BOT_USERNAME`              | No                                                      | Bot username for mention detection. Falls back to `getMe`.                                                                              |
+| `TELEGRAM_MENTION_ON_REPLY`          | No                                                      | Set to `true` to treat replies to the bot's messages as mentions.                                                                       |
+| `TELEGRAM_API_BASE_URL`              | No                                                      | Override the Telegram API base URL.                                                                                                     |
+
+## Webhooks
+
+Telegram sends the `secret_token` you registered with `setWebhook` in the `X-Telegram-Bot-Api-Secret-Token` header, and the adapter compares it with `secretToken`. Webhook mode requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled.
+
+Accepted webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter, so use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
+
+## Polling for local development
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createTelegramAdapter } from "@chat-adapter/telegram";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const telegram = createTelegramAdapter({
+  mode: "polling",
+});
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { telegram },
+  state: createMemoryState(),
+});
+```
+
+Polling and webhooks are mutually exclusive in Telegram. `mode: "polling"` deletes the webhook by default before calling `getUpdates`.
+
+Polling waits for message, command, action and reaction processing before advancing its offset. If a handler fails, the adapter must successfully save the failed update and next offset in bot-scoped state before acknowledging it. Saved updates retry independently so one recipient's failure cannot pin the shared polling offset. A handler can return after saving its input to your durable queue; it does not need to wait for model execution.
+
+Albums are buffered in bot-scoped state so parts arriving in separate polling responses can be combined. The adapter saves the parts and offset before acknowledging them, retains the buffer until processing succeeds, and resumes saved buffers when polling starts again. Album grouping uses a short settling window because Telegram does not provide an end-of-album event.
+
+Failed updates and albums retain their input and retry independently with exponential backoff, starting at a minimum of one second and capped at thirty seconds, or longer when Telegram specifies `retry_after`. Retry deadlines survive restarts with persistent state. Polling continues between saved-update batches, so a rejected reply does not indefinitely block new updates for other chats. Repeated failures are logged; the adapter does not discard failed updates or guarantee exactly-once handler execution. Later updates can finish before earlier failed updates.
+
+Use a persistent state adapter, such as Redis or PostgreSQL, for recovery across process restarts. Memory state is suitable for local development but cannot preserve acknowledged failed updates or album parts after process loss. Run only one polling instance per bot. Handlers must tolerate redelivery: a crash after an application side effect but before completion is saved can repeat that side effect. Handlers must also finish or reject: a handler that never settles can still hold up its polling batch.
+
+## Auto mode
+
+`mode: "auto"` (the default) checks `getWebhookInfo`: if a webhook URL is set, it uses webhook mode; otherwise it falls back to polling on long-running runtimes. If `getWebhookInfo` fails, the adapter stays in webhook mode, which is the safe fallback.
+
+```typescript
+const telegram = createTelegramAdapter({ mode: "auto" });
+void bot.initialize();
+console.log(telegram.runtimeMode); // "webhook" | "polling"
+```
+
+## Streaming
+
+Streams use post-and-edit by default for consistent behavior across Telegram clients. To opt into native draft previews in private chats:
+
+```typescript
+const telegram = createTelegramAdapter({ nativeStreaming: true });
+```
+
+[Telegram clients should dismiss a draft preview](https://core.telegram.org/api/bots/ai#live-response-streaming) when the final message arrives, but draft rendering varies between clients. Keep the default when your bot must work consistently across Telegram clients.
+
+Telegram recommends at most one message per second in a single chat and limits groups to 20 messages per minute. Sends and edits share flood control, so the post-and-edit path defaults to 1100ms between operations in private chats and 3100ms in other chats. This is a floor: setting a lower `streamingUpdateIntervalMs` on your `Chat` instance does not push the adapter past it. Override it with `streamingEditIntervalMs`:
+
+```typescript
+const telegram = createTelegramAdapter({ streamingEditIntervalMs: 4000 });
+```
+
+If Telegram rate limits the final edit, the adapter waits and retries when the requested delay is 5 seconds or less. Longer delays and failed retries reject the post so it never reports text that Telegram did not receive.
+
+## Markdown formatting
+
+On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages. Standard markdown gains native headings, lists, tables, task lists, formulas, details, and separate media blocks where supported by Telegram.
+
+Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. Older or custom Bot API servers automatically fall back to this existing path when rich message methods are unavailable.
+
+MarkdownV2 fallback messages and captions that fit the length limit ship exactly as rendered, including backticks and other special characters inside link destinations. When a length limit cuts through a link, code span, or underline, the incomplete entity is removed before the ellipsis.
+
+Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
+
+## Slash commands
+
+Use `bot.onSlashCommand` to handle Telegram bot commands such as `/status` and `/status@mybot`. Commands addressed to another bot are ignored as slash commands and continue through the normal message path.
+
+## Attachments
+
+Incoming file attachments expose a lazy `fetchData()` served from the configured Bot API host. Downloads are limited to 25 MB and time out after 30 seconds. They use the Web Fetch API, so file downloads keep working in runtimes like Cloudflare Workers.
+
+Incoming attachments preserve Telegram's downloadable `file_id` and stable `file_unique_id` as `fetchMetadata.fileId` and `fetchMetadata.fileUniqueId`. Photo attachments use the `image/jpeg` MIME type.
+
+Incoming media groups are delivered as one message after the album settles, with attachments ordered by Telegram message ID and the shared caption preserved.
+
+Multiple `files` or compatible `attachments` are sent as Telegram media groups. `files` upload as documents; `attachments` preserve image, audio, video, or file media type.
+
+## Business mode
+
+Telegram [Connected Business Bots](https://core.telegram.org/api/bots/connected-business-bots) let a bot reply to customer messages on behalf of a business account. Enable it with `businessMode: true`:
+
+```typescript title="lib/bot.ts" lineNumbers
+const telegram = createTelegramAdapter({
+  businessMode: true,
+});
+```
+
+Business threads use the ID format `telegram:biz:{connectionId}:{chatId}`. Each business conversation is its own channel, separate from any direct chat the same customer has with the bot. Outbound sends, edits, typing, file uploads, and threads created from inline-keyboard callbacks include `business_connection_id`. Slash commands from business chats reach `onSlashCommand` like any other chat.
+
+The adapter ignores messages typed by the business owner and messages the bot sent on the account's behalf, and it stops replying when the connection is disabled or loses `can_reply`. Connection state lives in your state adapter, so a change reaches every instance.
+
+A few Bot API limits apply to business threads:
+
+* `delete()` uses `deleteBusinessMessages`, which needs the `can_delete_sent_messages` right.
+* Reactions are not supported. `addReaction` and `removeReaction` throw a `NotImplementedError`.
+* `fetchThread()` falls back to the chat details from messages already seen when `getChat` cannot resolve the customer.
+
+When polling, Business mode always sends an explicit `allowed_updates` list (the default update types plus the business ones, or your `longPolling.allowedUpdates` merged with them). Telegram otherwise reuses the list from an earlier call, which can silently exclude business updates. When registering a webhook yourself, add `business_connection`, `business_message`, and `edited_business_message` to `allowed_updates`.
+
+Business thread IDs start with `telegram:biz`, so state adapters that shard by the first two ID segments (such as [Cloudflare Agents](/adapters/vendor-official/cloudflare-agents#state-sharding)) place every business conversation in one shard. Override the sharder with a key that includes the connection ID if that matters for your deployment.
+
+## Limitations
+
+* Telegram does not expose full historical message APIs to bots. `fetchMessages` returns adapter-cached messages from the current process.
+* `listThreads` is not available for Telegram chats.
+* Telegram limits callback data to 64 bytes, so keep `Button` `id`/`value` payloads short.
+* Card elements other than buttons and link buttons, such as images, select menus, and radios, render as fallback text.
+* `Thread.reply()` threads with Bot API `reply_parameters` and sets `allow_sending_without_reply`, so a reply whose target was deleted, never existed, or lives in another forum topic is delivered unthreaded instead of failing. Only the chat half of a composite target ID is validated up front.
+
+## Feature support
+
+

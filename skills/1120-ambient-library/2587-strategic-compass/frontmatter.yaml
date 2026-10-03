@@ -1,0 +1,15 @@
+# NOTE: This file is kept for compatibility. The canonical frontmatter
+# is the YAML front matter block at the top of SKILL.md.
+# If the skill runtime reads only SKILL.md, this file can be removed.
+
+name: strategic-compass
+description: >
+  Use this skill whenever a user is facing a strategic decision, choosing between paths,
+  or asking what the best move is in a business situation. Also use for tree of thought
+  (ToT) reasoning over business choices. Triggers on: "what should I do about", "help me
+  decide", "what's the best move", "should I", "which option", "how should I approach",
+  "I'm facing a decision", "what would you do", "strategic advice", "what's my best play",
+  "tree of thought", "ToT". Also triggers when the user describes a dilemma with multiple
+  options without explicit decision language — if there's a fork, use this skill. Do NOT
+  trigger on purely factual questions, requests for information, or creative tasks that
+  don't involve a choice between paths.

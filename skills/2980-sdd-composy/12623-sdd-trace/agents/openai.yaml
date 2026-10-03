@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD Trace"
+  short_description: "Append-only semantic trace"
+  default_prompt: "Use $sdd-trace to inspect, build, or verify the semantic trace."

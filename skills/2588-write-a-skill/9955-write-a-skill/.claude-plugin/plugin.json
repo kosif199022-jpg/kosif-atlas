@@ -1,0 +1,18 @@
+{
+  "name": "write-a-skill",
+  "version": "0.1.0",
+  "description": "Meta-skill: create new Claude Code skills with proper structure, progressive disclosure (subdirs for reference/workflows/checklists), and bundled resources. Guides the SKILL.md template, description-trigger discipline, and when to split content across files.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/write-a-skill",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "meta",
+    "skill-authoring",
+    "claude-code",
+    "template"
+  ]
+}

@@ -1,0 +1,45 @@
+> Source: https://chat-sdk.dev/adapters/official/memory.md
+
+---
+title: Memory
+description: In-memory state adapter for development and testing.
+tagline: In-memory state adapter for local development and tests. State is lost on restart and locks don't work across instances, so don't use it in production.
+package: @chat-adapter/state-memory
+---
+
+# Memory
+
+
+## Install
+
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { /* ... */ },
+  state: createMemoryState(),
+});
+```
+
+`createMemoryState()` takes no arguments. Subscriptions, locks, cache entries, lists, and queues live in the current process and disappear when the process exits.
+
+Use it for local development and for tests that need a real `StateAdapter` without a Redis or Postgres dependency.
+
+## Limitations
+
+Everything the adapter stores lives in one process's memory. In production, that leads to these problems:
+
+* State doesn't survive a restart or redeploy. Thread subscriptions, thread state from `setState()`, and queued messages are lost, so new messages in previously subscribed threads no longer reach `onSubscribedMessage`.
+* State isn't shared between instances. A thread subscribed on one instance looks unsubscribed on another, and deduplication only catches repeat deliveries that reach the same instance.
+* Locks only apply within one process. Two instances can acquire the lock for the same thread and handle messages in it at the same time.
+
+When `NODE_ENV` is `production`, `connect()` logs a warning that the memory adapter isn't recommended for production. For production, use [`@chat-adapter/state-redis`](/adapters/official/redis), [`@chat-adapter/state-ioredis`](/adapters/official/ioredis), or [`@chat-adapter/state-pg`](/adapters/official/postgres).
+
+## Feature support
+
+

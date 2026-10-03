@@ -1,0 +1,11 @@
+{
+  "name": "deep-comprehension-assessment",
+  "description": "Builds rigorous text-comprehension assessments with detailed feedback; use for \"test my understanding of this text\", \"comprehension quiz\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

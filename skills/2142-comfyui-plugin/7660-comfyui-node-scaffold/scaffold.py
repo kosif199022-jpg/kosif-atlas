@@ -1,0 +1,3685 @@
+#!/usr/bin/env python3
+"""Scaffold a new ComfyUI custom-node repo (TypeScript + bun build) in the
+gallery-loader / sampler-info / touch-numeric vein.
+
+Generates a CI-green, ready-to-implement pack with TypeScript source in `src/`
+(entry `src/index.ts`) built to `web/dist/` via `bun build`: pyproject.toml,
+CI + release-please + publish workflows, ruff/biome/pre-commit config, a
+strict tsconfig + knip + vitest harness, __init__.py (WEB_DIRECTORY pointing at
+the built `web/dist`), CLAUDE.md, an ADR recording the TS+bun decision, and the
+extension skeleton. The frontend/backend (modal) variants consume the shared
+`@laurigates/comfy-modal-kit` primitives via an `import` (NOT copied-in files);
+the gesture variant is a self-contained canvas pointer layer with no kit
+dependency.
+
+This supersedes the previous vanilla-JS (`web/js/*.js` + copied
+modal-shell.js/modal-fuzzy.js) template — see the generated ADR.
+
+Stdlib only. Run with `python3 scaffold.py` or `uv run scaffold.py`.
+
+Examples
+--------
+Frontend-only pack (sampler-info / touch-numeric shape — consumes the kit):
+    python3 scaffold.py \
+        --name comfyui-touch-numeric \
+        --display "Touch Numeric" \
+        --desc "Touch-friendly keypad + slider modal for seed and INT/FLOAT widgets." \
+        --variant frontend \
+        --widgets seed,noise_seed,cfg,steps,denoise
+
+Pack with a small Python backend (gallery-loader shape — consumes the kit):
+    python3 scaffold.py \
+        --name comfyui-model-gallery \
+        --display "Model Gallery" \
+        --desc "Touch-first card-grid picker for the folder-backed model combos." \
+        --variant backend \
+        --widgets lora_name,ckpt_name,vae_name,control_net_name
+
+Canvas-gesture pack (touch-resize shape — no widget, no modal, no kit):
+    python3 scaffold.py \
+        --name comfyui-touch-resize \
+        --display "Touch Resize" \
+        --desc "Selection-gated corner grab-handle resize for ComfyUI nodes and groups on touch." \
+        --variant gesture
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import re
+import sys
+from pathlib import Path
+
+AUTHOR_DEFAULT = "Lauri Gates"
+PUBLISHER_DEFAULT = "laurigates"
+
+# The shared modal-kit consumed by the modal (frontend/backend) variants. The
+# gesture variant does NOT depend on it. Bump in lockstep with the kit's
+# published major/minor when its exported API changes.
+#
+# THIS PIN IS NOT RENOVATE-MANAGED. It lives in a .py generator, and this repo's
+# customManagers only see `*/skills/**/*.md` and `scripts/install_pkgs.sh` (see
+# `.claude/rules/version-pinning.md`); `check-version-pin-coverage.sh` scans the
+# same markdown-only set, so nothing flags it when it rots. It sat at `^0.2.0`
+# — four minors behind the published kit — until issue #2186, so every pack
+# scaffolded in between started stale and needed a manual bump before it could
+# use current kit APIs. Extending Renovate to template/generator paths is
+# tracked in #2222; until then refresh it by hand:
+#
+#     npm view @laurigates/comfy-modal-kit version
+#
+# `test-finishing-pass.sh` prints a NOTE when the published latest falls outside
+# this caret range (advisory, never a hard CI failure on an unrelated PR).
+# A caret range on a 0.x version is minor-locked (`^0.10.0` == `>=0.10.0
+# <0.11.0`), so a kit minor is a deliberate bump here, not a silent float.
+MODAL_KIT_PKG = "@laurigates/comfy-modal-kit"
+# 0.12.0, not 0.10.x: the standalone-modal template registers with the Touch
+# Tools hub (`makeHubEntry` / `installHubButton` / `registerHubEntry`), which
+# landed in 0.11.0. Because the caret is minor-locked on 0.x, `^0.10.0` could
+# not resolve the hub AT ALL — a pack scaffolded against it fails to typecheck
+# on those imports.
+MODAL_KIT_VERSION = "^0.12.0"
+
+# Pinned tool versions — kept in ONE place so the biome pin can never drift
+# between biome.json, the pre-commit hook, CI, and the justfile. The previous
+# template pinned an old 1.x biome in the pre-commit hook while biome.json/CI
+# were on 2.x, and the pre-commit hook surfaced that mismatch as a config-parse
+# failure. The regression check in scripts/plugin-compliance-check.sh asserts
+# every generated biome pin stays on this single version.
+BIOME_VERSION = "2.4.15"
+# Pinned to the 1.45.x line (`~`, not `^`). A caret range here resolves to the
+# newest 1.x, and 1.48.x peer-depends on `@comfyorg/comfyui-desktop-bridge-types@0.1.3`
+# — a version that does not exist on npm (only 0.1.0–0.1.2 were published), so
+# `bun install` HARD-FAILS on a freshly scaffolded pack:
+#   error: No version matching "0.1.3" found for specifier
+#          "@comfyorg/comfyui-desktop-bridge-types" (but package exists)
+# It bit comfyui-output-swap at scaffold time. The 1.45.x releases peer-depend
+# only on vue + zod, so they resolve cleanly, and 1.45 is what the current
+# ComfyUI installs actually ship. Re-widen only after verifying the newer line
+# installs: `npm view '@comfyorg/comfyui-frontend-types@<range>' peerDependencies`.
+COMFY_FRONTEND_TYPES_VERSION = "~1.45.0"
+# jsdom is added to devDependencies ONLY for the standalone-modal variant, whose
+# smoke test mounts the modal under a DOM (`@vitest-environment jsdom`). The
+# widget/gesture variants test pure helpers under the node environment and don't
+# need it. See issue #1806.
+JSDOM_VERSION = "^29.0.0"
+
+
+# --------------------------------------------------------------------------- #
+# Name derivation
+# --------------------------------------------------------------------------- #
+def derive(name: str) -> dict[str, str]:
+    """Derive the family of names a pack needs from its repo name."""
+    if not name.startswith("comfyui-"):
+        print(
+            f"warning: pack name '{name}' does not start with 'comfyui-'",
+            file=sys.stderr,
+        )
+    short = name.removeprefix("comfyui-")  # e.g. touch-numeric
+    return {
+        "NAME": name,  # comfyui-touch-numeric  (repo + served URL segment)
+        "SHORT": short,  # touch-numeric
+        "PY_MODULE": short.replace("-", "_"),  # touch_numeric  (backend .py)
+        "EXT_CONST_CAMEL": _camel(short),  # touchNumeric  (JS guard-flag prefix)
+    }
+
+
+# The banner draws the tagline at font-size 44 starting at x=340 on a 1344px
+# canvas, leaving ~1000px. Helvetica at that size averages ~21px/char, so ~46
+# chars is the point where the text runs off the right edge. Measured against
+# the shipped sibling banners (comfyui-touch-shim's 43-char tagline fits with
+# room to spare; comfyui-output-swap's full 130-char --desc overflowed badly).
+MAX_TAGLINE_CHARS = 46
+
+
+def derive_tagline(desc: str) -> str:
+    """Condense a one-line --desc into a banner-safe tagline.
+
+    The banner subtitle is a *tagline*, not the full description. Passing --desc
+    straight through overflows the canvas, which is invisible until someone
+    renders the PNG and looks at it. Take the first clause, then trim to a word
+    boundary, warning so the author can supply a better one via --tagline.
+    """
+    text = " ".join(desc.split())
+    # First clause: the description's headline idea, before any elaboration.
+    for sep in ("—", " - ", ". ", ": ", "; "):
+        head = text.split(sep, 1)[0].strip()
+        if head != text:
+            text = head
+            break
+    text = text.rstrip(" .")
+
+    if len(text) <= MAX_TAGLINE_CHARS:
+        return text
+
+    truncated = text[:MAX_TAGLINE_CHARS].rsplit(" ", 1)[0].rstrip(" ,;:-")
+    print(
+        f"warning: banner tagline derived from --desc is longer than "
+        f"{MAX_TAGLINE_CHARS} chars and would overflow the banner; using "
+        f"{truncated!r}. Pass --tagline to set a better one.",
+        file=sys.stderr,
+    )
+    return truncated
+
+
+def _camel(short: str) -> str:
+    """touch-numeric -> touchNumeric (for a JS widget guard-flag property)."""
+    head, *rest = short.split("-")
+    return head + "".join(part[:1].upper() + part[1:] for part in rest)
+
+
+# --------------------------------------------------------------------------- #
+# Templates — @@TOKEN@@ placeholders (avoids brace conflicts with JSON/JS/TS)
+# --------------------------------------------------------------------------- #
+def subst(text: str, ctx: dict[str, str]) -> str:
+    for key, val in ctx.items():
+        text = text.replace(f"@@{key}@@", val)
+    return text
+
+
+PYPROJECT = """\
+[project]
+name = "@@NAME@@"
+description = "@@DESC@@"
+version = "0.1.0"
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "@@AUTHOR@@" }]
+keywords = ["comfyui", "comfyui-nodes", "ui", "picker", "mobile", "touch"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: JavaScript",
+    "Topic :: Multimedia :: Graphics",
+]
+
+# @@DEP_FLOOR_NOTE@@ @@BACKEND_DEP_NOTE@@
+dependencies = [
+    "comfyui-frontend-package>=1.40.0",
+]
+
+[project.urls]
+Repository = "https://github.com/@@PUBLISHER@@/@@NAME@@"
+Issues = "https://github.com/@@PUBLISHER@@/@@NAME@@/issues"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11",
+    "pytest>=8",
+    "pre-commit>=4",
+    # tests/test_publish_hygiene.py mirrors comfy-cli's .comfyignore matching
+    "pathspec>=0.12",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 99
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+@@PYTEST_ADDOPTS@@
+[tool.comfy]
+PublisherId = "@@PUBLISHER@@"
+DisplayName = "@@DISPLAY@@"
+# Registry display assets. The registry fetches these by URL from the repo's
+# default branch, so the PNGs must exist at the repo root on `main`. The scaffold
+# ships icon.svg / banner.svg (source form); run `just assets` (rsvg-convert) to
+# rasterize them to icon.png / banner.png and commit those before publishing.
+Icon = "https://raw.githubusercontent.com/@@PUBLISHER@@/@@NAME@@/main/icon.png"
+Banner = "https://raw.githubusercontent.com/@@PUBLISHER@@/@@NAME@@/main/banner.png"
+# The built frontend (web/dist/) is committed (tracked) — emitted by `bun run build`.
+# publish-node-action honors [tool.comfy] includes to force-add otherwise-
+# ignored paths into the published tarball. See ADR-0001.
+includes = ["web/dist"]
+"""
+
+INIT_FRONTEND = '''\
+"""@@DISPLAY@@ for ComfyUI.
+
+Frontend-only pack: no Python nodes. The TypeScript source in `src/` is
+compiled to ESM via `bun build` and emitted to `web/dist/`, which ComfyUI
+serves as the extension root via WEB_DIRECTORY below. See ADR-0001.
+"""
+
+WEB_DIRECTORY = "./web/dist"
+
+NODE_CLASS_MAPPINGS = {}
+NODE_DISPLAY_NAME_MAPPINGS = {}
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
+'''
+
+INIT_BACKEND = '''\
+"""@@DISPLAY@@ for ComfyUI.
+
+See @@PY_MODULE@@.py for the backend (node + HTTP endpoints). The frontend
+TypeScript source in `src/` is compiled to ESM via `bun build` and emitted to
+`web/dist/`, which ComfyUI serves via WEB_DIRECTORY below. See ADR-0001.
+"""
+
+try:
+    # ComfyUI loads custom_nodes as packages — relative import works.
+    from .@@PY_MODULE@@ import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+except ImportError:
+    # Pytest imports __init__.py without a package context; fall back to
+    # absolute (the pack root is on sys.path via pyproject pythonpath).
+    from @@PY_MODULE@@ import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+
+WEB_DIRECTORY = "./web/dist"
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
+'''
+
+BACKEND_PY = '''\
+"""@@DISPLAY@@ — backend node + HTTP endpoints.
+
+Uses ComfyUI-bundled libraries ONLY (aiohttp, plus folder_paths / server
+from ComfyUI core). Do not add a Python dependency that ComfyUI does not
+already ship; if a feature needs one, make it a separate companion pack.
+"""
+
+from __future__ import annotations
+
+from aiohttp import web
+from server import PromptServer
+
+# Extensions this pack will read off disk. Any arbitrary-path endpoint MUST
+# gate on this whitelist — never read an absolute path without checking.
+ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@PromptServer.instance.routes.get("/@@PY_MODULE@@/list")
+async def _list(request: web.Request) -> web.Response:
+    """TODO: return the JSON listing the frontend modal renders.
+
+    Mirror gallery-loader's /gallery_loader/list contract:
+    success -> {"ok": True, "items": [...]} ; failure -> {"ok": False, ...}.
+    """
+    return web.json_response({"ok": True, "items": []})
+
+
+class @@DISPLAY_NOSPACE@@:
+    """Minimal node stub. Replace inputs/outputs/FUNCTION with the real node,
+    or delete this class if the pack is purely an interaction enhancer with
+    no new node (then move the endpoints to a frontend-only companion)."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {}}
+
+    RETURN_TYPES = ()
+    FUNCTION = "run"
+    CATEGORY = "@@DISPLAY@@"
+
+    def run(self):
+        return ()
+
+
+NODE_CLASS_MAPPINGS = {"@@DISPLAY_NOSPACE@@": @@DISPLAY_NOSPACE@@}
+NODE_DISPLAY_NAME_MAPPINGS = {"@@DISPLAY_NOSPACE@@": "@@DISPLAY@@"}
+'''
+
+# --------------------------------------------------------------------------- #
+# TypeScript source — modal (frontend/backend) variant
+# --------------------------------------------------------------------------- #
+INDEX_TS_MODAL = """\
+// @@DISPLAY@@ — ComfyUI frontend extension.
+//
+// TypeScript source in `src/`, built to ESM via `bun build` and emitted to
+// `web/dist/` (served at /extensions/@@NAME@@/index.js — the pack directory
+// name IS the URL segment). Do not rename the pack dir without syncing
+// EXT_NAME below (used for log prefixes and any /@@PY_MODULE@@/ fetches).
+// See ADR-0001.
+//
+// Pattern (shared with gallery-loader / sampler-info / touch-numeric):
+//   registerExtension -> enhance each node (on create AND on graph load) ->
+//   wrap widget.onPointerDown on widgets matched BY NAME -> open an HTML
+//   modal instead of the native LiteGraph control. Additive + mobile-first;
+//   always chain to the original handler and fall back to the native control.
+//   Requires the modern Vue frontend's onPointerDown hook
+//   (comfyui-frontend-package >= 1.40).
+//
+// The shared modal primitives come from @@MODAL_KIT_PKG@@. They are NOT copied
+// into this pack — `bun build` INLINES the imported code into web/dist. To add
+// fuzzy search to the modal, import the matcher from the same package:
+//   import { fuzzyRank, highlightMatches } from "@@MODAL_KIT_PKG@@";
+//   fuzzyRank(query, [primaryField, ...otherFields]) -> { score, primaryMatches } | null
+import { openModalShell } from "@@MODAL_KIT_PKG@@";
+// ComfyUI serves its frontend API at runtime from `/scripts/app.js`. The
+// emitted import string stays `/scripts/app.js` (bun's `--external '/scripts/*'`
+// keeps it unbundled); the type is supplied via a `paths` mapping in
+// tsconfig.json that points the import at `src/comfyui-shims.d.ts`. See ADR-0001.
+import { app } from "/scripts/app.js";
+
+const EXT_NAME = "@@NAME@@";
+
+// Widgets this pack enhances, detected by NAME (generic across node packs).
+// TODO: tune this set for the pack.
+const TARGET_WIDGETS = new Set<string>([@@WIDGET_SET@@]);
+
+// ============================================================
+// Types — the narrow LiteGraph surface this pack reaches into
+// ============================================================
+//
+// `@comfyorg/comfyui-frontend-types` exports `ComfyApp` (the type of the
+// imported `app`) but NOT `LGraphNode` / the widget interfaces — they are
+// declared internally and not re-exported. Model the small surface this pack
+// touches with local structural interfaces instead (narrow blast radius).
+
+// A widget plus the custom props this pack hangs off it. `onPointerDown` and
+// the private guard flag are this pack's intercept seam, not part of the
+// public widget surface.
+interface PatchedWidget {
+  name: string;
+  onPointerDown?: (pointer: unknown, node: PatchedNode, canvas: unknown) => boolean | undefined;
+  _@@EXT_CONST_CAMEL@@Patched?: boolean;
+}
+
+// Minimal structural type for the LiteGraph node this pack operates on. Named
+// to avoid colliding with the package's own un-exported `LGraphNode` at the
+// registerExtension lifecycle-hook seam — the hooks receive the package node,
+// which we cast to this structural shape.
+interface PatchedNode {
+  type?: string;
+  widgets?: PatchedWidget[];
+}
+
+// ============================================================
+// Modal
+// ============================================================
+
+function openPicker(widget: PatchedWidget, node: PatchedNode | null): void {
+  // CONTRACT: openModalShell has NO `body` option — it returns a controller
+  // ({ bodyEl, close, setBusy, setStatus, ... }) with an EMPTY bodyEl that you
+  // fill AFTER opening. Passing `body:` is silently ignored and the dialog
+  // renders empty (a bug that passes green unit tests — only a jsdom/browser
+  // check catches it). Always: open, then modal.bodyEl.appendChild(...).
+  const modal = openModalShell({
+    title: widget.name,
+    onClose: () => {},
+  });
+
+  // TODO: build the real modal body. This skeleton proves the interception
+  // + modal-shell wiring works end to end. Use fuzzyRank for search.
+  const body = document.createElement("div");
+  body.textContent = `@@DISPLAY@@: picker for "${widget.name}" on ${node?.type} — implement me.`;
+  modal.bodyEl.appendChild(body);
+}
+
+// ============================================================
+// Wiring
+// ============================================================
+
+function enhanceNode(node: PatchedNode): void {
+  for (const w of node?.widgets ?? []) {
+    if (!TARGET_WIDGETS.has(w.name)) continue;
+    if (w._@@EXT_CONST_CAMEL@@Patched) continue; // guard against double-patching
+    w._@@EXT_CONST_CAMEL@@Patched = true;
+
+    // Strategy A: wrap onPointerDown. Chain to the original first; only open
+    // our modal if the original didn't consume the event. Fall back to the
+    // native control on error (additive — never break the widget).
+    const origDown = w.onPointerDown;
+    w.onPointerDown = function (
+      this: PatchedWidget,
+      pointer: unknown,
+      ownerNode: PatchedNode,
+      canvas: unknown,
+    ): boolean | undefined {
+      try {
+        if (typeof origDown === "function") {
+          const consumed = origDown.call(this, pointer, ownerNode, canvas);
+          if (consumed) return consumed;
+        }
+        openPicker(w, ownerNode || node);
+        return true; // consume — suppresses the native control
+      } catch (e) {
+        console.warn(`[${EXT_NAME}] picker open failed`, e);
+        return false; // fall back to native on error
+      }
+    };
+  }
+}
+
+app.registerExtension({
+  name: "comfy.@@SHORT@@",
+  // Handle freshly created nodes AND nodes restored from a saved graph. The
+  // lifecycle-hook node params are the package's own `LGraphNode`; cast each to
+  // the structural `PatchedNode` this pack operates on.
+  async nodeCreated(node) {
+    try {
+      enhanceNode(node as unknown as PatchedNode);
+    } catch (e) {
+      console.warn(`[${EXT_NAME}] nodeCreated enhance failed`, e);
+    }
+  },
+  async loadedGraphNode(node) {
+    try {
+      enhanceNode(node as unknown as PatchedNode);
+    } catch (e) {
+      console.warn(`[${EXT_NAME}] loadedGraphNode enhance failed`, e);
+    }
+  },
+});
+
+// Re-export the pure helpers a real implementation adds here, so the Vitest
+// suite (tests/js) can import them directly from the .ts source. The seed
+// example is a placeholder — replace with this pack's own helpers.
+export function clampToTargets(name: string): boolean {
+  return TARGET_WIDGETS.has(name);
+}
+"""
+
+# --------------------------------------------------------------------------- #
+# TypeScript source — standalone-modal variant (modal kit, NO target widgets)
+# Used when a modal variant is scaffolded with no --widgets: the UI is a modal
+# launched from the app chrome (a manager / dashboard / gallery-actions panel),
+# not a per-widget interception. No TARGET_WIDGETS / openPicker / enhanceNode.
+# --------------------------------------------------------------------------- #
+INDEX_TS_STANDALONE = """\
+// @@DISPLAY@@ — ComfyUI frontend extension (standalone-modal pack).
+//
+// TypeScript source in `src/`, built to ESM via `bun build` and emitted to
+// `web/dist/` (served at /extensions/@@NAME@@/index.js — the pack directory
+// name IS the URL segment). Renaming the pack dir also changes any
+// /@@PY_MODULE@@/ fetch path you add below. See ADR-0001.
+//
+// Pattern ("the standalone-modal vein"): instead of intercepting a per-node
+// widget, this pack opens a STANDALONE modal from the app chrome — a command
+// (palette/hotkey-bindable), a menu entry under Extensions > Touch Tools, and a
+// row in the shared Touch Tools chooser. There are NO target widgets to hook (a
+// manager, dashboard, or gallery-actions panel), so there is no TARGET_WIDGETS /
+// onPointerDown wrapping. Additive + mobile-first.
+//
+// The shared modal primitives come from @@MODAL_KIT_PKG@@. They are NOT copied
+// into this pack — `bun build` INLINES the imported code into web/dist. To add
+// fuzzy search to the modal, import the matcher from the same package:
+//   import { fuzzyRank, highlightMatches } from "@@MODAL_KIT_PKG@@";
+//   fuzzyRank(query, [primaryField, ...otherFields]) -> { score, primaryMatches } | null
+import {
+  installHubButton,
+  makeHubEntry,
+  openModalShell,
+  registerHubEntry,
+} from "@@MODAL_KIT_PKG@@";
+// ComfyUI serves its frontend API at runtime from `/scripts/app.js`. The
+// emitted import string stays `/scripts/app.js` (bun's `--external '/scripts/*'`
+// keeps it unbundled); the type is supplied via a `paths` mapping in
+// tsconfig.json that points the import at `src/comfyui-shims.d.ts`. See ADR-0001.
+import { app } from "/scripts/app.js";
+
+// ============================================================
+// Modal
+// ============================================================
+
+// CONTRACT: openModalShell has NO `body` option — it returns a controller
+// ({ bodyEl, close, setBusy, setStatus, ... }) with an EMPTY bodyEl that you
+// fill AFTER opening. Passing `body:` is silently ignored and the dialog
+// renders empty (a bug that passes green unit tests — only a jsdom/browser
+// check catches it). Always: open, then modal.bodyEl.appendChild(...).
+//
+// Exported so the jsdom mount smoke test (tests/js) can call it without the app
+// chrome and assert the body is non-empty. Replace the placeholder body with the
+// real manager/dashboard UI; use fuzzyRank for search and fetch
+// /@@PY_MODULE@@/… for any backend data.
+export function openShell(): ReturnType<typeof openModalShell> {
+  const modal = openModalShell({
+    title: "@@DISPLAY@@",
+    onClose: () => {},
+  });
+
+  // TODO: build the real modal body. This skeleton proves the modal-shell
+  // wiring works end to end. Use fuzzyRank for search.
+  const body = document.createElement("div");
+  body.className = "@@SHORT@@-body";
+  body.textContent = "@@DISPLAY@@ — implement me.";
+  modal.bodyEl.appendChild(body);
+
+  return modal;
+}
+
+// ============================================================
+// Wiring — launch the modal from the app chrome, not a node widget
+// ============================================================
+
+// The family's chrome entry point, built by the kit rather than hand-written.
+// makeHubEntry bakes in the conventions ADR-0002 fixed after three packs each
+// hand-rolled these fields three different ways: the shared submenu
+// (Extensions > Touch Tools), kebab `<short-name>.<action>` command ids,
+// PrimeIcons — the ONLY icon format guaranteed to render for a runtime-loaded
+// extension — and one safe-open boundary so a throwing opener becomes a
+// copyable error toast instead of an exception inside ComfyUI's dispatch.
+//
+// Pick an icon from https://primeng.org/icons (`pi pi-*`). Do NOT use an
+// iconify/lucide class here: nothing in the family does, and it will not render.
+const entry = makeHubEntry({
+  id: "@@SHORT@@.open",
+  label: "@@DISPLAY@@",
+  icon: "pi pi-th-large",
+  tooltip: "Open @@DISPLAY@@",
+  description: "@@DESC@@",
+  failSummary: "@@DISPLAY@@ failed to open",
+  open: openShell,
+});
+
+app.registerExtension({
+  name: "comfy.@@SHORT@@",
+  // TWO SIBLING SPREADS, and their key-disjointness is the guarantee — do NOT
+  // hand-merge the arrays. makeHubEntry returns only `commands` / `menuCommands`
+  // (plus the inert `hubEntry` field); installHubButton returns only
+  // `actionBarButtons`, or `{}` once another inlined kit copy has already
+  // claimed the single family button. The family owns exactly ONE action-bar
+  // button — the Touch Tools hub — so adding a per-pack button here would be a
+  // second one competing for the same scarce corner on a phone.
+  ...entry,
+  ...installHubButton(),
+  setup() {
+    // Registered HERE, not at module evaluation. Every extension file is
+    // imported regardless of the disable list (extensionService.ts:55-67) while
+    // invokeExtensionsAsync only iterates `enabledExtensions` (:214) — so
+    // registering at module scope would list this pack in the chooser even when
+    // the user has disabled it.
+    registerHubEntry(entry.hubEntry);
+  },
+});
+"""
+
+# --------------------------------------------------------------------------- #
+# TypeScript source — gesture variant (no modal-kit dependency)
+# --------------------------------------------------------------------------- #
+INDEX_TS_GESTURE = """\
+// @@DISPLAY@@ — ComfyUI frontend extension (canvas-gesture pack).
+//
+// TypeScript source in `src/`, built to ESM via `bun build` and emitted to
+// `web/dist/` (served at /extensions/@@NAME@@/index.js — the pack directory
+// name IS the URL segment). Do not rename the pack dir without syncing
+// EXT_NAME below. See ADR-0001.
+//
+// Pattern ("the gesture vein"): instead of intercepting a single widget,
+// this pack adds a CANVAS-LEVEL pointer layer. A *selected* node (single tap
+// selects it) grows corner grab-handles; a drag that starts on one resizes
+// the node. Additive + mobile-first: if app.canvas or the pointer model is
+// absent it does nothing and native corner-handle resize still works.
+// Resize writes node.pos/node.size (already serialized) so no workflow breaks.
+//
+// THE DESIGN CONSTRAINT: the gesture must be recognizable on the FIRST
+// pointerdown. Anything that needs a second finger or a move stream to
+// classify — a pinch, a swipe, a two-finger rotate — is unrecognizable until
+// after the first pointerdown has already reached LiteGraph and opened a
+// node-drag or canvas-pan transaction, leaving a half-open state that cannot
+// be unwound cleanly. comfyui-touch-resize shipped a pinch, root-caused this,
+// and replaced it with these grab-handles (touch-resize#58). A target
+// hit-tested on the first pointerdown is suppressed BEFORE LiteGraph sees the
+// event, so there is no transaction to recover from and none of the
+// move-stream / wheel / touch-action hedges that recovery needs.
+//
+// This variant has NO @@MODAL_KIT_PKG@@ dependency — there is no widget to
+// hook and no modal to open. Pure geometry helpers are exported and
+// unit-tested (tests/js); the DOM/canvas wiring below is exercised in the
+// manual browser matrix.
+//
+// ComfyUI serves its frontend API at runtime from `/scripts/app.js`. The
+// emitted import string stays `/scripts/app.js` (bun's `--external '/scripts/*'`
+// keeps it unbundled); the type is supplied via a `paths` mapping in
+// tsconfig.json that points the import at `src/comfyui-shims.d.ts`. See ADR-0001.
+import { app } from "/scripts/app.js";
+
+const EXT_NAME = "@@NAME@@";
+
+// LiteGraph maps a canvas point p to screen space as (p + ds.offset) * ds.scale.
+// LiteGraph.NODE_TITLE_HEIGHT = 30 (confirm against the frontend sourcemap).
+const DEFAULT_TITLE_HEIGHT = 30;
+
+// Tuning. Measure, do not guess: on touch-resize, handles placed at the BODY
+// corners land ~17px from the first input/output slots, so a radius above that
+// steals slot taps (link drags) on a selected node; tracing the full node
+// outline instead puts them ~21px from the collapse toggle and ~45px from the
+// slots. Re-measure for this pack's handle placement and keep the ceiling here
+// rather than in the hit-test call site.
+const CONFIG = {
+  /** Screen-space grab radius around each corner handle, in px. */
+  handleHitRadius: 18,
+};
+
+// ============================================================
+// Types
+// ============================================================
+
+/** A screen-space rectangle. */
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** A 2-tuple of [x, y] / [w, h] used throughout the geometry. */
+type Vec2 = [number, number];
+
+/** Which corner a grab-handle sits on. */
+export type Corner = "nw" | "ne" | "sw" | "se";
+
+/** The narrow node surface this pack reaches into. */
+interface GestureNode {
+  pos: Vec2;
+  size: Vec2;
+  computeSize?: () => Vec2;
+  onResize?: (size: Vec2) => void;
+}
+
+// ============================================================
+// Pure helpers (unit-tested in tests/js)
+// ============================================================
+
+/** Is screen point (x, y) inside rect {x, y, w, h}? */
+export function pointInRect(x: number, y: number, rect: Rect): boolean {
+  return x >= rect.x && y >= rect.y && x <= rect.x + rect.w && y <= rect.y + rect.h;
+}
+
+/** Node bounding rect (incl. title bar) in screen space. */
+export function nodeScreenRect(
+  node: GestureNode,
+  scale: number,
+  offset: Vec2,
+  titleHeight = DEFAULT_TITLE_HEIGHT,
+): Rect {
+  const x = (node.pos[0] + offset[0]) * scale;
+  const yBody = (node.pos[1] + offset[1]) * scale;
+  return {
+    x,
+    y: yBody - titleHeight * scale,
+    w: node.size[0] * scale,
+    h: node.size[1] * scale + titleHeight * scale,
+  };
+}
+
+/** The four corner grab-handle centres of a screen-space rect. */
+export function cornerHandles(rect: Rect): { corner: Corner; x: number; y: number }[] {
+  return [
+    { corner: "nw", x: rect.x, y: rect.y },
+    { corner: "ne", x: rect.x + rect.w, y: rect.y },
+    { corner: "sw", x: rect.x, y: rect.y + rect.h },
+    { corner: "se", x: rect.x + rect.w, y: rect.y + rect.h },
+  ];
+}
+
+/**
+ * Which corner handle of `rect` the screen point (x, y) grabs, or null.
+ * This is the whole recognizer: it runs on the FIRST pointerdown, so the
+ * gesture is classified before LiteGraph can open a competing transaction.
+ * Nearest handle wins, so overlapping radii on a small node stay predictable.
+ */
+export function hitHandle(x: number, y: number, rect: Rect, radius: number): Corner | null {
+  let best: Corner | null = null;
+  let bestDist = radius;
+  for (const h of cornerHandles(rect)) {
+    const d = Math.hypot(x - h.x, y - h.y);
+    if (d <= bestDist) {
+      bestDist = d;
+      best = h.corner;
+    }
+  }
+  return best;
+}
+
+/**
+ * New {pos, size} after dragging `corner` by (dx, dy) CANVAS units, clamped to
+ * a minimum. Dragging a west/north corner moves the opposite edge, so `pos`
+ * shifts by exactly the size delta — clamping both together keeps the anchored
+ * corner still once the minimum is reached.
+ */
+export function resizedGeometry(
+  startPos: Vec2,
+  startSize: Vec2,
+  corner: Corner,
+  dx: number,
+  dy: number,
+  minSize: Vec2 = [0, 0],
+): { pos: Vec2; size: Vec2 } {
+  const west = corner === "nw" || corner === "sw";
+  const north = corner === "nw" || corner === "ne";
+  const w = Math.max(minSize[0], west ? startSize[0] - dx : startSize[0] + dx);
+  const h = Math.max(minSize[1], north ? startSize[1] - dy : startSize[1] + dy);
+  return {
+    pos: [
+      west ? startPos[0] + (startSize[0] - w) : startPos[0],
+      north ? startPos[1] + (startSize[1] - h) : startPos[1],
+    ],
+    size: [w, h],
+  };
+}
+
+/** Selected nodes as an array, defensively across LiteGraph variants. */
+export function selectedNodes(canvas: unknown): GestureNode[] {
+  if (!canvas || typeof canvas !== "object") return [];
+  const c = canvas as {
+    selected_nodes?: Record<string, GestureNode>;
+    selectedItems?: Set<unknown>;
+  };
+  const sel = c.selected_nodes;
+  if (sel && typeof sel === "object") return Object.values(sel);
+  if (c.selectedItems instanceof Set) {
+    return [...c.selectedItems].filter(
+      (it): it is GestureNode => !!it && typeof it === "object" && "size" in it && "pos" in it,
+    );
+  }
+  return [];
+}
+
+// ============================================================
+// Wiring (DOM + canvas; browser-matrix tested)
+// ============================================================
+
+interface DragLock {
+  pointerId: number;
+  node: GestureNode;
+  corner: Corner;
+  startX: number;
+  startY: number;
+  startPos: Vec2;
+  startSize: Vec2;
+  minSize: Vec2;
+  scale: number;
+}
+
+function installGestureLayer(): void {
+  const canvas = (
+    app as {
+      canvas?: {
+        canvas?: HTMLCanvasElement;
+        ds?: { scale?: number; offset?: Vec2 };
+        setDirty?: (a: boolean, b: boolean) => void;
+      };
+    }
+  ).canvas;
+  const el = canvas?.canvas; // the actual <canvas> element
+  if (!el || !canvas) {
+    console.warn(`[${EXT_NAME}] no canvas element — gesture layer not installed`);
+    return;
+  }
+
+  let drag: DragLock | null = null;
+
+  const localPoint = (e: PointerEvent): { x: number; y: number } => {
+    const r = el.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  // Listen at WINDOW CAPTURE, not on the canvas element. Capture descends from
+  // the root, so this runs before ANY listener bound on the canvas whatever
+  // order they registered in — a capture listener added to the canvas itself
+  // during setup() would fire after LiteGraph's, far too late to suppress it.
+  // Pointer events only: never set `touch-action`, and never swallow
+  // touchstart/touchend. Comfy.SimpleTouchSupport keeps a module-global
+  // touchCount (+= on touchstart, -= on touchend) and short-circuits
+  // LGraphCanvas.processMouseDown while it is truthy; swallowing one side
+  // drives it NEGATIVE — also truthy — and the canvas stops responding to taps
+  // until resetTouchState fires on visibilitychange ("recovers only by
+  // switching apps"). A pointer-only layer keeps it balanced by construction.
+  window.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (drag || e.target !== el) return;
+      const p = localPoint(e);
+      const scale = canvas?.ds?.scale ?? 1;
+      const offset = canvas?.ds?.offset ?? ([0, 0] as Vec2);
+      for (const node of selectedNodes(canvas)) {
+        const corner = hitHandle(
+          p.x,
+          p.y,
+          nodeScreenRect(node, scale, offset),
+          CONFIG.handleHitRadius,
+        );
+        if (!corner) continue;
+        drag = {
+          pointerId: e.pointerId,
+          node,
+          corner,
+          startX: p.x,
+          startY: p.y,
+          startPos: [node.pos[0], node.pos[1]],
+          startSize: [node.size[0], node.size[1]],
+          minSize: typeof node.computeSize === "function" ? node.computeSize() : [0, 0],
+          scale,
+        };
+        // Claimed here, on the first pointerdown, before the event reaches the
+        // canvas — so LiteGraph never opens a node-drag or canvas-pan
+        // transaction and there is nothing to unwind on pointerup.
+        e.stopPropagation();
+        e.preventDefault();
+        return;
+      }
+    },
+    true,
+  );
+
+  // No suppression on move/up: the pointerdown never reached LiteGraph, so it
+  // has no transaction in flight and its own move handling is already inert.
+  window.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      const p = localPoint(e);
+      const dx = (p.x - drag.startX) / (drag.scale || 1);
+      const dy = (p.y - drag.startY) / (drag.scale || 1);
+      const next = resizedGeometry(
+        drag.startPos,
+        drag.startSize,
+        drag.corner,
+        dx,
+        dy,
+        drag.minSize,
+      );
+      // ASSIGN, never mutate in place. `node.size[0] = w` bypasses LGraphNode's
+      // pos/size setters and therefore the Vue layout store they feed
+      // (useLayoutMutations.moveNode / .resizeNode), so the canvas and the
+      // store silently disagree.
+      drag.node.pos = next.pos;
+      drag.node.size = next.size;
+      drag.node.onResize?.(next.size);
+      canvas?.setDirty?.(true, true);
+    },
+    true,
+  );
+
+  const endDrag = (e: PointerEvent): void => {
+    if (drag && e.pointerId === drag.pointerId) drag = null;
+  };
+  window.addEventListener("pointerup", endDrag, true);
+  window.addEventListener("pointercancel", endDrag, true);
+
+  console.log(`[${EXT_NAME}] gesture layer installed — drag a selected node's corner to resize`);
+}
+
+app.registerExtension({
+  name: "comfy.@@SHORT@@",
+  async setup() {
+    installGestureLayer();
+    // TODO: measure this pack's handle placement against the node's real slot
+    //   geometry and re-tune CONFIG.handleHitRadius (see the note above it).
+    // TODO: groups — extend selectedNodes()/nodeScreenRect() to graph._groups
+    //   (group.pos/group.size; no title bar) so a drag resizes groups too.
+    // TODO: discoverability — draw the corner handles on selected nodes
+    //   (canvas onDrawForeground) so the grab targets are visible, not guessed.
+  },
+});
+"""
+
+# --------------------------------------------------------------------------- #
+# TypeScript source — shim variant (CSS-injection + command, no modal-kit dep)
+# --------------------------------------------------------------------------- #
+INDEX_TS_SHIM = """\
+// @@DISPLAY@@ — ComfyUI frontend extension (CSS/shim pack).
+//
+// TypeScript source in `src/`, built to ESM via `bun build` and emitted to
+// `web/dist/` (served at /extensions/@@NAME@@/index.js — the pack directory
+// name IS the URL segment). Do not rename the pack dir without syncing
+// EXT_NAME below. See ADR-0001.
+//
+// Pattern ("the shim vein"): a home for SMALL, individually-toggleable stopgap
+// fixes that paper over upstream ComfyUI-frontend bugs. Unlike the sibling
+// packs there is NO modal and NO widget hook — each shim injects a scoped,
+// managed `<style>` tag (driven by a boolean setting) and the pack registers
+// commands. Every shim links the upstream issue it papers over (in `upstream`
+// + the settings tooltip) and is deleted the release the upstream fix ships.
+//
+// CSS selectors should target stable `data-testid` hooks where the frontend
+// provides them; anything keyed on compiled Tailwind class chains is brittle
+// across frontend releases and is expected to rot — each shim must FAIL SOFT
+// (a dead selector styles nothing, never throws).
+//
+// This variant has NO @@MODAL_KIT_PKG@@ dependency — there is no widget to
+// hook and no modal to open. The CSS-shim lifecycle helpers are exported and
+// unit-tested (tests/js); the registerExtension wiring below is exercised in
+// the manual browser matrix.
+//
+// ComfyUI serves its frontend API at runtime from `/scripts/app.js`. The
+// emitted import string stays `/scripts/app.js` (bun's `--external '/scripts/*'`
+// keeps it unbundled); the type is supplied via a `paths` mapping in
+// tsconfig.json that points the import at `src/comfyui-shims.d.ts`. See ADR-0001.
+import type { ComfyApp } from "@comfyorg/comfyui-frontend-types";
+import { app } from "/scripts/app.js";
+
+const EXT_NAME = "@@NAME@@";
+
+// ============================================================
+// Shim registry
+// ============================================================
+
+export interface CssShim {
+  /** PascalCase suffix of the `@@DISPLAY_NOSPACE@@.<Id>` boolean setting. */
+  id: string;
+  /** Settings-UI label. */
+  name: string;
+  /** Upstream issue this shim papers over. Delete the shim when it closes. */
+  upstream: string;
+  /** One-line settings tooltip (the upstream URL is appended). */
+  tooltip: string;
+  css: string;
+}
+
+// Placeholder shim — replace with a real stopgap. Every shim MUST link an
+// upstream issue and carry non-empty css/tooltip (asserted in tests/js). The
+// selector below is inert (nothing matches `[data-testid="@@SHORT@@-example"]`),
+// so it fails soft until you point it at a real hook.
+const exampleShim: CssShim = {
+  id: "Example",
+  name: "@@DISPLAY@@ example shim",
+  upstream: "https://github.com/Comfy-Org/ComfyUI_frontend/issues",
+  tooltip: "Replace this placeholder with a real stopgap for an upstream frontend bug.",
+  css: `
+[data-testid="@@SHORT@@-example"] {
+  outline: 1px solid transparent;
+}
+`,
+};
+
+export const SHIMS: CssShim[] = [exampleShim];
+
+// ============================================================
+// CSS shim lifecycle — one managed <style> per shim, idempotent
+// ============================================================
+
+export function styleElementId(shim: Pick<CssShim, "id">): string {
+  return `${EXT_NAME}-${shim.id}`;
+}
+
+export function applyCssShim(shim: CssShim, doc: Document = document): void {
+  if (doc.getElementById(styleElementId(shim))) return;
+  const style = doc.createElement("style");
+  style.id = styleElementId(shim);
+  style.textContent = `/* ${EXT_NAME}: ${shim.name} — stopgap for ${shim.upstream} */${shim.css}`;
+  doc.head.appendChild(style);
+}
+
+export function removeCssShim(shim: Pick<CssShim, "id">, doc: Document = document): void {
+  doc.getElementById(styleElementId(shim))?.remove();
+}
+
+// ============================================================
+// Wiring — a boolean setting per shim (apply/remove on change) + a command
+// ============================================================
+
+type ExtensionSettings = NonNullable<Parameters<ComfyApp["registerExtension"]>[0]["settings"]>;
+
+function shimSettings(): ExtensionSettings {
+  return SHIMS.map((shim) => ({
+    id: `@@DISPLAY_NOSPACE@@.${shim.id}`,
+    name: shim.name,
+    type: "boolean",
+    defaultValue: true,
+    tooltip: `${shim.tooltip} Stopgap for ${shim.upstream}`,
+    // Fires once at registration with the stored value, then on every toggle.
+    onChange: (value: unknown) => {
+      if (value) applyCssShim(shim);
+      else removeCssShim(shim);
+    },
+  })) as ExtensionSettings;
+}
+
+app.registerExtension({
+  name: "comfy.@@SHORT@@",
+  settings: shimSettings(),
+  commands: [
+    {
+      id: "@@SHORT@@.reapply-shims",
+      label: "Re-apply @@DISPLAY@@ CSS shims",
+      // TODO: replace with a real command, or drop `commands`/`menuCommands`
+      // entirely if this pack is settings-only.
+      function: () => {
+        for (const shim of SHIMS) applyCssShim(shim);
+      },
+    },
+  ],
+  menuCommands: [
+    {
+      path: ["Extensions", "@@DISPLAY@@"],
+      commands: ["@@SHORT@@.reapply-shims"],
+    },
+  ],
+});
+"""
+
+COMFYUI_SHIMS = """\
+// ComfyUI serves its frontend API at runtime from `/scripts/app.js`. The
+// `@comfyorg/comfyui-frontend-types` package only types the bare-package
+// symbols, not that served-path module. TypeScript will not match an ambient
+// `declare module` against a rooted (`/…`) path specifier, so instead a
+// `paths` mapping in tsconfig.json points the `/scripts/app.js` import at this
+// declaration file. The emitted import string stays `/scripts/app.js` (bun's
+// `--external '/scripts/*'` keeps it unbundled, resolved at runtime against
+// ComfyUI's served module).
+import type { ComfyApp } from "@comfyorg/comfyui-frontend-types";
+
+export declare const app: ComfyApp;
+"""
+
+TSCONFIG = """\
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "/scripts/app.js": ["./src/comfyui-shims.d.ts"]
+    },
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "allowJs": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "types": ["@comfyorg/comfyui-frontend-types"]
+  },
+  "include": ["src"]
+}
+"""
+
+KNIP_JSON = """\
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["src/index.ts"],
+  "project": ["src/**/*.ts"]
+}
+"""
+
+README = """\
+# @@NAME@@
+
+@@DESC@@
+
+> Part of a family of mobile-first ComfyUI usability packs
+> ([gallery-loader](https://github.com/@@PUBLISHER@@/comfyui-gallery-loader),
+> [sampler-info](https://github.com/@@PUBLISHER@@/comfyui-sampler-info)):
+@@FAMILY_BLURB@@
+
+## Install
+
+```sh
+cd <ComfyUI>/custom_nodes
+git clone https://github.com/@@PUBLISHER@@/@@NAME@@
+cd @@NAME@@
+bun install
+bun run build      # emit web/dist/ (served by ComfyUI)
+```
+
+Restart ComfyUI; hard-refresh the browser tab (Ctrl+Shift+R / Cmd+Shift+R).
+
+## What it does
+
+@@DESC@@
+
+It enhances @@WHAT_DESC@@ — additive and mobile-first, always falling back to the
+native control so serialized workflows never break. Expand this section with the
+concrete before/after once the pack logic lands.
+
+<!-- Hero screenshot: add the containerized screenshot pipeline with the
+     `comfyui-screenshot-pipeline` skill (`just screenshots`), then embed the
+     committed docs/*.png here with an italic caption, like the sibling packs. -->
+
+## Compatibility
+
+@@COMPAT_BULLET@@
+- Frontend changes take effect after `bun run build` + a browser hard-refresh —
+  no ComfyUI restart.
+
+## License
+
+MIT — see `LICENSE`.
+"""
+
+CLAUDE_MD = """\
+# CLAUDE.md
+
+@@CLAUDE_INTRO@@
+
+## The pattern ("the vein")
+
+@@VEIN@@
+
+## File layout
+
+| Path | Purpose |
+|------|---------|
+| `src/index.ts` | @@EXT_ROW_DESC@@ |
+| `src/comfyui-shims.d.ts` | Types the `/scripts/app.js` runtime import (via the `paths` mapping in `tsconfig.json`). |
+| `__init__.py` | Loader stub. @@INIT_DESC@@ |
+@@BACKEND_LAYOUT_ROW@@| `web/dist/` | **Generated** by `bun run build`, committed (tracked) so git clone/update carries it. ComfyUI serves it at `/extensions/@@NAME@@/`. |
+| `pyproject.toml` | Comfy Registry metadata. `PublisherId` + `version` are the fields you touch; `[tool.comfy] includes = ["web/dist"]` force-ships the built output. |
+| `tsconfig.json` / `biome.json` / `knip.json` | Strict TS config, Biome lint/format, knip dead-code. |
+| `.github/workflows/` | `ci.yml` (tsc+build/biome/vitest/ruff/pytest/gitleaks), `publish.yml` (builds then publishes on version bump), `release-please.yml`. |
+| `tests/js/` | Vitest suite importing the `.ts` source directly.@@PYTEST_LAYOUT_NOTE@@ |
+| `justfile` | `build`, `lint`, `format`, `test`, `check` recipes — the local CI gate. |
+
+## Hard rules
+
+- **Pack directory name is part of the URL.** `web/dist/index.js` is served at
+  `/extensions/@@NAME@@/index.js`. Renaming the pack dir breaks every fetch. If
+  unavoidable, sync `EXT_NAME` in the source.
+- **TypeScript source, bun build.** Author in `src/` (entry `src/index.ts`),
+  build to `web/dist/` via `bun build ./src/index.ts --target browser --format
+  esm --outdir web/dist --external '/scripts/*'`. `tsc --noEmit` is the type
+  gate; `bun build` is the emit — they are decoupled. The `/scripts/app.js`
+  import is left **unbundled** (resolved at runtime against ComfyUI's served
+  module). See ADR-0001.
+- **@@DEP_RULE@@**
+- **@@KIT_RULE@@**
+- **Additive only.** Never clobber an existing tooltip/control; fall back to
+  the native widget when there's no match. Never fabricate data.
+- @@HOOK_RULE@@
+- **Never hand-edit `CHANGELOG.md` or the `version` field** — release-please
+  owns them (conventional commits drive the bump).
+
+## Dev workflow
+
+```sh
+uv sync --group dev          # ruff, pytest, pre-commit
+bun install                  # TypeScript, Biome, Vitest, knip, @@KIT_DEV_NOTE@@
+pre-commit install
+just check                   # typecheck + build + lint + test — the local CI gate
+```
+
+Iterating on the frontend needs a **`bun run build`** (the served file is
+`web/dist/index.js`, not the source) plus a browser hard-refresh — no ComfyUI
+restart.@@RESTART_NOTE@@
+
+### Endpoint reachability check
+
+```sh
+curl -s -o /dev/null -w "%{http_code}\\n" http://127.0.0.1:8188/extensions/@@NAME@@/index.js
+```
+
+## Verify the frontend API against the sourcemap
+
+The ComfyUI frontend (`comfyui-frontend-package`) ships **minified** — property
+and method names are renamed in the bundle, so reading the running app's objects
+by guessed names (or trusting old tutorials) is unreliable. The TypeScript types
+from `@comfyorg/comfyui-frontend-types` cover `ComfyApp` but **not** the internal
+`LGraphNode` / `LGraphCanvas` / widget interfaces (un-exported). Model the small
+surface you touch with local structural interfaces, and verify the real shape
+against the bundled sourcemap before coding against a LiteGraph / canvas API.
+
+LiteGraph is bundled in the **`api-*.js.map`** chunk under
+`.venv/lib/python*/site-packages/comfyui_frontend_package/static/assets/`. The
+`.js.map` embeds the original TypeScript in `sourcesContent` — grep that, not the
+minified `.js`:
+
+```sh
+cd .venv/lib/python*/site-packages/comfyui_frontend_package/static/assets
+grep -l 'LGraphGroup' *.js.map        # find the chunk
+```
+
+Facts worth confirming this way (recheck on a `comfyui-frontend-package` bump):
+`LiteGraph.NODE_TITLE_HEIGHT` (30); `canvas.selectedItems` is a
+`Set<Positionable>` holding nodes + groups + reroutes; `canvas.selected_nodes` is
+a node-only dictionary; canvas zoom is **wheel-driven**
+(`processMouseWheel -> ds.changeScale`).
+
+Two gotchas that follow: discriminate selected items by **shape, not
+`instanceof`** (the class is renamed under minification); and to suppress native
+zoom during a gesture, intercept `wheel` (capture, `passive:false`,
+`preventDefault`), not just pointer events. Record what you confirm in a
+"Verified frontend API" table above so the next change doesn't re-derive it.
+
+## Releases
+
+Merge the release-please PR → the published GitHub release triggers
+`publish.yml`, which runs `bun run build`, publishes via
+`Comfy-Org/publish-node-action`, attaching the release notes as the per-version registry changelog (the "Updates" section). Requires the
+`REGISTRY_ACCESS_TOKEN` repo secret. Use conventional commits; release-please
+maintains `CHANGELOG.md` and the version bump PR.
+"""
+
+JUSTFILE = """\
+# @@NAME@@ — task runner. Run `just` (or `just --list`) for recipes.
+
+set positional-arguments
+
+# Show available recipes.
+default:
+    @just --list
+
+##########
+# Quality
+##########
+
+# Build the frontend bundle to web/dist/ (bun build).
+[group: "quality"]
+build:
+    bun run build
+
+# Typecheck the TypeScript source (tsc --noEmit; bun emits, tsc only checks).
+[group: "quality"]
+typecheck:
+    bun run typecheck
+
+# Lint Python + TS/JSON (no changes).
+[group: "quality"]
+lint:
+    uv run ruff check .
+    bunx @biomejs/biome@@@BIOME_VERSION@@ check
+
+# Auto-format Python + TS/JSON.
+[group: "quality"]
+format:
+    uv run ruff format .
+    uv run ruff check --fix .
+    bunx @biomejs/biome@@@BIOME_VERSION@@ check --write
+
+# Run the full test suite (pytest + Vitest).
+[group: "quality"]
+test:
+    uv run pytest -v
+    bun run test
+
+# Typecheck + build + lint + test in one shot — the local CI gate.
+[group: "quality"]
+check: typecheck build lint test
+
+##########
+# Assets
+##########
+
+# Requires rsvg-convert (librsvg): `brew install librsvg` / `apt-get install librsvg2-bin`.
+# pyproject [tool.comfy] Icon/Banner point at the raw GitHub PNG URLs, so the
+# registry shows a broken image until you rasterize and commit the PNGs.
+#
+# Rasterize icon.svg + banner.svg to the PNGs the registry serves (commit them).
+[group: "assets"]
+assets:
+    # Placeholder gate: the scaffold ships a letter-initial glyph so the SVGs are
+    # valid from commit one, but no pack may PUBLISH it — pyproject already points
+    # Icon/Banner at the PNGs this recipe writes, so a forgotten placeholder ships
+    # a generic letter tile to registry.comfy.org (nearly happened on
+    # comfyui-output-swap). Draw the bespoke pictogram, delete the marker comment.
+    grep -q 'PLACEHOLDER-GLYPH' icon.svg banner.svg && { echo "icon.svg/banner.svg still carry the PLACEHOLDER-GLYPH marker — replace the letter glyph with a bespoke pictogram (family spec: #ffb02e line-art on the dark tile) and delete the marker comment before rasterizing."; exit 1; } || true
+    rsvg-convert -w 400 -h 400 icon.svg -o icon.png
+    rsvg-convert -w 1344 -h 576 banner.svg -o banner.png
+    # Consistency gate: the family tile must trim to 346x346+27+27 on a 400x400
+    # canvas. A mismatch means the icon drifted off the family spec (wrong
+    # canvas size or a full-bleed tile) — see comfy-registry-lifecycle. Skipped
+    # when ImageMagick's `identify` is absent (rsvg-convert is the only hard dep).
+    command -v identify >/dev/null 2>&1 && { test "$(identify -format '%wx%h/%@' icon.png)" = "400x400/346x346+27+27" || { echo "icon.png off family spec (want 400x400/346x346+27+27)"; exit 1; }; } || true
+"""
+
+BIOME_JSON = """\
+{
+  "$schema": "https://biomejs.dev/schemas/@@BIOME_VERSION@@/schema.json",
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "complexity": { "noForEach": "warn" },
+      "style": { "noNonNullAssertion": "warn", "useConst": "error" }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": { "quoteStyle": "double", "semicolons": "always" }
+  },
+  "files": {
+    "includes": [
+      "src/**/*.ts",
+      "**/web/data/**/*.json",
+      "**/tests/js/**/*.js",
+      "vitest.config.js",
+      "package.json",
+      "knip.json",
+      "tsconfig.json",
+      "!**/node_modules",
+      "!**/web/dist",
+      "!**/dist",
+      "!**/coverage"
+    ]
+  }
+}
+"""
+
+PACKAGE_JSON = """\
+{
+  "name": "@@NAME@@",
+  "private": true,
+  "type": "module",
+  "description": "@@DESC@@ TypeScript source in src/, built to web/dist/ via bun build.@@KIT_PKG_NOTE@@ See ADR-0001.",
+  "scripts": {
+    "build": "bun build ./src/index.ts --target browser --format esm --banner '@@BUNDLE_BANNER@@' --outdir web/dist --external '/scripts/*'",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check",
+    "knip": "knip"
+  },@@DEPENDENCIES_BLOCK@@
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@comfyorg/comfyui-frontend-types": "@@COMFY_FRONTEND_TYPES_VERSION@@",
+    "@biomejs/biome": "^@@BIOME_VERSION@@",
+    "vitest": "^4.1.7",@@JSDOM_DEV_DEP@@
+    "knip": "^5.0.0"
+  }
+}
+"""
+
+VITEST_CONFIG = """\
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vitest/config";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+export default defineConfig({
+  test: {
+    include: ["tests/js/**/*.test.js"],
+    environment: "node",
+  },
+  resolve: {
+    alias: {
+      // ComfyUI's served-path runtime import. The TS source imports the
+      // absolute `/scripts/app.js` form; vitest aliases it to the mock so
+      // the pure functions can be imported (and the module side-effect —
+      // app.registerExtension — runs against the stub).
+      "/scripts/app.js": resolve(__dirname, "tests/js/__mocks__/app.js"),
+    },
+  },
+});
+"""
+
+APP_MOCK = """\
+// Minimal stub of ComfyUI's scripts/app.js for the Vitest harness.
+// Extension-module tests import `app` without a real frontend.
+export const app = {
+  registerExtension() {},
+  graph: { _nodes: [] },
+};
+"""
+
+JS_TEST_MODAL = """\
+import { describe, expect, it } from "vitest";
+// Vitest transpiles TypeScript, so the test imports the `.ts` source directly
+// (no build step). Importing the module also confirms the registerExtension
+// wiring loads cleanly against tests/js/__mocks__/app.js.
+import { clampToTargets } from "../../src/index.ts";
+
+// Smoke test so `bun run test` is green from the first commit. Exercises the
+// placeholder pure helper; replace with real tests of this pack's helpers as
+// they land. Add at least one jsdom DOM-attach test per modal builder (assert
+// the expected element exists in modal.bodyEl after openX()) — the gate below
+// covers pure helpers only, which is exactly the gap that let an empty-modal
+// bug ship green. Use `vitest --environment jsdom` for those.
+describe("@@NAME@@ harness", () => {
+  it("recognises a target widget name and rejects a non-target", () => {
+    expect(clampToTargets("@@FIRST_WIDGET@@")).toBe(@@FIRST_WIDGET_EXPECT@@);
+    expect(clampToTargets("definitely-not-a-target-widget")).toBe(false);
+  });
+});
+"""
+
+JS_TEST_GESTURE = """\
+import { describe, expect, it } from "vitest";
+// Vitest transpiles TypeScript, so the test imports the `.ts` source directly
+// (no build step). Importing the module also confirms the registerExtension
+// wiring loads cleanly against tests/js/__mocks__/app.js.
+import { hitHandle, pointInRect, resizedGeometry } from "../../src/index.ts";
+
+// Smoke tests so `bun run test` is green from the first commit. Exercise the
+// pure gesture helpers — the recognizer (hitHandle) and the geometry it feeds.
+// Add a jsdom test for installGestureLayer's pointerdown handling as the real
+// gesture lands; the invariant worth asserting there is that a pointerdown
+// which grabs a handle is suppressed before it can reach the canvas.
+describe("@@NAME@@ gesture helpers", () => {
+  const rect = { x: 10, y: 10, w: 100, h: 50 };
+
+  it("hit-tests a screen point against a rect", () => {
+    expect(pointInRect(50, 30, rect)).toBe(true);
+    expect(pointInRect(5, 30, rect)).toBe(false);
+  });
+
+  it("recognises a corner grab on the first pointerdown", () => {
+    expect(hitHandle(12, 12, rect, 18)).toBe("nw");
+    expect(hitHandle(108, 58, rect, 18)).toBe("se");
+    // A press in the node body is NOT a handle grab — it must fall through to
+    // LiteGraph so tapping/dragging a selected node still works.
+    expect(hitHandle(60, 35, rect, 18)).toBeNull();
+  });
+
+  it("resizes from a south-east drag without moving the anchor", () => {
+    const { pos, size } = resizedGeometry([0, 0], [200, 100], "se", 40, 20);
+    expect(pos).toEqual([0, 0]);
+    expect(size).toEqual([240, 120]);
+  });
+
+  it("moves pos when a north-west corner is dragged, and clamps together", () => {
+    expect(resizedGeometry([100, 100], [200, 100], "nw", 50, 25)).toEqual({
+      pos: [150, 125],
+      size: [150, 75],
+    });
+    // Past the minimum both stop: size clamps and pos stops following.
+    expect(resizedGeometry([100, 100], [200, 100], "nw", 500, 500, [120, 60])).toEqual({
+      pos: [180, 140],
+      size: [120, 60],
+    });
+  });
+});
+"""
+
+JS_TEST_STANDALONE = """\
+// @vitest-environment jsdom
+import { describe, expect, it } from "vitest";
+// Vitest transpiles TypeScript, so the test imports the `.ts` source directly
+// (no build step). Importing the module also runs the registerExtension wiring
+// against tests/js/__mocks__/app.js. The standalone modal is launched from the
+// app chrome, so the meaningful smoke test is a jsdom modal-MOUNT check:
+// openShell() must populate modal.bodyEl. This is exactly the empty-modal gap
+// (openModalShell returns an EMPTY bodyEl you fill after opening) that passes
+// pure-helper unit tests but ships a blank dialog — so it is asserted here from
+// the first commit. The `@vitest-environment jsdom` docblock above gives this
+// one file a DOM; the rest of the suite stays on the node environment. Replace
+// with assertions on the real modal body as it lands.
+import { openShell } from "../../src/index.ts";
+
+describe("@@NAME@@ standalone modal", () => {
+  it("mounts a non-empty body into the modal shell", () => {
+    const modal = openShell();
+    expect(modal.bodyEl).toBeTruthy();
+    expect(modal.bodyEl.querySelector(".@@SHORT@@-body")).not.toBeNull();
+    expect(modal.bodyEl.textContent).toContain("@@DISPLAY@@");
+    modal.close();
+  });
+});
+"""
+
+JS_TEST_SHIM = """\
+// @vitest-environment jsdom
+import { describe, expect, it } from "vitest";
+// Vitest transpiles TypeScript, so the test imports the `.ts` source directly
+// (no build step). Importing the module also runs the registerExtension wiring
+// against tests/js/__mocks__/app.js. There is no modal in this pack — the
+// meaningful smoke is the CSS-shim lifecycle (inject / idempotent / remove),
+// which is jsdom-checkable. The `@vitest-environment jsdom` docblock above
+// gives this one file a DOM; the rest of the suite stays on the node
+// environment.
+import { applyCssShim, removeCssShim, SHIMS, styleElementId } from "../../src/index.ts";
+
+describe("@@NAME@@ shim registry", () => {
+  it("every shim links its upstream issue and carries non-empty CSS + tooltip", () => {
+    for (const shim of SHIMS) {
+      expect(shim.upstream).toMatch(/^https:\\/\\//);
+      expect(shim.css.trim()).not.toBe("");
+      expect(shim.tooltip.trim()).not.toBe("");
+    }
+  });
+
+  it("shim ids are unique", () => {
+    const ids = SHIMS.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("@@NAME@@ CSS shim lifecycle", () => {
+  const shim = SHIMS[0];
+
+  it("apply injects one managed <style>, idempotently", () => {
+    applyCssShim(shim);
+    applyCssShim(shim);
+    const styles = document.querySelectorAll(`#${styleElementId(shim)}`);
+    expect(styles.length).toBe(1);
+    expect(styles[0].textContent).toContain(shim.upstream);
+  });
+
+  it("remove deletes the managed <style> and tolerates absence", () => {
+    removeCssShim(shim);
+    expect(document.getElementById(styleElementId(shim))).toBeNull();
+    removeCssShim(shim); // second remove is a no-op, not a throw
+  });
+});
+"""
+
+TEST_INIT = '''\
+"""Smoke tests for the loader stub so CI is green from the first commit."""
+
+import @@PY_MODULE_OR_INIT@@ as pack
+
+
+def test_web_directory_exported():
+    assert pack.WEB_DIRECTORY == "./web/dist"
+
+
+def test_node_mappings_exported():
+    assert isinstance(pack.NODE_CLASS_MAPPINGS, dict)
+    assert isinstance(pack.NODE_DISPLAY_NAME_MAPPINGS, dict)
+'''
+
+# Kept byte-identical across all pack repos and this scaffold - sync
+# changes everywhere (the file says so in its docstring).
+TEST_PUBLISH_HYGIENE = r'''"""Registry-tarball hygiene guard.
+
+The Comfy Registry security scan flags a node version on ANY finding —
+even info severity — and a Flagged version is not served to installers
+(see Comfy-Org/registry-backend#180, Comfy-Org/ComfyUI-Manager#2927).
+Every shipped file is scan surface.
+
+comfy-cli builds node.zip as: git-tracked files - .comfyignore matches,
+with [tool.comfy] includes force-kept (see comfy_cli/file_utils.py
+zip_files). These tests recreate that file set and pin it:
+
+1. every top-level path in the tarball is a known runtime path — adding
+   a new dev-only directory (scripts/, tooling/, ...) fails this test
+   until .comfyignore excludes it. That is the regression that shipped
+   scripts/corpus_probe.py in comfyui-sampler-info 0.1.16 and got the
+   version flagged (info_python_network_operations);
+2. shipped Python contains no scanner-tripwire patterns (network, env,
+   subprocess, dynamic exec) unless explicitly allowlisted as intended
+   functionality;
+3. web/dist stays force-included via [tool.comfy] includes.
+
+This file is kept byte-identical across the comfyui-* pack repos —
+sync changes to all of them (and to the comfyui-node-scaffold skill).
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+
+# Top-level entries that are allowed to ship (directories end with "/").
+# Any top-level *.py is runtime node code and is also allowed.
+EXPECTED_RUNTIME = {
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "pyproject.toml",
+    "icon.png",
+    "banner.png",
+    "web/",
+}
+PY_TOPLEVEL = re.compile(r"^[a-z0-9_]+\.py$")
+
+# Patterns the registry scanner reacts to in shipped Python.
+TRIPWIRES = {
+    "network": re.compile(
+        r"urllib|urlopen|http\.client"
+        r"|\brequests\.(get|post|put|delete|head|patch|request|Session)\b"
+        r"|\bsocket\.\w"
+    ),
+    "environment": re.compile(r"os\.environ"),
+    "subprocess": re.compile(r"\bsubprocess\b|os\.system\("),
+    "dynamic-exec": re.compile(r"\beval\(|\bexec\(|__import__|pickle\.loads"),
+}
+
+# filename -> tripwire categories that are intended, reviewed functionality.
+# comfyui-touch-manager IS a node manager: registry lookups (network),
+# feature-gate env vars, git/pip subprocess — scanner-visible by design,
+# tracked for appeal in Comfy-Org/registry-backend#180.
+ALLOWED_TRIPWIRES: dict[str, set[str]] = {
+    "touch_manager.py": {"network", "environment", "subprocess"},
+}
+
+
+def _tracked_files() -> list[str]:
+    out = subprocess.check_output(["git", "ls-files"], cwd=REPO, text=True)
+    return [line for line in out.splitlines() if line]
+
+
+def _includes() -> list[str]:
+    text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r"^includes\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    return re.findall(r'"([^"]+)"', match.group(1)) if match else []
+
+
+def _comfy_display_assets() -> dict[str, str]:
+    """[tool.comfy] Icon/Banner -> the repo-root filename each URL resolves to."""
+    text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+    found = {}
+    for key in ("Icon", "Banner"):
+        match = re.search(rf'^{key}\s*=\s*"([^"]+)"', text, re.M)
+        if match and match.group(1).strip():
+            found[key] = match.group(1).rstrip("/").rsplit("/", 1)[-1]
+    return found
+
+
+def _ignore_spec():
+    # Mirrors comfy-cli's _load_comfyignore_spec. pathspec is imported lazily so
+    # the module stays importable without it — test_registry_display_assets_present
+    # needs only git + a regex, and the scaffold's own regression test executes it
+    # standalone in an environment that has no dev group installed.
+    import pathspec
+
+    path = REPO / ".comfyignore"
+    if not path.exists():
+        return None
+    patterns = [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    return pathspec.PathSpec.from_lines("gitwildmatch", patterns) if patterns else None
+
+
+def _force_included(rel_path: str, include_prefixes: list[str]) -> bool:
+    return any(
+        rel_path == prefix or rel_path.startswith(prefix + "/") for prefix in include_prefixes
+    )
+
+
+def shipped_files() -> list[str]:
+    """The file set comfy-cli would pack into node.zip."""
+    spec = _ignore_spec()
+    prefixes = [i.strip("/") for i in _includes()]
+
+    def keep(path: str) -> bool:
+        if _force_included(path, prefixes):
+            return True
+        return not (spec and spec.match_file(path))
+
+    return [f for f in _tracked_files() if keep(f)]
+
+
+def test_web_dist_is_force_included():
+    assert "web/dist" in _includes(), (
+        "[tool.comfy] includes must force-ship web/dist — without it a "
+        "checkout-wiped build publishes an empty frontend"
+    )
+
+
+def test_registry_display_assets_present():
+    """The PNGs [tool.comfy] points at must exist and be bespoke, not placeholders.
+
+    Icon/Banner are raw-GitHub URLs that registry.comfy.org resolves at display
+    time, so a pack that never ran `just assets` publishes a 404 icon — and no
+    other gate notices: lint, typecheck, build, both test suites and the registry
+    security scan all stay green. EXPECTED_RUNTIME above allowlists icon.png and
+    banner.png as *permitted to ship*; nothing asserted they *exist*.
+
+    icon.png/banner.png are derived from icon.svg/banner.svg exactly as web/dist
+    is derived from src/, and web/dist already has a freshness gate in CI. This
+    is that gate for the display assets.
+
+    Observed: comfyui-touch-manager published with `Icon = ""` and no Banner key
+    for weeks; comfyui-output-swap seeded with Icon/Banner pointing at PNGs that
+    were not rasterized until 31 hours later, both caught only by a human.
+
+    BOTH keys are required, not "at least one". An earlier revision asserted only
+    that the assets dict was non-empty, which let a pack declaring `Icon` and no
+    `Banner` pass here while `scaffold.py --verify` graded the same pack ERROR —
+    two gates disagreeing about whether one pack is publish-ready. The registry
+    listing renders an undeclared banner as blank, so the strict reading is the
+    correct one and this test now matches the audit.
+    """
+    assets = _comfy_display_assets()
+    problems = [
+        f"[tool.comfy] {key} is unset, so the registry listing renders without "
+        f"artwork. Point it at https://raw.githubusercontent.com/<publisher>/"
+        f"<name>/main/{key.lower()}.png, then run 'just assets'."
+        for key in ("Icon", "Banner")
+        if key not in assets
+    ]
+
+    tracked = set(_tracked_files())
+    for key, filename in sorted(assets.items()):
+        if filename not in tracked:
+            problems.append(
+                f"[tool.comfy] {key} points at {filename}, which is not a tracked "
+                "file — run 'just assets' and commit icon.png + banner.png"
+            )
+            continue
+        source = REPO / (Path(filename).stem + ".svg")
+        if source.exists() and "PLACEHOLDER-GLYPH" in source.read_text(
+            encoding="utf-8", errors="replace"
+        ):
+            problems.append(
+                f"{source.name} still carries the PLACEHOLDER-GLYPH marker, so "
+                f"{filename} is the generic letter tile — draw the bespoke "
+                "pictogram, delete the marker comment, re-run 'just assets'"
+            )
+    assert not problems, "Registry display assets are not publish-ready:\n  " + "\n  ".join(
+        problems
+    )
+
+
+def test_only_expected_runtime_paths_ship():
+    unexpected = []
+    for f in shipped_files():
+        top = f.split("/", 1)[0]
+        if "/" in f:
+            if top + "/" not in EXPECTED_RUNTIME:
+                unexpected.append(f)
+        elif f not in EXPECTED_RUNTIME and not PY_TOPLEVEL.match(f):
+            unexpected.append(f)
+    assert not unexpected, (
+        "Files would ship in the registry tarball that are not classified "
+        "as runtime content — either add them to .comfyignore (dev-only) "
+        f"or to EXPECTED_RUNTIME in this test (runtime): {sorted(unexpected)}"
+    )
+
+
+def test_no_unexpected_tripwires_in_shipped_python():
+    findings = []
+    for f in shipped_files():
+        if not f.endswith(".py"):
+            continue
+        text = (REPO / f).read_text(encoding="utf-8", errors="replace")
+        allowed = ALLOWED_TRIPWIRES.get(Path(f).name, set())
+        for category, rx in TRIPWIRES.items():
+            if category in allowed:
+                continue
+            match = rx.search(text)
+            if match:
+                findings.append(f"{f}: {category} ({match.group(0)!r})")
+    assert not findings, (
+        "Shipped Python matches registry-scanner tripwire patterns. Move "
+        "dev tooling out of the tarball via .comfyignore, or — if this is "
+        "intended runtime functionality — add an ALLOWED_TRIPWIRES entry "
+        f"with a justification comment: {findings}"
+    )
+'''
+
+# Backend variant only: the backend module does `from aiohttp import web` and
+# `from server import PromptServer` — ComfyUI-bundled libs the dev group does
+# NOT ship. This conftest stubs them (the gallery-loader pattern) so __init__.py
+# imports cleanly under pytest. Widen the stub set as the real backend grows
+# (numpy/torch/PIL/folder_paths/node_helpers are the usual additions).
+BACKEND_CONFTEST = '''\
+"""Stub ComfyUI-bundled imports so @@PY_MODULE@@.py can be imported in a vanilla
+Python environment for unit tests. The dev group ships none of these — they only
+exist inside a ComfyUI install — so the module-level imports would otherwise
+fail collection.
+"""
+
+from __future__ import annotations
+
+import sys
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock
+
+
+class _StubModule(ModuleType):
+    def __getattr__(self, attr: str):
+        if attr.startswith("__"):
+            raise AttributeError(attr)
+        m = MagicMock()
+        setattr(self, attr, m)
+        return m
+
+
+def _ensure_stub(name: str) -> ModuleType:
+    if name in sys.modules and not isinstance(sys.modules[name], _StubModule):
+        return sys.modules[name]
+    m = _StubModule(name)
+    sys.modules[name] = m
+    return m
+
+
+# aiohttp — the backend does `from aiohttp import web`.
+_aiohttp = _ensure_stub("aiohttp")
+_aiohttp.web = _ensure_stub("aiohttp.web")
+
+# ComfyUI core `server` — the backend does `from server import PromptServer`.
+_server = _ensure_stub("server")
+
+
+class _NoopRoutes:
+    """Decorator-shaped no-op for @PromptServer.instance.routes.get(path)."""
+
+    def get(self, path):
+        def deco(fn):
+            return fn
+
+        return deco
+
+    def post(self, path):
+        return self.get(path)
+
+
+# PromptServer.instance.routes is read at module load; supply a real object so
+# the @decorator calls in @@PY_MODULE@@.py return their wrapped function.
+_server.PromptServer = SimpleNamespace(instance=SimpleNamespace(routes=_NoopRoutes()))
+'''
+
+CI_YML = """\
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-python:
+    name: Lint & format (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Ruff check
+        run: uvx ruff check .
+      - name: Ruff format check
+        run: uvx ruff format --check .
+
+  lint-js:
+    name: Lint & format (TypeScript/JSON)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Biome
+        uses: biomejs/setup-biome@v2
+        with:
+          # Pin to the schema version declared in biome.json. Bump in lockstep
+          # with a config migration via `biome migrate` when upgrading.
+          version: @@BIOME_VERSION@@
+      - name: Biome check
+        run: biome check .
+
+  typecheck-build:
+    name: Typecheck & build (TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Build
+        run: bun run build
+      - name: Verify committed web/dist is up to date
+        run: |
+          if ! git diff --exit-code -- web/dist; then
+            echo "::error::web/dist is stale vs src/. Run 'bun run build' and commit web/dist."
+            exit 1
+          fi
+
+  test:
+    name: Tests (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Run tests
+        run: uv run --group dev pytest -v
+
+  test-js:
+    name: Tests (JavaScript)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run Vitest
+        run: bun run test
+
+  security:
+    name: Security scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # gitleaks scans <prev>^..<head>; the parent commit must be present
+          # locally, so a shallow clone fails with "stderr is not empty".
+          fetch-depth: 0
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+"""
+
+# Raw string: the embedded changelog transform contains regex backslashes
+# (incl. \1 replacement refs) that a normal string literal would corrupt.
+PUBLISH_YML = r"""name: Publish to Comfy Registry
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  publish-node:
+    name: Publish custom node to registry
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies and build frontend
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: Compute registry changelog from release notes
+        # `comfy node publish` now sends the per-version changelog natively via
+        # the COMFY_NODE_CHANGELOG env var (Comfy-Org/comfy-cli#467, released in
+        # comfy-cli 1.11+), so the registry "Updates" section is populated
+        # atomically at publish time — no post-publish PUT, no version-UUID
+        # lookup, and no TOML parsing on the runner. Flatten the release-please markdown to compact
+        # plain text (the registry renders Updates as plain text) and export it
+        # for the Publish step below, which reads COMFY_NODE_CHANGELOG from the
+        # job environment. No-op on workflow_dispatch.
+        if: github.event_name == 'release' && github.event.release.body != ''
+        env:
+          # Passed via env (not inline interpolation) so markdown/quotes in the
+          # release notes cannot inject into the shell.
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          changelog=$(python3 <<'PY'
+          import os, re
+
+          def clean(text):
+              text = re.sub(r"\(\[[0-9a-f]{6,40}\]\([^)]*\)\)", "", text)
+              text = re.sub(r"\[#([0-9]+)\]\([^)]*\)", r"#\1", text)
+              text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+              text = text.replace("**", "")
+              return re.sub(r"\s+", " ", text).strip().rstrip(".")
+
+          sections, items, current = [], [], None
+
+          def flush():
+              if items:
+                  prefix = current + ": " if current else ""
+                  sections.append(prefix + "; ".join(items) + ".")
+
+          for raw in os.environ.get("RELEASE_BODY", "").splitlines():
+              line = raw.strip()
+              if not line:
+                  continue
+              if re.match(r"^#+\s*\[?[0-9]+\.[0-9]+\.[0-9]+", line):
+                  continue
+              m = re.match(r"^#+\s+(.*)", line)
+              if m:
+                  flush()
+                  items, current = [], clean(m.group(1))
+                  continue
+              m = re.match(r"^[*-]\s+(.*)", line)
+              cleaned = clean(m.group(1) if m else line)
+              if cleaned:
+                  items.append(cleaned)
+
+          flush()
+          print("\n".join(sections))
+          PY
+          )
+          {
+            echo "COMFY_NODE_CHANGELOG<<__CHANGELOG_EOF__"
+            echo "$changelog"
+            echo "__CHANGELOG_EOF__"
+          } >> "$GITHUB_ENV"
+          if [ -n "$changelog" ]; then
+            echo "registry changelog computed (${#changelog} chars)"
+          else
+            echo "::warning::registry changelog empty after transform; Updates left empty"
+          fi
+      - name: Publish Custom Node
+        # Pinned to the main SHA that supports `skip_checkout`. web/dist is now
+        # tracked (committed), so a checkout would restore it — but the `@v1` and
+        # tagged releases run an unconditional actions/checkout that would discard
+        # the freshly built workspace and ship whatever bundle is committed.
+        # skip_checkout reuses the just-built web/dist directly.
+        uses: Comfy-Org/publish-node-action@d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9 # main: skip_checkout support
+        with:
+          # PAT issued at https://registry.comfy.org/, stored as the
+          # REGISTRY_ACCESS_TOKEN repo secret.
+          personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+          # Reuse the workspace the prior step already built (see pin comment).
+          skip_checkout: 'true'
+"""
+
+RELEASE_PLEASE_YML = """\
+name: "Release: release-please"
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-please-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    # Pure GitHub-API job (no build) — 1-CPU slim runner is 3x cheaper.
+    runs-on: ubuntu-slim
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_PRIVATE_KEY }}
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+"""
+
+RENOVATE_JSON = """\
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "pre-commit": {
+    "enabled": true
+  }
+}
+"""
+
+# The `uv.lock` extra-file is load-bearing, not decoration. release-please's
+# `python` release-type bumps `pyproject.toml` but has no native uv.lock support
+# (googleapis/release-please#2561), and uv records the project's OWN version in
+# its `[[package]]` entry with no setting to omit it — so without this updater
+# the lock's self-version silently trails `pyproject.toml` on EVERY release
+# (observed on comfyui-filename-prefix at v0.1.1 and v0.1.2; issue #2187).
+#
+# The jsonpath shape is the one documented in `comfy-registry-lifecycle` and
+# already deployed across the fleet — keep it identical, a second form here
+# would make every new pack drift from the packs the skill describes.
+#
+# Two wrong-looking-but-plausible variants, both verified against the real
+# comfyui-filename-prefix lock with release-please 17.11.1's GenericToml:
+#   `$.version`                            -> THROWS ("path not found in
+#      object: version"). uv.lock's top-level `version = 1` is the LOCKFILE
+#      FORMAT revision, not the package version — never target it.
+#   `$.package[?(@.name=="<pack>")].version` -> SILENT no-op ("No entries
+#      modified"): release-please's TaggedTOMLParser wraps every scalar as
+#      {start,end,value}, so `@.name` is an object, never a string. Hence
+#      `.name.value`.
+# The working form rewrites exactly one line by byte offset (replaceTomlValue),
+# so comments and formatting elsewhere in the lock stay byte-identical.
+#
+# A missing uv.lock is safe: release-please logs "file … did not exist" and
+# skips the update (github.ts buildChangeSet), so a pack that has not run
+# `uv sync` yet still releases cleanly.
+RP_CONFIG = """\
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "@@NAME@@",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='@@NAME@@')].version"
+        }
+      ]
+    }
+  },
+  "pull-request-title-pattern": "chore: release ${version}",
+  "changelog-sections": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance Improvements" },
+    { "type": "docs", "section": "Documentation" },
+    { "type": "chore", "section": "Miscellaneous", "hidden": false }
+  ],
+  "separate-pull-requests": false
+}
+"""
+
+RP_MANIFEST = '{\n  ".": "0.1.0"\n}\n'
+
+PRE_COMMIT = """\
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.12
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/biomejs/pre-commit
+    rev: v0.6.1
+    hooks:
+      - id: biome-check
+        # Match the biome.json schema (2.4.x) and CI's setup-biome pin so the
+        # pre-commit hook understands the 2.x config (e.g. files.includes).
+        additional_dependencies: ["@biomejs/biome@@@BIOME_VERSION@@"]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-json
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks
+"""
+
+GITIGNORE = """\
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+.venv/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+coverage/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local notes / scratch
+TODO.local.md
+NOTES.local.md
+"""
+
+# Trims the Comfy Registry tarball to runtime-only files. Fully static (no
+# template tokens). Requires comfy-cli >= 1.10.3 to be honored at publish time.
+COMFYIGNORE = """\
+# .comfyignore — trims the Comfy Registry tarball to runtime-only files.
+#
+# comfy-cli builds node.zip as:  git-tracked files − .comfyignore matches
+# + [tool.comfy] includes.  Patterns use gitignore (gitwildmatch) syntax.
+# web/dist is force-shipped via `includes`, so it always survives these rules.
+#
+# Goal: ship only what ComfyUI loads at runtime (the Python backend, the
+# built web/dist bundle, pyproject metadata, README/LICENSE) and keep CI,
+# build inputs, tests, docs, and the screenshot pipeline out of the tarball.
+# The registry security scan flags a version on ANY finding, even info
+# severity — every shipped file is scan surface. tests/test_publish_hygiene.py
+# fails if a new top-level path ships unclassified; keep the two in sync.
+
+# Build inputs — only the built web/dist is served, never the TS source
+/src/
+tsconfig.json
+biome.json
+knip.json
+vitest.config.js
+package.json
+bun.lock
+uv.lock
+pylock.toml
+
+# Dev/CI tooling scripts — never runtime code (a shipped scripts/ file with
+# urllib got comfyui-sampler-info 0.1.16 flagged: info_python_network_operations)
+/scripts/
+
+# Tests
+/tests/
+
+# Docs + screenshot pipeline (Dockerfile, shell scripts, large PNGs)
+/docs/
+/screenshots/
+
+# CI, release automation, repo + agent tooling
+/.github/
+/.claude/
+.pre-commit-config.yaml
+release-please-config.json
+.release-please-manifest.json
+renovate.json
+.gitattributes
+.gitignore
+justfile
+CLAUDE.md
+RELEASE-CHECKLIST.md
+.comfyignore
+
+# Source-form display assets (the rasterized icon.png + banner.png are kept)
+icon.svg
+banner.svg
+"""
+
+GITATTRIBUTES = (
+    "* text=auto eol=lf\n"
+    "*.png binary\n"
+    "*.jpg binary\n"
+    "*.webp binary\n"
+    "uv.lock linguist-generated=true\n"
+    "bun.lock linguist-generated=true\n"
+    "\n"
+    "# Built frontend bundle — committed (not gitignored) so git clone / a touch-manager\n"
+    "# git update carries the real served artifact, and force-shipped to the Comfy\n"
+    "# Registry via [tool.comfy] includes in pyproject.toml. Treat as generated:\n"
+    "# collapse/exclude in GitHub diffs+stats, suppress the noisy minified textual diff,\n"
+    "# and keep current-branch copy on merge (the bundle is regenerated, never hand-merged).\n"
+    "web/dist/** linguist-generated=true -diff -merge\n"
+)
+
+LICENSE = """\
+MIT License
+
+Copyright (c) @@YEAR@@ @@AUTHOR@@
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
+RELEASE_CHECKLIST = """\
+# Release checklist
+
+## One-time setup
+
+- [ ] Register the publisher / confirm `PublisherId` in `pyproject.toml` `[tool.comfy]`.
+- [ ] Add the repo to `gitops/repositories.tf` with `comfy_registry = true` and
+      `release_please = true` (do not configure via the GitHub UI). On the gitops
+      apply (the `tofu-apply.yml` workflow, triggered by the gitops release),
+      gitops pushes `REGISTRY_ACCESS_TOKEN`, `RELEASE_PLEASE_APP_ID` (var),
+      and `RELEASE_PLEASE_PRIVATE_KEY` (secret) automatically — no manual secret
+      creation. The `/comfy-node` orchestrator does this wiring for you.
+- [ ] Verify the secrets landed: `gh secret list -R laurigates/<name>`.
+
+## Finishing pass (before the first release)
+
+The scaffold emits the SVG artwork and wires `[tool.comfy]` `Icon`/`Banner` at
+the PNGs the registry serves — but it cannot rasterize them. Until it does, the
+registry listing resolves those URLs to a 404.
+
+- [ ] Draw the bespoke pictogram in `icon.svg` / `banner.svg` (family spec:
+      `#ffb02e` line-art on the dark tile) and delete the `PLACEHOLDER-GLYPH`
+      marker comments.
+- [ ] `just assets` — rasterize to `icon.png` + `banner.png` (needs
+      `rsvg-convert`), then commit both.
+- [ ] Flesh out README `## What it does` (ships as a family placeholder).
+- [ ] Add the screenshot pipeline + README hero: run the
+      `comfyui-screenshot-pipeline` skill, then `just screenshots`.
+
+The first two are enforced — `tests/test_publish_hygiene.py` fails CI while the
+PNGs are missing or the placeholder marker survives. The last two are advisory.
+This list is not the source of truth; ask the generator instead:
+
+```
+python3 <claude-plugins>/comfyui-plugin/skills/comfyui-node-scaffold/scaffold.py --verify .
+```
+
+## Per release
+
+- [ ] Land work via conventional commits on feature branches → PRs to `main`.
+- [ ] Merge the release-please PR (it bumps `version` + updates `CHANGELOG.md`).
+- [ ] Publishing the GitHub release (release-please does this on merge)
+      triggers `publish.yml`, which runs `bun install && bun run build` before
+      `publish-node-action` so the built `web/dist/` exists at publish time →
+      Comfy Registry. A follow-up step sets the registry version changelog
+      ("Updates" section) from the release notes.
+- [ ] Verify the new version appears on registry.comfy.org.
+"""
+
+ADR_0001 = """\
+---
+id: ADR-0001
+date: @@DATE@@
+status: Accepted
+deciders: @@AUTHOR@@
+domain: build-tooling
+github-issues: []
+---
+
+# ADR-0001: TypeScript source + bun build (browser ESM)
+
+## Context
+
+This pack reaches deep into the **minified** ComfyUI frontend's LiteGraph
+widget/node/canvas objects (`widget.onPointerDown`, `node.widgets`,
+`app.canvas`, `ds.scale`/`ds.offset`). Those accesses are exactly where a
+frontend-version bump silently breaks the pack. A vanilla-JS single file has no
+static type checking at that seam — the largest source of silent breakage is
+uncaught until runtime.
+
+## Decision
+
+Author the frontend in **TypeScript** under `src/` (entry `src/index.ts`) and
+build to `web/dist/` with **`bun build`**:
+
+```sh
+bun build ./src/index.ts --target browser --format esm --outdir web/dist --external '/scripts/*'
+```
+
+- **Type gate**: `bun run typecheck` → `tsc --noEmit` against
+  `@comfyorg/comfyui-frontend-types`. `tsc` never emits; `bun build` never
+  type-checks — the two are decoupled and each stays fast and single-purpose.
+- **Emit**: `bun build` produces browser-clean ESM with the `/scripts/app.js`
+  runtime import left **unbundled** (`--external '/scripts/*'`), resolved at
+  runtime against ComfyUI's served module. If the pack ships a static data
+  corpus, append `&& cp -R web/data web/dist/data` to the build script.
+- **Serve**: `__init__.py` sets `WEB_DIRECTORY = "./web/dist"`. ComfyUI serves
+  that tree at `/extensions/@@NAME@@/`, so the built JS is at
+  `/extensions/@@NAME@@/index.js`.
+- **Distribution**: `web/dist/` is committed (tracked, generated) so a git
+  clone / update carries the served bundle. The Comfy Registry tarball also
+  includes it via `[tool.comfy] includes = ["web/dist"]`, and `publish.yml`
+  runs `bun run build` before `publish-node-action`.
+
+@@ADR_KIT_SECTION@@## Type-seam notes (for future maintainers)
+
+- `@comfyorg/comfyui-frontend-types` exports `ComfyApp` at the module root but
+  **not** `LGraphNode` / `LGraphCanvas` / the widget interfaces (declared
+  internally, un-exported). Model the small surface this pack touches with local
+  structural interfaces rather than importing un-exportable types.
+- TypeScript will not match an ambient `declare module` against a rooted
+  (`/scripts/app.js`) path specifier. A `paths` mapping in `tsconfig.json` points
+  that import at `src/comfyui-shims.d.ts` for type resolution; the emitted import
+  string stays `/scripts/app.js` and `--external '/scripts/*'` keeps it unbundled.
+
+## Consequences
+
+- **Positive**: static type checking at the version-sensitive frontend seam;
+  output is still plain browser ESM served as a static file (no runtime bundler,
+  no framework); `knip` + `tsc` + Vitest + Biome give a complete local gate
+  chain; Vitest imports the `.ts` source directly (no build dependency in tests).
+- **Negative**: the edit → refresh loop now requires a `bun run build` step; a
+  build artifact must exist before the registry publish (CI wires this); one more
+  dev-dependency set (`typescript`, `@comfyorg/comfyui-frontend-types`, `knip`)
+  and a `tsconfig.json` to maintain.
+
+## Supersedes
+
+This replaces the earlier vanilla-JS approach (a single `web/js/<short>.js` with
+copied-in `modal-shell.js` / `modal-fuzzy.js`). The modal primitives are now
+consumed from `@@MODAL_KIT_PKG@@` and `bun build` inlines them.
+"""
+
+ADR_KIT_SECTION_MODAL = """\
+## Shared modal kit (not copied)
+
+The modal-shell + fuzzy-matcher primitives come from `@@MODAL_KIT_PKG@@`
+(a dependency), imported in `src/index.ts`. They are **not** vendored into the
+pack — `bun build` inlines the imported code into `web/dist`. This single-sources
+the primitives that were previously copied byte-identically across packs.
+
+"""
+
+# --------------------------------------------------------------------------- #
+# Registry display assets — the "finishing pass" (issue #1877)
+#
+# The scaffold ships SOURCE-FORM SVGs (icon.svg / banner.svg) styled to the
+# mobile-first family palette. `just assets` rasterizes them to icon.png /
+# banner.png via rsvg-convert; the registry fetches those PNGs by the raw
+# GitHub URL wired into pyproject.toml `[tool.comfy]`. Editing the SVG and
+# re-running `just assets` keeps the two in sync — no hand-drawn PNG to drift.
+# --------------------------------------------------------------------------- #
+# The pack-family icon spec (canonical: comfy-registry-lifecycle "Icon design
+# system"). 400x400 canvas, dark inset tile `rect 28,28,344,344 rx76` with the
+# vertical `#1f1f2a->#12121a` gradient + `#2a2a36` stroke, and ONE glyph in the
+# family accent. The tile is the outermost drawn element, so a correctly-framed
+# icon always trims to `346x346+27+27` (`identify -format '%@' icon.png`) — that
+# invariant is the consistency gate (`just assets` checks it). The placeholder
+# renders the pack initial; REPLACE the <text> with a bespoke pictogram before
+# release (no sibling pack uses a letter in its final art). Accent: #ffb02e for
+# touch/interaction packs, #6ba6ff for info/gallery packs.
+# The two SVG templates below are authored in the ORANGE (touch/interaction)
+# palette. `apply_accent` rewrites those tokens for the blue info/gallery
+# sub-family, so the generator can actually EMIT the rule the comment above
+# states — before this, both templates hardcoded orange and every scaffolded
+# pack started orange regardless of `--subfamily`.
+#
+# Only accent tokens are mapped. The tile gradient (#1f1f2a -> #12121a), its
+# #2a2a36 stroke, the #000000 backdrop and the #f5f5f7 wordmark are neutral in
+# both sub-families and must survive untouched, or the family tile drifts and
+# `just assets`' 346x346+27+27 consistency gate fails.
+#
+# Regression this encodes: the vector-banner restyle (2026-07-30) hardcoded the
+# orange palette across four info/gallery packs, flipping their banners from
+# blue to orange against a blue icon and silently erasing the sub-family signal
+# their previous banners carried.
+ACCENT_TOKENS = ("#ff8a00", "#b85e00", "#ff9a1f", "#ffb86b", "#ffce8a", "#ffb02e")
+ACCENT_PALETTES: dict[str, dict[str, str]] = {
+    # glyph + tagline + chrome for touch/interaction packs (the authored form)
+    "touch": {tok: tok for tok in ACCENT_TOKENS},
+    # info/gallery packs — hue-rotated to the documented #6ba6ff family accent,
+    # each token keeping its role (glow inner/mid, sweep, web, dots, glyph).
+    "info": {
+        "#ff8a00": "#0a84ff",
+        "#b85e00": "#0a4a8f",
+        "#ff9a1f": "#4d9bff",
+        "#ffb86b": "#8fc0ff",
+        "#ffce8a": "#b3d4ff",
+        "#ffb02e": "#6ba6ff",
+    },
+}
+SUBFAMILY_DEFAULT = "touch"
+
+
+def apply_accent(svg: str, subfamily: str) -> str:
+    """Rewrite the accent tokens of an authored-orange SVG for `subfamily`."""
+    palette = ACCENT_PALETTES[subfamily]
+    for orange, replacement in palette.items():
+        if orange != replacement:
+            svg = svg.replace(orange, replacement)
+    return svg
+
+
+ICON_SVG = """\
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400" role="img" aria-label="@@DISPLAY@@">
+  <title>@@DISPLAY@@</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f1f2a"/>
+      <stop offset="1" stop-color="#12121a"/>
+    </linearGradient>
+  </defs>
+  <rect x="28" y="28" width="344" height="344" rx="76" fill="url(#tile)" stroke="#2a2a36" stroke-width="2"/>
+  <!-- PLACEHOLDER-GLYPH: replace this <text> with a bespoke #ffb02e pictogram,
+       then delete this comment. `just assets` refuses to rasterize while the
+       PLACEHOLDER-GLYPH marker is present, because the PNGs it writes are what
+       registry.comfy.org serves. -->
+  <text x="200" y="212" fill="#ffb02e" font-family="Inter, Segoe UI, system-ui, sans-serif"
+        font-size="210" font-weight="700" text-anchor="middle" dominant-baseline="central">@@INITIAL@@</text>
+</svg>
+"""
+
+# 1344x576 (exact 21:9) family banner template: dark constellation backdrop,
+# warm glow + sweep arc, the icon tile scaled 0.5 on the left, wordmark +
+# tagline. Swap the placeholder <text> glyph for the same bespoke pictogram used
+# in icon.svg once it's drawn.
+BANNER_SVG = """\
+<svg xmlns="http://www.w3.org/2000/svg" width="1344" height="576" viewBox="0 0 1344 576" role="img" aria-label="@@DISPLAY@@">
+  <title>@@DISPLAY@@</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f1f2a"/>
+      <stop offset="1" stop-color="#12121a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="52%" cy="42%" r="55%">
+      <stop offset="0" stop-color="#ff8a00" stop-opacity="0.42"/>
+      <stop offset="0.45" stop-color="#b85e00" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff9a1f" stop-opacity="0"/>
+      <stop offset="0.55" stop-color="#ff9a1f" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ff9a1f" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1344" height="576" fill="#000000"/>
+  <rect width="1344" height="576" fill="url(#glow)"/>
+  <g stroke="#ffb86b" stroke-opacity="0.13" stroke-width="1.5" fill="none">
+    <path d="M470 120 L640 250 L560 400 L760 470 L900 300 L1080 180"/>
+    <path d="M640 250 L900 300 M560 400 L900 300 M470 120 L560 400 M760 470 L1080 380 M900 300 L1180 250"/>
+    <path d="M430 470 L560 400 M1080 180 L1180 250 L1080 380"/>
+  </g>
+  <g fill="#ffce8a" fill-opacity="0.55">
+    <circle cx="470" cy="120" r="3"/><circle cx="640" cy="250" r="3.5"/>
+    <circle cx="560" cy="400" r="3"/><circle cx="760" cy="470" r="3"/>
+    <circle cx="900" cy="300" r="4"/><circle cx="1080" cy="180" r="3"/>
+    <circle cx="1180" cy="250" r="3"/><circle cx="1080" cy="380" r="3"/>
+    <circle cx="430" cy="470" r="2.5"/>
+  </g>
+  <path d="M0 520 C 360 420, 900 540, 1344 360" stroke="url(#sweep)" stroke-width="6" fill="none"/>
+  <g transform="translate(96,188) scale(0.5)">
+    <rect x="28" y="28" width="344" height="344" rx="76" fill="url(#tile)" stroke="#2a2a36" stroke-width="2"/>
+    <!-- PLACEHOLDER-GLYPH: mirror icon.svg's bespoke pictogram here, then delete
+         this comment. See the note in icon.svg. -->
+    <text x="200" y="212" fill="#ffb02e" font-family="Inter, Segoe UI, system-ui, sans-serif"
+          font-size="210" font-weight="700" text-anchor="middle" dominant-baseline="central">@@INITIAL@@</text>
+  </g>
+  <text x="334" y="300" font-family="Helvetica, Arial, sans-serif" font-weight="bold"
+        font-size="120" fill="#f5f5f7" letter-spacing="-2">@@DISPLAY@@</text>
+  <text x="340" y="372" font-family="Helvetica, Arial, sans-serif" font-weight="500"
+        font-size="44" fill="#ffb02e">@@TAGLINE@@</text>
+</svg>
+"""
+
+# Registry health monitor — flags a pack whose Active registry version has been
+# Flagged (falls back to the previous Active version on install). Mirrors the
+# sibling packs' registry-health.yml.
+#
+# The Pending guard before the `gh issue close` block is load-bearing: the
+# registry scan is async, so a run triggered right after Publish sees
+# NodeVersionStatusPending, and `problem` is deliberately empty inside the 6h
+# grace window. Without the early `exit 0` the close path ran on that empty
+# `problem` and closed the tracking issue with "is **Active**" while the
+# registry still said Pending (observed 2026-08-16: comfyui-gallery-loader
+# 0.1.29 closed issue #106 at 16:39:39Z against a Pending API response).
+REGISTRY_HEALTH_YML = r"""name: Registry health
+
+# Feedback loop for Comfy Registry publishing. Checks that the version this
+# repo currently declares (pyproject.toml) is actually Active in the registry.
+#
+# Two visible outputs:
+#   1. A commit status "Comfy Registry / scan" on the release commit — the
+#      registry verdict shows up as a check (green Active / red Flagged /
+#      yellow pending) next to CI in the Actions + commit UI.
+#   2. A tracking issue (label registry-health) opened/updated when the version
+#      is Flagged, stuck Pending, or missing, and closed once it goes Active.
+#
+# The registry security scan is async: a freshly published version is Pending
+# for a while before it flips to Active or Flagged. So a run triggered right
+# after Publish polls for a bounded window until the version leaves Pending,
+# instead of reporting a premature "pending, fine". Schedule/dispatch runs
+# evaluate once and defer to the pending grace window.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 7 * * *" # daily 07:17 UTC (backstop for scans slower than the poll window)
+  workflow_run:
+    workflows: ["Publish to Comfy Registry"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  statuses: write # emit the "Comfy Registry / scan" commit status
+
+jobs:
+  check:
+    name: Check registry release status
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Evaluate registry status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PENDING_GRACE_HOURS: "6" # scan normally completes well under this
+          ISSUE_LABEL: "registry-health"
+          # Commit the status to the release commit that triggered Publish;
+          # otherwise (schedule/dispatch) to the checked-out HEAD.
+          STATUS_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          STATUS_CONTEXT: "Comfy Registry / scan"
+          # Bounded post-publish poll (workflow_run only): wait for the async
+          # scan to leave Pending. 20 x 90s ≈ 30 min; slower scans defer to the
+          # daily schedule. A stuck Pending is still caught by the grace check.
+          POLL_ATTEMPTS: "20"
+          POLL_INTERVAL_SECS: "90"
+        run: |
+          set -euo pipefail
+
+          node_id=$(grep -m1 -E '^name'    pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          ver=$(grep    -m1 -E '^version' pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          [ -n "$node_id" ] && [ -n "$ver" ] || { echo "::error::cannot read name/version from pyproject.toml"; exit 1; }
+          echo "Node: $node_id  declared version: $ver  status-sha: ${STATUS_SHA}"
+
+          dash="https://registry.comfy.org/nodes/${node_id}"
+
+          # Publish a commit status so the registry verdict is a visible check.
+          # <state> in {pending,success,failure}, <description> short free text.
+          set_status() {
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${STATUS_SHA}" \
+              -f state="$1" \
+              -f context="${STATUS_CONTEXT}" \
+              -f description="$2" \
+              -f target_url="$dash" >/dev/null 2>&1 \
+              || echo "::warning::could not set commit status ($1: $2)"
+          }
+
+          # include_status_reason=true returns the security-scan findings JSON
+          # (issue_type/file_path/description) — the closed feedback loop for
+          # Flagged versions (scanner notifications otherwise land only in the
+          # Comfy Org Discord #security-review-council channel).
+          fetch() {
+            curl -fsS "https://api.comfy.org/nodes/${node_id}/versions?include_status_reason=true" -o versions.json
+          }
+
+          # Poll only right after a publish; wait until the version appears AND
+          # leaves Pending, or the window expires. Other triggers evaluate once.
+          status=""; created=""
+          for i in $(seq 1 "${POLL_ATTEMPTS}"); do
+            fetch
+            status=$(jq  -r --arg v "$ver" '.[] | select(.version==$v) | .status'    versions.json)
+            created=$(jq -r --arg v "$ver" '.[] | select(.version==$v) | .createdAt' versions.json)
+            if [ -n "$status" ] && [ "$status" != "NodeVersionStatusPending" ]; then break; fi
+            [ "${GITHUB_EVENT_NAME}" = "workflow_run" ] || break
+            if [ "$i" -lt "${POLL_ATTEMPTS}" ]; then
+              echo "attempt ${i}/${POLL_ATTEMPTS}: status=${status:-missing} — waiting ${POLL_INTERVAL_SECS}s"
+              set_status pending "Registry scan running (${status:-uploading})…"
+              sleep "${POLL_INTERVAL_SECS}"
+            fi
+          done
+
+          highest=$(jq -r '.[].version' versions.json | sort -V | tail -1)
+          body=$(mktemp); problem=""
+
+          if [ -z "$status" ]; then
+            problem="missing"
+            printf '%s\n' \
+              "Declared version **\`${ver}\`** is **not present** in the registry." \
+              "" \
+              "The publish either failed, is still uploading, or release-please hasn't cut it yet." \
+              "Check the publish workflow and ${dash}." > "$body"
+          elif [ "$status" = "NodeVersionStatusFlagged" ]; then
+            problem="flagged"
+            findings=$(jq -r --arg v "$ver" '.[] | select(.version==$v) | .status_reason // ""
+              | (fromjson? // .)
+              | if type=="array" then
+                  map("  - `\(.issue_type // .error_type // .type // "?")` (\(.scanner // "?")) in `\(.file_path // .path // "?")`: \(.description // "" | tostring | .[0:200])")
+                  | join("\n")
+                else "  - \(tostring | .[0:400])" end' versions.json)
+            printf '%s\n' \
+              "Declared version **\`${ver}\`** is **Flagged** by Comfy-Org registry moderation." \
+              "" \
+              "- Clean installs resolve to an older version until this clears." \
+              "- Scan findings (\`include_status_reason=true\`):" \
+              "${findings:-  - (none reported)}" \
+              "- If a false positive, request re-review via Comfy-Org (registry-backend#180); a new publish re-runs the scan." > "$body"
+          elif [ "$status" = "NodeVersionStatusPending" ]; then
+            age_h=$(( ( $(date -u +%s) - $(date -u -d "$created" +%s) ) / 3600 ))
+            if [ "$age_h" -ge "${PENDING_GRACE_HOURS}" ]; then
+              problem="stuck-pending"
+              printf '%s\n' \
+                "Declared version **\`${ver}\`** has been **Pending** ~${age_h}h (grace ${PENDING_GRACE_HOURS}h)." \
+                "The security scan normally finishes in under a few hours. Check ${dash}." > "$body"
+            fi
+          fi
+
+          # Phantom-ahead: a higher version exists in the registry than we declare.
+          phantom=""
+          if [ "$highest" != "$ver" ] && [ "$(printf '%s\n%s\n' "$ver" "$highest" | sort -V | tail -1)" = "$highest" ]; then
+            phantom="$highest"
+          fi
+          if [ -n "$phantom" ]; then
+            { echo ""; echo "> ⚠️ Phantom version **\`${phantom}\`** outranks the declared \`${ver}\` in the registry — \`comfy node install\` resolves to \`${phantom}\`. Release a version **> ${phantom}** (e.g. \`Release-As\`) to supersede it."; } >> "$body"
+            [ -n "$problem" ] || problem="phantom-ahead"
+          fi
+
+          # Map the verdict onto the visible commit status.
+          if [ -n "$problem" ]; then
+            set_status failure "${problem}: v${ver}"
+          elif [ "$status" = "NodeVersionStatusPending" ]; then
+            set_status pending "Scan still running (v${ver}) — awaiting next check"
+          else
+            set_status success "Active in registry (v${ver})"
+          fi
+
+          gh label create "$ISSUE_LABEL" --color FBCA04 --description "Comfy Registry publish health" --force >/dev/null 2>&1 || true
+          existing=$(gh issue list --label "$ISSUE_LABEL" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -n "$problem" ]; then
+            echo "_Detected by the registry-health workflow on $(date -u +%FT%TZ)._" >> "$body"
+            if [ -n "$existing" ]; then gh issue comment "$existing" --body-file "$body"
+            else gh issue create --title "Registry: release ${ver} not healthy (${problem})" --label "$ISSUE_LABEL" --body-file "$body"; fi
+            echo "::error::release ${ver} is ${problem}"
+            exit 1
+          fi
+
+          if [ "$status" = "NodeVersionStatusPending" ]; then
+            echo "::notice::${ver} still Pending after poll window — deferring to the next scheduled run"
+            exit 0
+          fi
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Resolved: \`${ver}\` is **Active** and highest in the registry. Closing."
+            gh issue close "$existing"
+          fi
+          echo "OK: ${ver} is Active"
+"""
+
+# Manual escape hatch for a clogged release-please pipeline: a thin caller for
+# laurigates/.github's reusable-clear-autorelease-labels.yml, which strips a
+# stale `autorelease: pending` label from closed PRs so release-please can move
+# on. Byte-identical to the fleet form (fleet-policy.toml, `shared`).
+CLEAR_AUTORELEASE_YML = """\
+name: "Maintenance: clear autorelease labels"
+
+# Thin caller for the org reusable workflow. See
+# laurigates/.github/.github/workflows/reusable-clear-autorelease-labels.yml
+# for what this does and when to run it (manual escape hatch for a clogged
+# release-please pipeline).
+
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: "Label to strip from closed PRs"
+        default: "autorelease: pending"
+        required: false
+      dry_run:
+        description: "List matches without removing the label"
+        type: boolean
+        default: false
+
+jobs:
+  clear-labels:
+    uses: laurigates/.github/.github/workflows/reusable-clear-autorelease-labels.yml@main
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    with:
+      label: ${{ inputs.label }}
+      dry_run: ${{ inputs.dry_run }}
+"""
+
+
+# --------------------------------------------------------------------------- #
+# Generation
+# --------------------------------------------------------------------------- #
+def build_file_map(
+    ctx: dict[str, str],
+    variant: str,
+    widgets: list[str],
+    subfamily: str = SUBFAMILY_DEFAULT,
+) -> dict[str, str]:
+    backend = variant == "backend"
+    gesture = variant == "gesture"
+    shim = variant == "shim"
+    modal = variant in ("frontend", "backend")  # consumes the modal kit
+    # A modal variant scaffolded with NO target widgets has nothing to hook, so
+    # the per-widget intercept vein is provably inapplicable. Emit a
+    # standalone-modal skeleton (toolbar button + command opening a modal)
+    # instead. Still depends on the modal kit (modal == True). See issue #1806.
+    # The gesture and shim variants are NOT modal, so they never take this path.
+    standalone = modal and not widgets
+
+    # Shared pinned versions injected into every templated config.
+    ctx["BIOME_VERSION"] = BIOME_VERSION
+    ctx["COMFY_FRONTEND_TYPES_VERSION"] = COMFY_FRONTEND_TYPES_VERSION
+    ctx["MODAL_KIT_PKG"] = MODAL_KIT_PKG
+
+    # Single glyph for the placeholder icon.svg — first alphanumeric of the
+    # DisplayName, uppercased (falls back to "C" for comfyui).
+    initial = next((c for c in ctx["DISPLAY"] if c.isalnum()), "C")
+    ctx["INITIAL"] = initial.upper()
+
+    # Banner tagline. NOT the full --desc: the banner renders it at 44px starting
+    # at x=340 on a 1344px canvas, so anything past ~46 chars runs off the edge.
+    # Guarded rather than setdefault() — setdefault evaluates its default eagerly,
+    # so deriving there emits a bogus overflow warning even when --tagline was given.
+    if "TAGLINE" not in ctx:
+        ctx["TAGLINE"] = derive_tagline(ctx["DESC"])
+
+    # Variant-conditional pyproject bits.
+    ctx["BACKEND_DEP_NOTE"] = (
+        "Backend uses ComfyUI-bundled libs only (aiohttp, folder_paths, server)."
+        if backend
+        else "Frontend-only pack — no runtime Python deps."
+    )
+    # importlib import-mode keeps pytest from importing the pack-root
+    # __init__.py as a discovered package (its relative import would fail).
+    # Backend-only — frontend/gesture import the stub cleanly with the default.
+    ctx["PYTEST_ADDOPTS"] = (
+        "# importlib mode avoids pytest treating the pack-root __init__.py\n"
+        "# (with its relative import) as a discovered package.\n"
+        'addopts = "--import-mode=importlib"\n'
+        if backend
+        else ""
+    )
+    ctx["WIDGET_SET"] = ", ".join(f'"{w}"' for w in widgets)
+    # First widget drives the modal smoke test's positive assertion.
+    first_widget = widgets[0] if widgets else ""
+    ctx["FIRST_WIDGET"] = first_widget
+    ctx["FIRST_WIDGET_EXPECT"] = "true" if first_widget else "false"
+
+    # package.json: only the modal variants add the kit as a runtime dependency.
+    if modal:
+        ctx["DEPENDENCIES_BLOCK"] = (
+            '\n  "dependencies": {\n'
+            f'    "{MODAL_KIT_PKG}": "{MODAL_KIT_VERSION}"\n'
+            "  },"
+        )
+        ctx["KIT_PKG_NOTE"] = (
+            f" The {MODAL_KIT_PKG} primitives are inlined by bun build."
+        )
+    else:
+        ctx["DEPENDENCIES_BLOCK"] = ""
+        ctx["KIT_PKG_NOTE"] = ""
+
+    # Provenance banner for the built bundle. The registry's provenance_scan
+    # reports bundled node_modules code it cannot attribute as
+    # low_vendored_unknown (any finding flags the version) — state up front
+    # what the bundle is built from and what it inlines. Must not contain
+    # single quotes: it is single-quoted inside the build script.
+    if modal:
+        ctx["BUNDLE_BANNER"] = (
+            "/* web/dist bundle built by bun from src/ in this repository "
+            f"(see package.json). Inlines {MODAL_KIT_PKG} (MIT) - a "
+            "first-party library by the same publisher, published to npm "
+            "with provenance attestation: "
+            f"https://www.npmjs.com/package/{MODAL_KIT_PKG} */"
+        )
+    else:
+        ctx["BUNDLE_BANNER"] = (
+            "/* web/dist bundle built by bun from src/ in this repository "
+            "(see package.json). No third-party code is bundled. */"
+        )
+
+    # The standalone-modal smoke test mounts the modal under jsdom (issue #1806);
+    # the shim smoke test asserts the CSS-shim <style> lifecycle under jsdom too.
+    # Both need jsdom in devDependencies.
+    ctx["JSDOM_DEV_DEP"] = (
+        f'\n    "jsdom": "{JSDOM_VERSION}",' if (standalone or shim) else ""
+    )
+
+    # CLAUDE.md conditional fragments.
+    if backend:
+        ctx["CLAUDE_INTRO"] = (
+            f"ComfyUI custom-node pack with a thin Python backend (a node + HTTP "
+            f"endpoints in `{ctx['PY_MODULE']}.py`) and a TypeScript frontend "
+            f"extension built to `web/dist/` via bun. See ADR-0001."
+        )
+    elif gesture:
+        ctx["CLAUDE_INTRO"] = (
+            "Frontend-only ComfyUI custom-node pack in the canvas-gesture vein. "
+            "`__init__.py` is a loader stub; the whole extension is TypeScript in "
+            "`src/`, built to `web/dist/` via bun. See ADR-0001."
+        )
+    elif shim:
+        ctx["CLAUDE_INTRO"] = (
+            "Frontend-only ComfyUI custom-node pack in the CSS/shim vein — "
+            "scoped `<style>` injection + commands, no modal. `__init__.py` is a "
+            "loader stub; the whole extension is TypeScript in `src/`, built to "
+            "`web/dist/` via bun. See ADR-0001."
+        )
+    else:
+        ctx["CLAUDE_INTRO"] = (
+            "Frontend-only ComfyUI custom-node pack. `__init__.py` is a loader "
+            "stub; the whole extension is TypeScript in `src/`, built to "
+            "`web/dist/` via bun. See ADR-0001."
+        )
+    ctx["INIT_DESC"] = (
+        'Imports node mappings from the backend module; exports `WEB_DIRECTORY = "./web/dist"`.'
+        if backend
+        else 'Empty `NODE_CLASS_MAPPINGS`; exports `WEB_DIRECTORY = "./web/dist"`.'
+    )
+    ctx["BACKEND_LAYOUT_ROW"] = (
+        f"| `{ctx['PY_MODULE']}.py` | Node + HTTP endpoints. Bundled libs only; "
+        f"arbitrary-path endpoints gate on an extension whitelist. |\n"
+        if backend
+        else ""
+    )
+    ctx["PYTEST_LAYOUT_NOTE"] = (
+        " `tests/test_init.py` is the pytest backend suite."
+        if backend
+        else " `tests/test_init.py` is a pytest loader-stub smoke test."
+    )
+    ctx["DEP_RULE"] = (
+        "No new Python dependencies. Backend uses ComfyUI-bundled libs only "
+        "(aiohttp, folder_paths, server). A feature needing another lib → a "
+        "separate companion pack."
+        if backend
+        else "No Python dependencies. The pack is frontend-only; a feature "
+        "genuinely needing Python belongs in a separate companion pack."
+    )
+    if modal:
+        ctx["KIT_RULE"] = (
+            f"**Modal primitives come from `{MODAL_KIT_PKG}`** — import them, do NOT "
+            "copy `modal-shell.js`/`modal-fuzzy.js` into the pack. `bun build` inlines "
+            "the imported code into `web/dist`."
+        )
+        ctx["KIT_DEV_NOTE"] = f"{MODAL_KIT_PKG} (inlined at build)"
+    elif shim:
+        ctx["KIT_RULE"] = (
+            "**No modal kit.** This shim pack has no widget to hook and no modal; it "
+            "injects scoped, managed `<style>` tags (one per shim, driven by a boolean "
+            "setting) and registers commands."
+        )
+        ctx["KIT_DEV_NOTE"] = "(no modal kit — CSS/shim pack)"
+    else:
+        ctx["KIT_RULE"] = (
+            "**No modal kit.** This gesture pack has no widget to hook and no "
+            "modal; it adds a canvas pointer layer with self-contained pure helpers."
+        )
+        ctx["KIT_DEV_NOTE"] = "(no modal kit — gesture pack)"
+    ctx["RESTART_NOTE"] = (
+        f" Changes to `{ctx['PY_MODULE']}.py` (backend) DO require a ComfyUI restart."
+        if backend
+        else ""
+    )
+    # The smoke test imports `__init__` for both: it defines WEB_DIRECTORY and
+    # re-exports the node mappings. The backend conftest stubs aiohttp/server so
+    # `__init__`'s import of the backend module resolves under pytest.
+    ctx["PY_MODULE_OR_INIT"] = "__init__"
+    ctx["DISPLAY_NOSPACE"] = ctx["DISPLAY"].replace(" ", "")
+
+    # ADR conditional: the modal variants document the shared-kit decision.
+    ctx["ADR_KIT_SECTION"] = subst(ADR_KIT_SECTION_MODAL, ctx) if modal else ""
+
+    # Vein-conditional fragments.
+    if gesture:
+        ctx["DEP_FLOOR_NOTE"] = "Floor tied to the modern Vue canvas/pointer model."
+        ctx["WHAT_DESC"] = "the canvas gesture it adds and which targets it acts on"
+        ctx["VEIN"] = (
+            "A mobile-first ComfyUI usability pack in the *gesture* vein: instead "
+            "of intercepting a single widget, a frontend extension adds a "
+            "CANVAS-LEVEL pointer layer. A **selected** node (single tap selects "
+            "it) grows corner grab-handles; a drag starting on one resizes the "
+            "node. The gesture is recognized on the **first** `pointerdown` and "
+            "suppressed there, so LiteGraph never opens a competing node-drag or "
+            "canvas-pan transaction. The enhancement is **additive** (no-op "
+            "fallback if `app.canvas` or the pointer model is absent — native "
+            "corner-handle resize still works), **touch-first**, and never breaks "
+            "serialized workflows (it only writes `node.pos` / `node.size`, both "
+            "already serialized). Pure geometry helpers are exported from "
+            "`src/index.ts` and unit-tested; DOM/canvas wiring stays below them."
+        )
+        ctx["EXT_ROW_DESC"] = (
+            "The extension: canvas pointer layer + exported pure geometry helpers."
+        )
+        ctx["HOOK_RULE"] = (
+            "**A gesture must be recognizable on the first `pointerdown`.** The "
+            "layer reads `app.canvas` / `ds.scale` / `ds.offset`, hit-tests that "
+            "first event, and suppresses it at window capture — no move-stream "
+            "classification, and never a `touch-action` override (that unbalances "
+            "`Comfy.SimpleTouchSupport`'s `touchCount`). Write geometry by "
+            "assignment (`node.size = [w, h]`), never in place. Keep the no-op "
+            "fallback so native corner-handle resize always works."
+        )
+        ctx["FAMILY_BLURB"] = (
+            "> touch-friendly gestures and HTML modals that replace clunky native\n"
+            "> LiteGraph interactions, additive and non-clobbering."
+        )
+        ctx["COMPAT_BULLET"] = (
+            "- ComfyUI: modern Vue frontend (`comfyui-frontend-package >= 1.40`) for\n"
+            "  the canvas pointer-event model (`app.canvas`, `ds.scale`/`ds.offset`)."
+        )
+    elif standalone:
+        ctx["DEP_FLOOR_NOTE"] = (
+            "Floor tied to the Touch Tools hub API (`makeHubEntry` / "
+            "`installHubButton` / `registerHubEntry`), added in kit 0.11.0."
+        )
+        ctx["WHAT_DESC"] = "the modal it opens and how the user launches it"
+        ctx["VEIN"] = (
+            "A mobile-first ComfyUI usability pack in the *standalone-modal* vein: "
+            "instead of intercepting a per-node widget, a frontend extension opens "
+            "a STANDALONE modal from the app chrome — a command "
+            "(palette/hotkey-bindable), a menu entry under Extensions > Touch "
+            "Tools, and a row in the shared Touch Tools chooser. There are **no "
+            "target widgets to hook** (a manager, dashboard, or gallery-actions "
+            "panel), so there is no `TARGET_WIDGETS` / `onPointerDown` wrapping. "
+            "The modal is **touch-first** (16px inputs to avoid iOS zoom, big tap "
+            f"targets, momentum scroll); its primitives come from `{MODAL_KIT_PKG}` "
+            "(`openModalShell` / `fuzzyRank` / `highlightMatches`), imported and "
+            "inlined by `bun build` — not copied into the pack. `openShell()` is "
+            "exported so the jsdom mount test can prove the modal body renders."
+        )
+        ctx["EXT_ROW_DESC"] = (
+            "The extension: Touch Tools hub entry + modal (consumes the kit)."
+        )
+        ctx["HOOK_RULE"] = (
+            "**Launcher fields come from the kit, not by hand.** `makeHubEntry` "
+            "builds `commands` / `menuCommands`; `installHubButton` builds the "
+            "family's single `actionBarButtons` entry. The two results are "
+            "KEY-DISJOINT and must be spread as siblings, never hand-merged — a "
+            "second spread carrying `commands` would orphan this pack's command "
+            "(the menu row vanishes, and a user keybinding on the orphaned id is "
+            "re-added at boot with no isRegistered gate, squatting its combo and "
+            "throwing on press). Do not add a per-pack action-bar button: the "
+            "family owns exactly one, the Touch Tools hub."
+        )
+        ctx["FAMILY_BLURB"] = (
+            "> touch-friendly HTML modals launched from the toolbar/command palette\n"
+            "> that replace clunky native LiteGraph dialogs, additive and self-contained."
+        )
+        ctx["COMPAT_BULLET"] = (
+            "- ComfyUI: modern Vue frontend (`comfyui-frontend-package >= 1.40`) for the\n"
+            "  `registerExtension` action-bar/command launcher API."
+        )
+    elif shim:
+        ctx["DEP_FLOOR_NOTE"] = (
+            "Floor tied to the registerExtension boolean-settings API."
+        )
+        ctx["WHAT_DESC"] = (
+            "the CSS shims it injects and the upstream bugs they paper over"
+        )
+        ctx["VEIN"] = (
+            "A home for SMALL, individually-toggleable stopgap fixes in the *CSS/shim* "
+            "vein: a frontend extension that papers over upstream ComfyUI-frontend bugs "
+            "by injecting scoped, managed `<style>` tags — one per shim, driven by a "
+            "boolean setting — and registers commands. There are **no target widgets to "
+            "hook** and **no modal**, so there is no `TARGET_WIDGETS` / `onPointerDown` "
+            "wrapping and **no `"
+            + MODAL_KIT_PKG
+            + "` dependency**. Every shim links the "
+            "upstream issue it papers over (in `upstream` + the settings tooltip) and is "
+            "deleted the release the upstream fix ships. Selectors target stable "
+            "`data-testid` hooks where the frontend provides them; anything keyed on "
+            "compiled Tailwind class chains is brittle and expected to rot, so each shim "
+            "**fails soft** (a dead selector styles nothing, never throws). The CSS-shim "
+            "lifecycle helpers are exported so the jsdom smoke test can prove inject / "
+            "idempotent / remove."
+        )
+        ctx["EXT_ROW_DESC"] = (
+            "The extension: CSS-shim registry + boolean-setting lifecycle (no kit)."
+        )
+        ctx["HOOK_RULE"] = (
+            "**Selectors are version-sensitive.** Each shim injects CSS keyed on "
+            "frontend DOM. Prefer stable `data-testid` hooks; keep every shim FAIL-SOFT "
+            "(a dead selector styles nothing) so a frontend change never breaks the pack."
+        )
+        ctx["FAMILY_BLURB"] = (
+            "> small, individually-toggleable CSS shims that paper over upstream\n"
+            "> frontend bugs, additive and self-contained — each deleted when its fix ships."
+        )
+        ctx["COMPAT_BULLET"] = (
+            "- ComfyUI: modern Vue frontend (`comfyui-frontend-package >= 1.40`) for the\n"
+            "  `registerExtension` boolean-settings + command API."
+        )
+    else:
+        ctx["DEP_FLOOR_NOTE"] = "Floor tied to widget.onPointerDown availability."
+        ctx["WHAT_DESC"] = "the widgets it enhances and the modal it opens"
+        ctx["VEIN"] = (
+            "A mobile-first ComfyUI usability pack: a frontend extension that "
+            "intercepts a widget interaction (`widget.onPointerDown`, modern Vue "
+            "frontend) and opens a touch-friendly HTML modal in place of a clunky "
+            "native LiteGraph control. Widgets are matched **by name** (generic "
+            "across node packs), the enhancement is **additive** (graceful fallback "
+            "to the native control, never breaks serialized workflows), and the "
+            "modal is **touch-first** (16px inputs to avoid iOS zoom, big tap "
+            f"targets, momentum scroll). The modal primitives come from "
+            f"`{MODAL_KIT_PKG}` (`openModalShell` / `fuzzyRank` / `highlightMatches`), "
+            "imported and inlined by `bun build` — not copied into the pack."
+        )
+        ctx["EXT_ROW_DESC"] = (
+            "The extension: widget interception + modal (consumes the modal kit)."
+        )
+        ctx["HOOK_RULE"] = (
+            "**Frontend hook is version-sensitive.** The modal opens via "
+            "`widget.onPointerDown`. Keep an explicit button-widget fallback if "
+            "you depend on the modal being reachable."
+        )
+        ctx["FAMILY_BLURB"] = (
+            "> touch-friendly HTML modals that replace clunky native LiteGraph\n"
+            "> controls, detected by widget name, additive and non-clobbering."
+        )
+        ctx["COMPAT_BULLET"] = (
+            "- ComfyUI: modern Vue frontend (`comfyui-frontend-package >= 1.40`) for the\n"
+            "  `widget.onPointerDown` interception hook."
+        )
+
+    files: dict[str, str] = {
+        "pyproject.toml": PYPROJECT,
+        "README.md": README,
+        "CLAUDE.md": CLAUDE_MD,
+        "LICENSE": LICENSE,
+        "RELEASE-CHECKLIST.md": RELEASE_CHECKLIST,
+        "justfile": JUSTFILE,
+        "biome.json": BIOME_JSON,
+        "knip.json": KNIP_JSON,
+        "tsconfig.json": TSCONFIG,
+        "package.json": PACKAGE_JSON,
+        "vitest.config.js": VITEST_CONFIG,
+        ".pre-commit-config.yaml": PRE_COMMIT,
+        ".gitignore": GITIGNORE,
+        ".comfyignore": COMFYIGNORE,
+        ".gitattributes": GITATTRIBUTES,
+        "release-please-config.json": RP_CONFIG,
+        ".release-please-manifest.json": RP_MANIFEST,
+        "renovate.json": RENOVATE_JSON,
+        "icon.svg": apply_accent(ICON_SVG, subfamily),
+        "banner.svg": apply_accent(BANNER_SVG, subfamily),
+        ".github/workflows/ci.yml": CI_YML,
+        ".github/workflows/publish.yml": PUBLISH_YML,
+        ".github/workflows/release-please.yml": RELEASE_PLEASE_YML,
+        ".github/workflows/registry-health.yml": REGISTRY_HEALTH_YML,
+        ".github/workflows/clear-autorelease-labels.yml": CLEAR_AUTORELEASE_YML,
+        "docs/blueprint/adrs/0001-adopt-typescript-bun-build.md": ADR_0001,
+        "src/index.ts": (
+            INDEX_TS_SHIM
+            if shim
+            else INDEX_TS_GESTURE
+            if gesture
+            else INDEX_TS_STANDALONE
+            if standalone
+            else INDEX_TS_MODAL
+        ),
+        "src/comfyui-shims.d.ts": COMFYUI_SHIMS,
+        "tests/test_init.py": TEST_INIT,
+        "tests/test_publish_hygiene.py": TEST_PUBLISH_HYGIENE,
+        "tests/js/__mocks__/app.js": APP_MOCK,
+        "tests/js/index.test.js": (
+            JS_TEST_SHIM
+            if shim
+            else JS_TEST_GESTURE
+            if gesture
+            else JS_TEST_STANDALONE
+            if standalone
+            else JS_TEST_MODAL
+        ),
+    }
+    if backend:
+        files["__init__.py"] = INIT_BACKEND
+        files[f"{ctx['PY_MODULE']}.py"] = BACKEND_PY
+        # Stub aiohttp/server so the backend imports cleanly under pytest.
+        files["tests/conftest.py"] = BACKEND_CONFTEST
+    else:
+        files["__init__.py"] = INIT_FRONTEND
+
+    return {path: subst(body, ctx) for path, body in files.items()}
+
+
+REFERENCE_SIBLINGS = (
+    "comfyui-gallery-loader",
+    "comfyui-sampler-info",
+    "comfyui-touch-numeric",
+    "comfyui-touch-resize",
+)
+
+
+# --- Finishing pass: one findings function, two thin callers ----------------
+#
+# The audit shipped for #1877 was a one-shot print in the *generator's* session.
+# That is not a gate: nothing consumed it, it could not be re-run against an
+# existing pack, and it died with the scaffolding context while the follow-ups
+# are performed later, in the *generated* repo, usually in another session.
+# Observed cost: comfyui-touch-manager published with `Icon = ""` and no Banner
+# for weeks; comfyui-output-swap deferred `just assets` for 31 hours after the
+# audit had already flagged it. Both were caught only when a human noticed.
+#
+# `finishing_pass_findings` is now the single source of truth for "is this pack
+# registry-ready". The post-scaffold print and `--verify` are two thin callers,
+# so the emit path and the check path cannot disagree.
+
+# Severity grading matters: a flat `[ ]` list made a publish-blocking gap look
+# identical to a legitimately deferrable one, which is exactly how "tracked, not
+# blocking" became a defensible read of a missing icon.
+SEVERITY_RANK = {"OK": 0, "WARN": 1, "ERROR": 2}
+
+# Top-level entries a fresh scaffold legitimately lacks (build/VCS artifacts).
+SIBLING_GAP_IGNORE = {
+    ".git",
+    ".venv",
+    "node_modules",
+    "bun.lock",
+    "uv.lock",
+    "pylock.toml",
+    "web",
+    "CHANGELOG.md",
+}
+
+
+def _display_assets(target: Path) -> dict[str, str]:
+    """[tool.comfy] Icon/Banner -> the repo-root filename each URL resolves to."""
+    path = target / "pyproject.toml"
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    found: dict[str, str] = {}
+    for key in ("Icon", "Banner"):
+        match = re.search(rf'^{key}\s*=\s*"([^"]+)"', text, re.M)
+        if match and match.group(1).strip():
+            found[key] = match.group(1).rstrip("/").rsplit("/", 1)[-1]
+    return found
+
+
+def _uvlock_updater_finding(target: Path) -> tuple[str, str, str, str]:
+    """Is release-please wired to keep uv.lock's self-version in step?
+
+    See the RP_CONFIG comment for why `$.version` and a bare `@.name` filter are
+    both wrong; this grades the *presence and shape* of the updater, which is
+    the part a pack can silently lose.
+    """
+    key = "RELEASE_PLEASE_UVLOCK"
+    cfg = target / "release-please-config.json"
+    if not cfg.exists():
+        return ("WARN", key, "no-config", "release-please-config.json is absent")
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return ("WARN", key, "unparseable", f"release-please-config.json: {exc}")
+
+    entries = [
+        entry
+        for pkg in data.get("packages", {}).values()
+        if isinstance(pkg, dict)
+        for entry in pkg.get("extra-files", [])
+        if isinstance(entry, dict) and entry.get("path") == "uv.lock"
+    ]
+    if not entries:
+        return (
+            "WARN",
+            key,
+            "unwired",
+            "release-please has no uv.lock extra-files updater — the lock's "
+            "self-version will trail pyproject.toml on every release (#2187)",
+        )
+    # `$.version` is uv.lock's FORMAT revision, and a `@.name==` filter never
+    # matches release-please's tagged TOML AST — both leave the lock stale while
+    # *looking* configured, which is worse than an absent updater.
+    if not all("package[?(" in str(entry.get("jsonpath", "")) for entry in entries):
+        return (
+            "WARN",
+            key,
+            "mistargeted",
+            "the uv.lock updater's jsonpath does not select a [[package]] "
+            "entry — use $.package[?(@.name.value=='<pack>')].version (#2187)",
+        )
+    return ("OK", key, "wired", "release-please keeps uv.lock's version in step")
+
+
+def finishing_pass_findings(target: Path) -> list[tuple[str, str, str, str]]:
+    """Grade a pack's registry-ready / fleet-consistent finishing pass.
+
+    Returns (severity, KEY, value, message) tuples. ERROR means the pack would
+    publish a user-visible defect to registry.comfy.org; WARN means a piece is
+    pack-specific and legitimately deferrable.
+    """
+    findings: list[tuple[str, str, str, str]] = []
+
+    # 1. The PNGs the registry actually serves. ERROR: pyproject already points
+    #    Icon/Banner at these URLs, so a missing file publishes a 404.
+    assets = _display_assets(target)
+    for key, attr in (("Icon", "ICON_PNG"), ("Banner", "BANNER_PNG")):
+        filename = assets.get(key)
+        if filename is None:
+            findings.append(
+                (
+                    "ERROR",
+                    attr,
+                    "undeclared",
+                    f"[tool.comfy] {key} is unset — the registry listing renders "
+                    "without artwork (this is how comfyui-touch-manager shipped)",
+                )
+            )
+        elif (target / filename).exists():
+            findings.append(("OK", attr, "present", f"{filename} committed"))
+        else:
+            findings.append(
+                (
+                    "ERROR",
+                    attr,
+                    "missing",
+                    f"[tool.comfy] {key} points at {filename}, which does not "
+                    "exist — run 'just assets' and commit icon.png + banner.png",
+                )
+            )
+
+    # 2. Placeholder art. ERROR: shipping the generic letter tile is as
+    #    user-visible as shipping no tile at all.
+    placeholders = [
+        svg
+        for svg in ("icon.svg", "banner.svg")
+        if (target / svg).exists()
+        and "PLACEHOLDER-GLYPH"
+        in (target / svg).read_text(encoding="utf-8", errors="replace")
+    ]
+    if placeholders:
+        findings.append(
+            (
+                "ERROR",
+                "PLACEHOLDER_GLYPH",
+                "present",
+                f"{', '.join(placeholders)} still carry the PLACEHOLDER-GLYPH "
+                "marker — draw the bespoke pictogram (#ffb02e line-art on the "
+                "dark tile), delete the marker, re-run 'just assets'",
+            )
+        )
+    else:
+        findings.append(("OK", "PLACEHOLDER_GLYPH", "absent", "artwork is bespoke"))
+
+    # 3. Fleet consistency: renovate-not-dependabot, and the two registry
+    #    workflows. WARN — invisible to users, but this is the drift that made
+    #    comfyui-touch-manager the lone outlier across nine packs.
+    if (target / ".github" / "dependabot.yml").exists():
+        findings.append(
+            (
+                "WARN",
+                "RENOVATE",
+                "dependabot-present",
+                "dependabot.yml is present — the fleet migrated to renovate",
+            )
+        )
+    elif (target / "renovate.json").exists():
+        findings.append(("OK", "RENOVATE", "ok", "renovate.json, no dependabot"))
+    else:
+        findings.append(("WARN", "RENOVATE", "missing", "renovate.json is absent"))
+
+    absent_workflows = [
+        wf
+        for wf in ("registry-health.yml", "clear-autorelease-labels.yml")
+        if not (target / ".github" / "workflows" / wf).exists()
+    ]
+    if absent_workflows:
+        findings.append(
+            (
+                "WARN",
+                "REGISTRY_WORKFLOWS",
+                "missing:" + ",".join(absent_workflows),
+                f"absent: {', '.join(absent_workflows)}",
+            )
+        )
+    else:
+        findings.append(("OK", "REGISTRY_WORKFLOWS", "ok", "both present"))
+
+    # 3b. release-please's uv.lock updater (issue #2187). WARN, matching the
+    #     fleet-consistency tier above: a stale lock does not break the publish,
+    #     it just drifts from pyproject on every release until someone re-runs
+    #     `uv lock` by hand. Graded here rather than left to a sweep because
+    #     "sweeps miss packs" is exactly how comfyui-filename-prefix drifted
+    #     twice (comfy-registry-lifecycle section 1).
+    findings.append(_uvlock_updater_finding(target))
+
+    # 4. Screenshots + README prose. WARN — genuinely pack-specific and the one
+    #    thing a pack may reasonably publish without.
+    readme = target / "README.md"
+    readme_text = (
+        readme.read_text(encoding="utf-8", errors="replace") if readme.exists() else ""
+    )
+    # `docs/` alone is not evidence — the scaffold emits docs/adr/. Require an
+    # actual captured image.
+    has_shots = (target / "screenshots").is_dir() or any(
+        (target / "docs").glob("*.png")
+    )
+    if has_shots:
+        findings.append(("OK", "SCREENSHOTS", "present", "screenshot assets exist"))
+    else:
+        findings.append(
+            (
+                "WARN",
+                "SCREENSHOTS",
+                "deferred",
+                "no screenshot assets — run the comfyui-screenshot-pipeline "
+                "skill, then 'just screenshots'",
+            )
+        )
+    if "<!-- Hero screenshot:" in readme_text:
+        findings.append(
+            (
+                "WARN",
+                "README_HERO",
+                "placeholder",
+                "README still carries the hero-screenshot placeholder comment",
+            )
+        )
+    else:
+        findings.append(("OK", "README_HERO", "written", "hero placeholder resolved"))
+    if "Expand this section with the" in readme_text:
+        findings.append(
+            (
+                "WARN",
+                "README_INTRO",
+                "placeholder",
+                "README '## What it does' is still the family placeholder",
+            )
+        )
+    else:
+        findings.append(("OK", "README_INTRO", "written", "intro fleshed out"))
+
+    return findings
+
+
+def sibling_gap(target: Path, parent: Path) -> tuple[str | None, list[str]]:
+    """Top-level entries a mature sibling pack has that `target` lacks.
+
+    Informational only — the `comm -23 <(ls sibling) <(ls newpack)` check done in
+    stdlib so it works anywhere the scaffold runs.
+    """
+    sibling = next(
+        (parent / s for s in REFERENCE_SIBLINGS if (parent / s).is_dir()),
+        None,
+    )
+    if sibling is None or sibling.resolve() == target.resolve():
+        return None, []
+    missing = sorted(
+        {p.name for p in sibling.iterdir()} - {p.name for p in target.iterdir()}
+    )
+    return sibling.name, [m for m in missing if m not in SIBLING_GAP_IGNORE]
+
+
+def print_finishing_pass_audit(target: Path, parent: Path, variant: str) -> None:
+    """Human-readable audit printed right after a scaffold run.
+
+    Every ERROR here is expected on a fresh scaffold — the generator emits the
+    SVGs but cannot rasterize them (rsvg-convert is not a stdlib dep). The point
+    is that the pack is NOT registry-ready yet and `--verify` will say so until
+    someone finishes it.
+    """
+    findings = finishing_pass_findings(target)
+    marker = {"OK": "[x]", "WARN": "[ ]", "ERROR": "[!]"}
+
+    print("\nFinishing pass (registry-ready / fleet-consistent):")
+    for severity, _key, _value, message in findings:
+        suffix = "" if severity == "OK" else f"   <- {severity}"
+        print(f"  {marker[severity]} {message}{suffix}")
+
+    name, missing = sibling_gap(target, parent)
+    if name is not None:
+        print(f"\n  Gap vs sibling {name}/ (top-level entries):")
+        if missing:
+            for entry in missing:
+                print(f"    - missing: {entry}")
+        else:
+            print("    - none (matches the mature sibling)")
+
+    print(
+        "\n  Re-check any time (this is a gate, not a note):\n"
+        f"    python3 {Path(__file__).name} --verify {target}"
+    )
+
+
+def verify_pack(target: Path) -> int:
+    """`--verify <pack-dir>`: re-run the audit against an existing pack.
+
+    Emits the structured-script-output contract so a later session, /comfy-node
+    Phase 6, or a drift sweep can read a verdict instead of re-deriving one.
+    Exit 0 on OK/WARN, 1 on ERROR.
+    """
+    print("=== SCAFFOLD FINISHING PASS ===")
+    if not (target / "pyproject.toml").exists():
+        print(f"PACK={target}")
+        print("STATUS=ERROR")
+        print("ISSUE_COUNT=1")
+        print(f"ERROR_1=not a ComfyUI pack (no pyproject.toml at {target})")
+        print("=== END SCAFFOLD FINISHING PASS ===")
+        return 1
+
+    findings = finishing_pass_findings(target)
+    worst = max((SEVERITY_RANK[f[0]] for f in findings), default=0)
+    status = {0: "OK", 1: "WARN", 2: "ERROR"}[worst]
+    issues = [f for f in findings if f[0] != "OK"]
+
+    print(f"PACK={target.name}")
+    for _severity, key, value, _message in findings:
+        print(f"{key}={value}")
+
+    name, missing = sibling_gap(target, target.parent)
+    if name is not None:
+        print(f"SIBLING_REFERENCE={name}")
+        print(f"SIBLING_GAP_COUNT={len(missing)}")
+        if missing:
+            print(f"SIBLING_GAP={','.join(missing)}")
+
+    print(f"ISSUE_COUNT={len(issues)}")
+    print(f"STATUS={status}")
+    for i, (severity, key, _value, message) in enumerate(issues, 1):
+        print(f"{severity}_{i}={key}: {message}")
+    print("=== END SCAFFOLD FINISHING PASS ===")
+    return 1 if status == "ERROR" else 0
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--verify",
+        metavar="PACK_DIR",
+        help=(
+            "re-run the finishing-pass audit against an EXISTING pack and emit a "
+            "machine verdict (STATUS=OK|WARN|ERROR); exits 1 on ERROR. "
+            "Scaffolding arguments are ignored in this mode."
+        ),
+    )
+    p.add_argument("--name", help="pack/repo name, e.g. comfyui-touch-numeric")
+    p.add_argument("--display", help='Comfy DisplayName, e.g. "Touch Numeric"')
+    p.add_argument("--desc", help="one-line description")
+    p.add_argument(
+        "--tagline",
+        help=(
+            f"short banner subtitle (<= {MAX_TAGLINE_CHARS} chars); "
+            "derived from --desc when omitted"
+        ),
+    )
+    p.add_argument(
+        "--variant",
+        choices=["frontend", "backend", "gesture", "shim"],
+        default="frontend",
+    )
+    p.add_argument(
+        "--widgets",
+        default="",
+        help="CSV of target widget names for the TS stub (modal variants only)",
+    )
+    p.add_argument(
+        "--subfamily",
+        choices=sorted(ACCENT_PALETTES),
+        default=SUBFAMILY_DEFAULT,
+        help=(
+            "glyph/banner accent family: 'touch' (#ffb02e, touch+interaction "
+            "packs) or 'info' (#6ba6ff, info+gallery packs). See "
+            "comfy-registry-lifecycle: glyph colour encodes the sub-family."
+        ),
+    )
+    p.add_argument("--publisher", default=PUBLISHER_DEFAULT)
+    p.add_argument("--author", default=AUTHOR_DEFAULT)
+    p.add_argument(
+        "--dir",
+        default=".",
+        help="parent directory to create the pack in (default: cwd)",
+    )
+    args = p.parse_args()
+
+    if args.verify:
+        return verify_pack(Path(args.verify).resolve())
+
+    # Required only for scaffolding — --verify takes no spec.
+    absent = [f"--{f}" for f in ("name", "display", "desc") if not getattr(args, f)]
+    if absent:
+        p.error("the following arguments are required: " + ", ".join(absent))
+
+    ctx = derive(args.name)
+    ctx.update(
+        DISPLAY=args.display,
+        DESC=args.desc,
+        PUBLISHER=args.publisher,
+        AUTHOR=args.author,
+        YEAR=str(datetime.date.today().year),
+        DATE=datetime.date.today().isoformat(),
+    )
+    if args.tagline:
+        tagline = " ".join(args.tagline.split())
+        if len(tagline) > MAX_TAGLINE_CHARS:
+            print(
+                f"warning: --tagline is {len(tagline)} chars; anything over "
+                f"{MAX_TAGLINE_CHARS} overflows the banner canvas.",
+                file=sys.stderr,
+            )
+        ctx["TAGLINE"] = tagline
+    widgets = [w.strip() for w in args.widgets.split(",") if w.strip()]
+    # A modal variant (frontend/backend) with no --widgets gets the
+    # standalone-modal skeleton instead of the per-widget intercept. See #1806.
+    # gesture and shim are NOT modal, so they never take the standalone path.
+    standalone = args.variant in ("frontend", "backend") and not widgets
+
+    parent = Path(args.dir).resolve()
+    target = parent / args.name
+    if target.exists():
+        print(
+            f"error: {target} already exists — refusing to overwrite", file=sys.stderr
+        )
+        return 1
+
+    file_map = build_file_map(ctx, args.variant, widgets, args.subfamily)
+    for rel, content in file_map.items():
+        dest = target / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content)
+
+    n = len(file_map)
+    print(f"\nScaffolded {args.name} ({args.variant}) — {n} files in {target}")
+    print(
+        "\nNext steps:\n"
+        f"  cd {target}\n"
+        "  git init -b main                       # seed main directly (no branch juggling)\n"
+        "  uv sync --group dev\n"
+        "  bun install                            # TypeScript, Biome, Vitest, knip"
+        + (", comfy-modal-kit\n" if args.variant in ("frontend", "backend") else "\n")
+        + "  pre-commit install\n"
+        "  just check                              # typecheck + build + lint + test should pass green\n"
+        "\nThen:\n"
+        + (
+            "  - tune the pointer layer in src/index.ts (selectedNodes/"
+            "nodeScreenRect/hitHandle/resizedGeometry; keep the gesture "
+            "recognizable on the FIRST pointerdown; re-measure "
+            "CONFIG.handleHitRadius; groups + affordance TODOs)\n"
+            if args.variant == "gesture"
+            else "  - implement the CSS shims in src/index.ts (replace the placeholder "
+            "SHIMS entry; link the upstream issue, keep each shim fail-soft — no "
+            "comfy-modal-kit)\n"
+            if args.variant == "shim"
+            else "  - implement the modal in src/index.ts (openShell body via "
+            "openModalShell; tune the action-bar/command launcher; import fuzzyRank "
+            "from @laurigates/comfy-modal-kit for search)\n"
+            if standalone
+            else "  - implement the modal in src/index.ts (TARGET_WIDGETS + openPicker; "
+            "import fuzzyRank from @laurigates/comfy-modal-kit for search)\n"
+        )
+        + (
+            f"  - implement the node/endpoints in {ctx['PY_MODULE']}.py\n"
+            if args.variant == "backend"
+            else ""
+        )
+        + "  - add the repo to gitops/repositories.tf with comfy_registry = true\n"
+        "    (do NOT create via the GitHub UI; gitops auto-pushes REGISTRY_ACCESS_TOKEN)\n"
+        "  - or run the /comfy-node orchestrator, which does the gitops wiring for you\n"
+    )
+
+    print_finishing_pass_audit(target, parent, args.variant)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

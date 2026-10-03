@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root {
+  --bg: #f6f4f0;
+  --surface: #ffffff;
+  --ink: #201d19;
+  --ink-dim: #6b655c;
+  --line: #e4dfd6;
+  --focus: #8a5a2b;
+  --c0: #2f6b4f; --c0-bg: #e3efe7;
+  --c1: #a34a2b; --c1-bg: #f6e6dd;
+  --c2: #5a5aa0; --c2-bg: #e8e6f5;
+  --c3: #8a6d1f; --c3-bg: #f3ecd8;
+  --c4: #2f6280; --c4-bg: #e0edf3;
+  --c5: #6b655c; --c5-bg: #eae7e0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #181613; --surface: #221f1b; --ink: #ece7de; --ink-dim: #a39a8b;
+    --line: #34302a; --focus: #d8a25e;
+    --c0: #7fc79f; --c0-bg: #1f2f26;
+    --c1: #e8916a; --c1-bg: #33241c;
+    --c2: #a7a3e0; --c2-bg: #26243a;
+    --c3: #d6bc6a; --c3-bg: #2e2a1a;
+    --c4: #7ab5d4; --c4-bg: #1c2a33;
+    --c5: #a39a8b; --c5-bg: #2a2722;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #181613; --surface: #221f1b; --ink: #ece7de; --ink-dim: #a39a8b;
+  --line: #34302a; --focus: #d8a25e;
+  --c0: #7fc79f; --c0-bg: #1f2f26;
+  --c1: #e8916a; --c1-bg: #33241c;
+  --c2: #a7a3e0; --c2-bg: #26243a;
+  --c3: #d6bc6a; --c3-bg: #2e2a1a;
+  --c4: #7ab5d4; --c4-bg: #1c2a33;
+  --c5: #a39a8b; --c5-bg: #2a2722;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+header h1 { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 0.2rem; text-wrap: balance; }
+header p { margin: 0 0 1.6rem; color: var(--ink-dim); font-size: 0.92rem; max-width: 62ch; }
+.controls {
+  display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;
+  margin-bottom: 1.2rem; position: sticky; top: 0; background: var(--bg);
+  padding: 0.6rem 0; z-index: 5;
+}
+#search {
+  flex: 1 1 240px; min-width: 200px; background: var(--surface);
+  border: 1px solid var(--line); color: var(--ink); border-radius: 8px;
+  padding: 0.55rem 0.8rem; font-size: 0.92rem; font-family: inherit;
+}
+#search:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.chip {
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-dim);
+  border-radius: 999px; padding: 0.4rem 0.85rem; font-size: 0.8rem; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+}
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.count { color: var(--ink-dim); font-size: 0.82rem; margin-left: auto; font-variant-numeric: tabular-nums; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 720px; }
+thead th {
+  position: sticky; top: 0; background: var(--surface); text-align: left;
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-dim); padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--line);
+  cursor: pointer; user-select: none;
+}
+thead th:hover { color: var(--ink); }
+tbody tr { border-bottom: 1px solid var(--line); }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: rgba(128,128,128,0.08); }
+td { padding: 0.65rem 0.9rem; font-size: 0.87rem; vertical-align: top; }
+.proj { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.83rem; font-weight: 600; white-space: nowrap; }
+.loc { color: var(--ink-dim); font-size: 0.78rem; white-space: nowrap; }
+.desc { color: var(--ink); max-width: 46ch; }
+.status { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; color: var(--pc, var(--c5)); background: var(--pb, var(--c5-bg)); }
+.empty { padding: 2.5rem; text-align: center; color: var(--ink-dim); display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>__TITLE__</h1>
+    <p>__SUBTITLE__</p>
+  </header>
+
+  <div class="controls">
+    <input id="search" type="text" placeholder="Search name or description…" autocomplete="off">
+    <span id="chips"></span>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-key="name">Project</th>
+          <th data-key="loc">Location</th>
+          <th data-key="status">Status</th>
+          <th data-key="desc">Description</th>
+        </tr>
+      </thead>
+      <tbody id="rows"><!-- pre-rendered so no-JS viewers still see the table -->__STATIC_ROWS__
+      </tbody>
+    </table>
+    <div class="empty" id="empty">No projects match.</div>
+  </div>
+</div>
+
+<script>
+const DATA = __DATA_JSON__;
+
+// Filters are derived from the statuses present in the data, not hardcoded.
+// Rows with compound statuses ("Active, dirty") group under their first word's status family.
+function statusFamily(s) {
+  return s.split(",")[0].trim();
+}
+const families = [...new Set(DATA.map(d => statusFamily(d.status)))].sort(
+  (a, b) => DATA.filter(d => statusFamily(d.status) === b).length -
+            DATA.filter(d => statusFamily(d.status) === a).length
+);
+// Assign each family one of 6 palette slots, in frequency order.
+const familyColor = {};
+families.forEach((f, i) => { familyColor[f] = i % 6; });
+
+const rowsEl = document.getElementById("rows");
+const countEl = document.getElementById("count");
+const emptyEl = document.getElementById("empty");
+const searchEl = document.getElementById("search");
+const chipsEl = document.getElementById("chips");
+let activeFilter = "all";
+let sortKey = null, sortDir = 1;
+
+// DATA strings arrive already HTML-escaped from build_html.py — insert as-is.
+function render() {
+  const q = searchEl.value.trim().toLowerCase();
+  let items = DATA.filter(d => {
+    if (activeFilter !== "all" && statusFamily(d.status) !== activeFilter) return false;
+    if (q && !(d.name.toLowerCase().includes(q) || d.desc.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  if (sortKey) {
+    items = items.slice().sort((a, b) => sortDir * String(a[sortKey]).localeCompare(String(b[sortKey])));
+  }
+  rowsEl.innerHTML = items.map(d => {
+    const c = familyColor[statusFamily(d.status)] ?? 5;
+    return `
+    <tr>
+      <td class="proj">${d.name}</td>
+      <td class="loc">${d.loc}</td>
+      <td><span class="status" style="--pc: var(--c${c}); --pb: var(--c${c}-bg)">${d.status}</span></td>
+      <td class="desc">${d.desc}</td>
+    </tr>`;
+  }).join("");
+  countEl.textContent = items.length + " / " + DATA.length;
+  emptyEl.style.display = items.length ? "none" : "block";
+}
+
+function buildChips() {
+  const labels = ["all", ...families];
+  chipsEl.innerHTML = labels.map(f =>
+    `<button class="chip" data-filter="${f}" aria-pressed="${f === "all"}">${f === "all" ? "All" : f}</button>`
+  ).join(" ");
+  chipsEl.querySelectorAll(".chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      chipsEl.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", "false"));
+      btn.setAttribute("aria-pressed", "true");
+      activeFilter = btn.dataset.filter;
+      render();
+    });
+  });
+}
+
+searchEl.addEventListener("input", render);
+document.querySelectorAll("thead th").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.key;
+    sortDir = (sortKey === key) ? -sortDir : 1;
+    sortKey = key;
+    render();
+  });
+});
+
+buildChips();
+render();
+</script>
+</body>
+</html>

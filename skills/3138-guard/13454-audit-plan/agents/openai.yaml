@@ -1,0 +1,6 @@
+interface:
+  display_name: "Review a plan"
+  short_description: "Review a plan with your configured reviewer"
+  default_prompt: "Use $audit-plan to review the plan file with the configured reviewer."
+policy:
+  allow_implicit_invocation: false

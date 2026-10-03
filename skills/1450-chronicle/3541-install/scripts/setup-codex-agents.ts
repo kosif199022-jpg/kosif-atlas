@@ -1,0 +1,135 @@
+#!/usr/bin/env bun
+
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
+
+const ROLES = [
+  "lawspeaker",
+  "storykeeper",
+  "annalist",
+  "judge",
+  "codifier",
+  "barrowkeeper",
+] as const;
+/** Exported so the test enumerates this list rather than a hand-copied sample of it.
+ *  A sample drifts silently and misses exactly the name nobody remembered to add. */
+export const RETIRED_ROLES = [
+  "hammerbearer",
+  "oathkeeper",
+  "seer",
+  "smith",
+  // Folded into the Lawspeaker, which now runs the commit scripts itself.
+  "watcher",
+  // Replaced by `triage.ts prep`; the judge now screens from skeletons itself.
+  "gleaner",
+  "reckoner",
+  "runesmith",
+  // Same for release: the skill runs its own scripts, so the errand-runner is gone.
+  "skirnir",
+  // Folded into the Storykeeper, which now drafts and runs request-creator.ts itself.
+  "skald",
+  "messenger",
+  // Folded into the main agent, which spawns the codifier and barrowkeeper itself.
+  "lorekeeper",
+] as const;
+const BEGIN = "# BEGIN chronicle codex agents";
+const END = "# END chronicle codex agents";
+
+function argValue(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+function withoutManagedBlock(config: string): string {
+  const start = config.indexOf(BEGIN);
+  const finish = config.indexOf(END);
+  if (start < 0 || finish < start) return config.trimEnd();
+  return `${config.slice(0, start)}${config.slice(finish + END.length)}`.trimEnd();
+}
+
+function managedBlock(targetDir: string): string {
+  const descriptions = {
+    lawspeaker: "Own the Chronicle commit flow and report its result.",
+    storykeeper: "Draft and open a Chronicle pull request.",
+    annalist: "Write user-facing release changelog entries.",
+    judge:
+      "Screen and disposition one batch of clustered ADR candidates in parallel.",
+    codifier: "Draft an Architecture Decision Record from confirmed evidence.",
+    barrowkeeper: "Write the confirmed ADR and archive its source sessions.",
+  };
+  return [
+    BEGIN,
+    ...ROLES.flatMap((role) => [
+      `[agents.chronicle_${role}]`,
+      `description = ${JSON.stringify(descriptions[role])}`,
+      `config_file = ${JSON.stringify(join(targetDir, `${role}.toml`))}`,
+      `nickname_candidates = [${JSON.stringify(`Chronicle ${role}`)}]`,
+      "",
+    ]),
+    END,
+  ].join("\n");
+}
+
+function main() {
+  const pluginRootArg = argValue("--plugin-root");
+  if (!pluginRootArg) {
+    console.error("setup-codex-agents: --plugin-root is required");
+    process.exit(1);
+  }
+
+  const pluginRoot = resolve(pluginRootArg);
+  const sourceDir = join(pluginRoot, "agents-codex");
+  const codexHome =
+    process.env.CODEX_HOME || join(process.env.HOME || "", ".codex");
+  const targetDir = join(codexHome, "agents", "chronicle");
+  const configPath = join(codexHome, "config.toml");
+  const dryRun = process.argv.includes("--dry-run");
+  const apply = process.argv.includes("--apply");
+
+  for (const role of ROLES) {
+    const source = join(sourceDir, `${role}.toml`);
+    if (!existsSync(source)) {
+      console.error(`setup-codex-agents: missing ${source}`);
+      process.exit(1);
+    }
+  }
+
+  const current = existsSync(configPath)
+    ? readFileSync(configPath, "utf8")
+    : "";
+  const base = withoutManagedBlock(current);
+  const next = `${base}${base ? "\n\n" : ""}${managedBlock(targetDir)}\n`;
+
+  if (dryRun || !apply) {
+    process.stdout.write(next);
+    return;
+  }
+
+  mkdirSync(targetDir, { recursive: true });
+  for (const role of ROLES) {
+    copyFileSync(
+      join(sourceDir, `${role}.toml`),
+      join(targetDir, `${role}.toml`),
+    );
+  }
+  for (const role of RETIRED_ROLES) {
+    const retiredPath = join(targetDir, `${role}.toml`);
+    if (existsSync(retiredPath)) unlinkSync(retiredPath);
+  }
+  mkdirSync(dirname(configPath), { recursive: true });
+  if (current !== next && existsSync(configPath)) {
+    copyFileSync(configPath, `${configPath}.bak-chronicle`);
+  }
+  writeFileSync(configPath, next);
+  console.log(`Installed Chronicle Codex agents in ${targetDir}`);
+  console.log("Start a new Codex thread to load the named roles.");
+}
+
+if (import.meta.main) main();

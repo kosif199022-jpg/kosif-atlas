@@ -1,0 +1,11 @@
+{
+  "name": "grill-with-prototype",
+  "description": "Builds a clickable prototype of an app's screens live in a local dashboard while interviewing for requirements, ending in a SPEC.md; use only when the user asks for a prototype, mockup, clickable demo or wireframes. Without that ask, \"grill me\"/\"interview me\" — even about building an app — is grill.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

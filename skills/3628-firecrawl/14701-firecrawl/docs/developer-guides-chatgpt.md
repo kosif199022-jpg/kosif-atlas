@@ -1,0 +1,39 @@
+> Source: https://docs.firecrawl.dev/developer-guides/mcp-setup-guides/chatgpt.md
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.firecrawl.dev/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Use Firecrawl MCP in ChatGPT
+
+> Add Firecrawl to ChatGPT with the native connector
+
+Add Firecrawl to ChatGPT with the native Firecrawl app. You do not need to create a custom MCP connector or paste a server URL.
+
+## Add to ChatGPT
+
+
+  Open the Firecrawl app in ChatGPT and connect it.
+
+
+1. Open the [Firecrawl app in ChatGPT](https://chatgpt.com/plugins?q=firecrawl).
+2. Select **Firecrawl** and connect it. When ChatGPT opens Firecrawl in your browser, sign in, choose a team, and approve access.
+3. In a chat, open the **+** menu and enable **Firecrawl** before you send a prompt. The connector must be attached to the conversation.
+
+Do not put a Firecrawl API key in a server URL. To revoke access later, use [MCP settings](https://www.firecrawl.dev/app/settings?tab=mcp).
+
+## Try
+
+With Firecrawl enabled, try:
+
+```text theme={null}
+Search the web for the latest Firecrawl release notes and summarize the sources.
+```
+
+```text theme={null}
+Scrape firecrawl.dev and tell me what it does
+```
+
+## More
+
+See [For Humans](/mcp-server/oauth) for sign-in setup in other clients, or [For Agents](/mcp-server/keyless) to start keyless.

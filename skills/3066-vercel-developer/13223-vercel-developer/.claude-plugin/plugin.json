@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "vercel-developer",
+  "description": "Full-stack Vercel developer skill for deploying and managing Next.js applications. Covers Deployment (preview, production, Git integration, CLI), Environment Variables, Domains & SSL, the Vercel CLI (deploy, env, link, pull, dev, logs), Serverless & Edge Functions, Storage (Blob, KV, Postgres), caching (ISR, CDN), and integrations.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sleestk",
+    "url": "https://github.com/Sleestk"
+  },
+  "homepage": "https://github.com/Sleestk/Skills-Pipeline",
+  "repository": "https://github.com/Sleestk/Skills-Pipeline",
+  "license": "MIT",
+  "keywords": ["vercel", "deployment", "nextjs", "edge-functions", "serverless", "hosting", "ci-cd"]
+}

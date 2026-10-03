@@ -1,0 +1,48 @@
+{
+  "name": "The Slow Kitchen",
+  "slug": "slow-kitchen",
+  "tagline": "Recipes and essays for people who cook on Sundays.",
+  "seed": 3,
+  "nav": { "style": "topbar", "items": ["home", "recipes", "essays", "about"] },
+  "footer": ["Newsletter", "Instagram", "Contact"],
+  "entities": {
+    "Recipe": {
+      "count": 9,
+      "fields": [
+        { "name": "title", "type": "title", "examples": ["Braised Leeks with Brown Butter", "Slow Sunday Ragù", "Charred Cabbage, Miso, Lime", "Overnight Focaccia", "Saffron Rice with Burnt Onions", "Roast Chicken for Two", "Fennel and Blood Orange", "Black Garlic Dal", "Pear and Bay Leaf Galette"] },
+        { "name": "photo", "type": "image" },
+        { "name": "course", "type": "category", "options": ["Main", "Side", "Bread", "Dessert"] },
+        { "name": "time", "type": "int", "label": "Minutes", "range": [25, 240] },
+        { "name": "author", "type": "name" },
+        { "name": "published", "type": "date", "days": 120 },
+        { "name": "intro", "type": "paragraph" }
+      ]
+    },
+    "Essay": {
+      "count": 6,
+      "fields": [
+        { "name": "title", "type": "title", "examples": ["On Salting Early", "The Case for One Good Pan", "Why Sunday", "What My Grandmother Didn't Measure", "Leftovers Are the Point", "Cooking Without a Timer"] },
+        { "name": "photo", "type": "image" },
+        { "name": "author", "type": "name" },
+        { "name": "published", "type": "date", "days": 200 },
+        { "name": "read", "type": "int", "label": "Min read", "range": [4, 14] }
+      ]
+    }
+  },
+  "screens": [
+    { "id": "home", "title": "Home", "archetype": "landing",
+      "hero": { "headline": "Cook slowly. Eat well. Repeat on Sunday.", "sub": "New recipes and one essay every week, written by people who actually cook them twice before publishing.", "cta": { "label": "Browse recipes", "target": "recipes" }, "secondary": { "label": "Subscribe", "target": "subscribe" } },
+      "sections": [
+        { "kind": "showcase", "title": "This week", "lead": "Three recipes for the cold snap.", "entity": "Recipe", "count": 3, "target": "recipe", "see_all": "recipes" },
+        { "kind": "showcase", "title": "Essays", "lead": "Longer reads for the stove-watching hours.", "entity": "Essay", "count": 3, "target": "essay", "see_all": "essays" },
+        { "kind": "cta", "title": "One email, every Sunday morning.", "lead": "No ads, no listicles. Unsubscribe in one click.", "button": { "label": "Subscribe free", "target": "subscribe" } }
+      ] },
+    { "id": "recipes", "title": "Recipes", "archetype": "list", "entity": "Recipe", "view": "cards", "sub": "Everything we've published, slowest first", "filters": ["Main", "Side", "Bread", "Dessert", "Under 45 min"], "sort": "Newest", "row_action": { "target": "recipe" } },
+    { "id": "recipe", "title": "Recipe", "archetype": "article", "entity": "Recipe", "actions": [ { "label": "Save recipe", "target": "saved", "tone": "primary" }, { "label": "Print" }, { "label": "Share" } ] },
+    { "id": "essays", "title": "Essays", "archetype": "list", "entity": "Essay", "view": "cards", "sub": "Opinions, kitchen-tested", "row_action": { "target": "essay" } },
+    { "id": "essay", "title": "Essay", "archetype": "article", "entity": "Essay", "actions": [ { "label": "Share" }, { "label": "Next essay", "target": "essay" } ] },
+    { "id": "about", "title": "About", "archetype": "article", "entity": "Essay", "actions": [ { "label": "Subscribe", "target": "subscribe", "tone": "primary" } ] },
+    { "id": "subscribe", "title": "Subscribe", "archetype": "auth", "mode": "signup", "title": "Join the Sunday list", "sub": "Free. One email a week.", "fields": [ { "name": "email", "label": "Email", "type": "email", "placeholder": "you@example.com" } ], "submit": { "label": "Subscribe", "target": "home" }, "sso": false, "alt": { "text": "Prefer RSS?", "label": "Use the feed" } }
+  ],
+  "journeys": [ { "name": "Find and save a recipe", "steps": ["home", "recipes", "recipe", "saved"] } ]
+}

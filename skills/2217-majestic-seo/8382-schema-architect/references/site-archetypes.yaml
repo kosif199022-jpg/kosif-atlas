@@ -1,0 +1,119 @@
+# Content-led starting points. Choose markup only when the visible page supports it.
+# Schema.org validity, Google eligibility, deployment, and appearance are separate states.
+# Google retired the sitelinks search box starting November 21, 2024.
+# Source: https://developers.google.com/search/blog/2024/10/sitelinks-search-box
+
+saas:
+  pages:
+    homepage:
+      schemas: [Organization, WebSite]
+      google_feature: "Sitelinks search box is retired. Knowledge Panels and ordinary sitelinks are not guaranteed; describe identity and site relationships accurately."
+    pricing:
+      schemas: [Product, Offer]
+      google_feature: "No generic price-result guarantee; use only for visible, current product or plan facts."
+      notes: "One Product or Offer per real offering when the page visibly describes it."
+    blog:
+      schemas: [Article]
+      optional_schemas: [FAQPage]
+      google_feature: "Article eligibility depends on current feature requirements; FAQ rich results are not available."
+      notes: "Use FAQPage only when the page visibly contains genuine Q&A and it serves a non-Google consumer."
+    docs:
+      schemas: [Article, TechArticle]
+      optional_schemas: [HowTo]
+      google_feature: "How-to rich results are not available; use HowTo only for valid Schema.org representation for another consumer."
+    reviews:
+      schemas: [Review]
+      optional_schemas: [AggregateRating]
+      google_feature: "Review features require a supported reviewed type, genuine visible reviews, and current policy compliance."
+      notes: "Do not use self-controlled Organization or LocalBusiness ratings as eligible Google review markup."
+    about:
+      schemas: [Organization, Person]
+      google_feature: "No Knowledge Panel guarantee. Use approved identity, person, and sameAs facts only."
+
+ecommerce:
+  pages:
+    homepage:
+      schemas: [Organization, WebSite]
+      google_feature: "Sitelinks search box is retired. Knowledge Panels and ordinary sitelinks are not guaranteed."
+    product:
+      schemas: [Product, Offer]
+      optional_schemas: [AggregateRating, Review]
+      google_feature: "Product eligibility depends on visible accurate product data; stars require separate review policy checks."
+      notes: "Use price, currency, availability, and ratings only when current, visible, and approved."
+    category:
+      schemas: [BreadcrumbList, ItemList]
+      google_feature: "Breadcrumb eligibility is separate from ItemList validity and neither guarantees display."
+    faq:
+      schemas: [FAQPage]
+      google_feature: "FAQ rich results no longer appear in Google Search as of May 7, 2026."
+      notes: "Retain only when the visible Q&A warrants Schema.org markup for another consumer."
+    blog:
+      schemas: [Article]
+      google_feature: "Article eligibility depends on current documented requirements."
+    reviews:
+      schemas: [Review]
+      optional_schemas: [AggregateRating]
+      google_feature: "Check reviewed type, genuine source, visible content, and current review policy; stars are not guaranteed."
+
+agency:
+  pages:
+    homepage:
+      schemas: [Organization, WebSite]
+      google_feature: "Sitelinks search box is retired. Knowledge Panels and ordinary sitelinks are not guaranteed."
+    services:
+      schemas: [Service]
+      optional_schemas: [Offer]
+      google_feature: "Service and Offer do not guarantee a Google price result; prices must be visible and accurate."
+    case_studies:
+      schemas: [Article]
+      google_feature: "Article eligibility depends on current documented requirements."
+    blog:
+      schemas: [Article]
+      optional_schemas: [FAQPage]
+      google_feature: "FAQ rich results are not available; Article and Schema.org validity remain separate."
+    about:
+      schemas: [Organization, Person]
+      google_feature: "No Knowledge Panel guarantee; use only approved company and person facts."
+    contact:
+      schemas: [ContactPage]
+      optional_schemas: [LocalBusiness]
+      google_feature: "LocalBusiness is appropriate only for a real eligible local business; local appearance is not guaranteed."
+
+blog:
+  pages:
+    homepage:
+      schemas: [WebSite]
+      google_feature: "Sitelinks search box is retired. Ordinary sitelinks are not guaranteed; describe the visible site accurately."
+    post:
+      schemas: [Article, Person]
+      google_feature: "Article eligibility depends on current requirements; author fields require approved evidence."
+    tutorial:
+      schemas: [Article]
+      optional_schemas: [HowTo]
+      google_feature: "How-to rich results are not available; HowTo remains optional Schema.org vocabulary for visible steps."
+    listicle:
+      schemas: [Article, ItemList]
+      google_feature: "Use ItemList only when the visible page is genuinely a list; no display guarantee."
+    faq:
+      schemas: [FAQPage]
+      google_feature: "FAQ rich results no longer appear in Google Search as of May 7, 2026."
+      notes: "Use only for visible Q&A intended for a non-Google consumer."
+
+docs:
+  pages:
+    homepage:
+      schemas: [WebSite]
+      google_feature: "Sitelinks search box is retired. Ordinary sitelinks are not guaranteed."
+    guide:
+      schemas: [Article]
+      optional_schemas: [HowTo]
+      google_feature: "How-to rich results are not available; describe visible guide content accurately."
+    reference:
+      schemas: [TechArticle, BreadcrumbList]
+      google_feature: "Breadcrumb eligibility and Article-family validity are separate; neither guarantees display."
+    faq:
+      schemas: [FAQPage]
+      google_feature: "FAQ rich results no longer appear in Google Search as of May 7, 2026."
+    changelog:
+      schemas: [Article]
+      google_feature: "Use accurate visible dates and changes; no Article appearance guarantee."

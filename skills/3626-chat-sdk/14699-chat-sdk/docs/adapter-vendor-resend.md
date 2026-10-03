@@ -1,0 +1,127 @@
+> Source: https://chat-sdk.dev/adapters/vendor-official/resend.md
+
+---
+title: Resend
+description: Bidirectional email adapter for Chat SDK. Receive emails via Resend webhooks and send rich HTML emails via the Resend API.
+tagline: Email adapter for Chat SDK powered by Resend. Receive inbound emails via webhooks, send rich HTML replies, and proactively start email threads with `openDM`.
+package: @resend/chat-sdk-adapter
+---
+
+# Resend
+
+
+## Install
+
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createResendAdapter } from "@resend/chat-sdk-adapter";
+
+const resend = createResendAdapter({
+  fromAddress: "bot@yourdomain.com",
+  fromName: "My Bot", // optional
+  // apiKey: "re_...",            // or set RESEND_API_KEY
+  // webhookSecret: "whsec_...",  // or set RESEND_WEBHOOK_SECRET
+});
+
+const chat = new Chat({
+  userName: "email-bot",
+  adapters: { resend },
+  state: createMemoryState(),
+});
+
+// New inbound email starts a new thread.
+chat.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await thread.post(`Got your email: ${message.text}`);
+});
+
+// Follow-up email in a subscribed thread.
+chat.onSubscribedMessage(async (thread, message) => {
+  await thread.post(`Reply: ${message.text}`);
+});
+```
+
+Forward Resend webhooks to your server's webhook endpoint. The adapter verifies signatures and routes events into the Chat SDK handler pipeline. See the [`examples/basic`](https://github.com/resend/resend-chat-sdk/tree/main/examples/basic) folder in the adapter repo for a full working server.
+
+## Configuration
+
+
+### Environment variables
+
+| Variable                | Required                       | Description                                                                 |
+| ----------------------- | ------------------------------ | --------------------------------------------------------------------------- |
+| `RESEND_API_KEY`        | Yes, unless `apiKey` is passed | Resend API key. Overridden by `config.apiKey`.                              |
+| `RESEND_WEBHOOK_SECRET` | For webhooks                   | Webhook signing secret. Overridden by `config.webhookSecret`.               |
+| `FROM_ADDRESS`          | No                             | Used by example apps only. The adapter takes the sender from `fromAddress`. |
+
+## Email threading
+
+Threads are resolved using the standard `Message-ID`, `In-Reply-To`, and `References` email headers. Reply chains are grouped into Chat SDK threads automatically, and your handlers receive each follow-up as an `onSubscribedMessage` event on the same thread.
+
+## Sending email proactively
+
+Use `openDM` to start a new email thread to any address, for example to send notifications, alerts, or scheduled reports:
+
+```typescript
+const threadId = await chat.adapters.resend.openDM("user@example.com");
+const thread = await chat.thread("resend", threadId);
+await thread.post("Hello from the bot!");
+```
+
+## Rich card emails
+
+Post a Chat SDK [card](/docs/cards) and the adapter renders it to HTML email through [`@react-email/components`](https://react.email/):
+
+```typescript
+await thread.post({
+  card: {
+    type: "card",
+    title: "Order Confirmed",
+    children: [
+      { type: "text", content: "Your order #1234 has been shipped." },
+      { type: "divider" },
+      {
+        type: "link-button",
+        label: "Track Order",
+        url: "https://example.com/track/1234",
+      },
+    ],
+  },
+  fallbackText: "Order #1234 confirmed",
+});
+```
+
+## Attachments
+
+Inbound email attachments are exposed on `message.raw.attachments` as objects with `filename`, `content_type`, and `url` fields, not on `message.attachments`. Your handler can fetch the URL or pass it on to downstream processing.
+
+The adapter doesn't send attachments. Files included in a posted message are not attached to the outgoing email.
+
+## Limitations
+
+Email has no native concept of message edits, reactions, or typing indicators, so these operations throw `NotImplementedError`:
+
+* `editMessage` / `deleteMessage`
+* `addReaction` / `removeReaction`
+* `startTyping`
+
+Send cards or new replies instead.
+
+## Feature support
+
+
+## Resources
+
+Official docs are at [resend.com/docs/chat-sdk](https://resend.com/docs/chat-sdk). Example apps in the adapter repo:
+
+| Example                                                                                     | Description                                      |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| [basic](https://github.com/resend/resend-chat-sdk/tree/main/examples/basic)                 | Echo bot that replies to every email             |
+| [welcome-cards](https://github.com/resend/resend-chat-sdk/tree/main/examples/welcome-cards) | Sends a styled card email on first contact       |
+| [notifications](https://github.com/resend/resend-chat-sdk/tree/main/examples/notifications) | Proactive emails via `openDM()` and an HTTP POST |
+| [support-bot](https://github.com/resend/resend-chat-sdk/tree/main/examples/support-bot)     | Multi-turn support with subscribe/unsubscribe    |
+| [attachments](https://github.com/resend/resend-chat-sdk/tree/main/examples/attachments)     | Detects attachments and replies with a summary   |

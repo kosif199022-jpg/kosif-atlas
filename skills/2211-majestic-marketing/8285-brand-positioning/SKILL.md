@@ -1,0 +1,47 @@
+---
+name: brand-positioning
+description: Define evidence-based brand positioning, differentiation, value proposition, messaging angles, and taglines for a launch or rebrand.
+---
+
+# Brand Positioning
+
+## Boundary
+
+Own strategic market identity and message choices. Writing voice and finished campaign copy are separate. Never manufacture differentiation, competitor weakness, proof, or conversion claims.
+
+## Required Inputs
+
+- Audience and priority use case
+- Market category, alternatives, and current positioning
+- Verified capabilities, outcomes, proof, and limitations
+- Brand purpose, values, personality, and business constraint
+
+## Workflow
+
+1. State the target segment, buying context, and real alternative, including the status quo.
+2. Map category expectations and sourced competitor positions.
+3. Identify differentiators that are important, provable, and hard to dismiss.
+4. Write the positioning statement: audience, context, promise, category, difference, and proof.
+5. Develop emotional, practical, and economic value propositions without inventing outcomes. Frame each proposition in the currency the buyer already counts; demote mechanism and deliverable claims to features.
+6. Generate distinct messaging angles and hooks as hypotheses to test.
+7. Draft taglines and evaluate clarity, fit, distinctiveness, and claim safety.
+
+## Output
+
+1. **Positioning statement**
+2. **Competitive frame and differentiation evidence**
+3. **Value proposition and message hierarchy**
+4. **Angle and tagline shortlist with test plan**
+
+## Quality Gate
+
+- The position makes a real choice and names who it is not for.
+- Competitive claims are cited and dated.
+- Every promise has proof or an explicit evidence gap.
+- Each claim passes the opposite test or is cut, and sits at the right level of the customer's needs.
+- Statements tell one self-consistent price story.
+- Angles are candidates, not guaranteed performers.
+
+## Reference
+
+Use [positioning-claim-gates.md](references/positioning-claim-gates.md) for the value-currency, level-fit, price-story, opposite-test, and truth-gate rules when drafting or auditing claims.

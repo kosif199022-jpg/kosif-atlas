@@ -1,0 +1,86 @@
+> Source: https://chat-sdk.dev/adapters/official/ioredis.md
+
+---
+title: ioredis
+description: Redis state adapter using ioredis, with Sentinel support.
+tagline: Redis state adapter for Chat SDK built on ioredis. Use it if you already depend on ioredis or need Redis Sentinel.
+package: @chat-adapter/state-ioredis
+---
+
+# ioredis
+
+
+## Install
+
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createIoRedisState } from "@chat-adapter/state-ioredis";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { /* ... */ },
+  state: createIoRedisState({ url: process.env.REDIS_URL! }),
+});
+```
+
+## When to choose ioredis vs redis
+
+Both adapters implement the same state operations with the same key layout. The difference is the Redis client underneath.
+
+Use `@chat-adapter/state-ioredis` when:
+
+* You already use ioredis in your project.
+* You need Redis Sentinel. Pass a Sentinel-configured `Redis` client as `client`.
+* You prefer the ioredis API.
+
+Use [`@chat-adapter/state-redis`](/adapters/official/redis) when:
+
+* You want the official `redis` client.
+* You're starting a new project and don't need Sentinel.
+
+Neither adapter supports Redis Cluster. The ioredis adapter's `client` option accepts a `Redis` instance, and an ioredis `Cluster` doesn't satisfy that type.
+
+## Configuration
+
+
+Either `url` or `client` is required.
+
+### Environment variables
+
+The adapter doesn't read environment variables itself, so pass the URL in your code.
+
+| Variable    | Required | Description                                                            |
+| ----------- | -------- | ---------------------------------------------------------------------- |
+| `REDIS_URL` | No       | Redis connection URL. The quick start reads it and passes it as `url`. |
+
+## Using an existing client
+
+Pass an ioredis client as `client`. ioredis connects on its own, and the adapter's `disconnect()` doesn't quit a client it didn't create.
+
+```typescript title="lib/state.ts" lineNumbers
+import Redis from "ioredis";
+import { createIoRedisState } from "@chat-adapter/state-ioredis";
+
+const client = new Redis("redis://localhost:6379");
+
+export const state = createIoRedisState({ client });
+```
+
+## Data model
+
+Every key starts with `keyPrefix`, which defaults to `"chat-sdk"`. The layout matches [`@chat-adapter/state-redis`](/adapters/official/redis#data-model).
+
+| Key                            | Redis type | Contents                                           |
+| ------------------------------ | ---------- | -------------------------------------------------- |
+| `{keyPrefix}:subscriptions`    | Set        | Subscribed thread IDs                              |
+| `{keyPrefix}:lock:{threadId}`  | String     | Lock token, with a TTL                             |
+| `{keyPrefix}:cache:{key}`      | String     | JSON-serialized cache value, with an optional TTL  |
+| `{keyPrefix}:list:{key}`       | List       | JSON-serialized list entries, with an optional TTL |
+| `{keyPrefix}:queue:{threadId}` | List       | Queued messages for a thread, with a TTL           |
+
+## Feature support
+
+

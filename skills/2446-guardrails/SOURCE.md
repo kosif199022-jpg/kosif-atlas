@@ -1,0 +1,10 @@
+# guardrails
+
+Fifteen safety guards that block secret/credential writes, hardcoded machine-specific paths, git hook-bypass attempts, irreversible git operations (force-push, reset --hard, worktree-wide checkout/restore discards), Bash file-write workarounds that circumvent Write/Edit hooks, Windows drive-root /tmp writes (POSIX /tmp, C:\tmp, \tmp), an EXPORTED MSYS_NO_PATHCONV / MSYS2_ARG_CONV_EXCL that unconverts a later path argument on Windows, a Bash recursive `rm` whose target normalizes to a filesystem root (`/`, the MSYS-translated bare backslash, `~`, `$HOME`, a drive root such as `C:\` or `/c`, a WSL or cygdrive mount root), that carries `--no-preserve-root`, that names an empty or bare-variable operand, or that resolves outside the session's git tree, temp directories and scratchpad (Bash recursive `rm`, and PowerShell `Remove-Item -Recurse` / `cmd /c rd /s`), multi-line `git commit -m` messages (an actual-newline `-m` mangles across shells; single-line `-m` passes), commit subjects and gh pr create titles that violate the repo's tracked team convention (when one is declared in .claude/source-control.md), (advisory) hallucinated CLI flags, (advisory) /plugin:skill references that do not resolve, (advisory) markdown citing a repo path the repo's own history shows was removed, (advisory, opt-in) un-throttled Workflow fan-out that risks burst 529s, and (advisory, opt-in) direct gh pr create calls bypassing this marketplace's own pull-request skill. Each guard is independently toggleable.
+
+- License: **MIT** (no license file shipped; see the source repository)
+- Source: https://github.com/melodic-software/claude-code-plugins/tree/c8fa858c9059d3183cfc08f646e4a97f44b33973/plugins/guardrails
+- Commit: `c8fa858c9059d3183cfc08f646e4a97f44b33973`
+- KOSIF static inspection: **REVIEW_BEFORE_INSTALL** (hooks: 10, MCP servers: 0, scripts: 50). Read the scripts before running anything.
+
+Unofficial mirror of the skill text for reference. All rights remain with the original authors under the license above.

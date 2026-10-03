@@ -1,0 +1,42 @@
+---
+name: session-stats
+description: "Show read-only analytics over local Codex session data: per-project session counts, sizes, and last activity, plus totals and the largest sessions. Use when the user asks how much session data exists or which projects/sessions are biggest."
+---
+
+# Session Stats
+
+When this skill is invoked, do not add a preamble or narrate the plan. Run the relevant script directly, then return only the formatted result or the shortest actionable message.
+
+Resolve `PLUGIN_ROOT` from the selected skill's absolute path: it is the session-manager directory containing `skills/` and `scripts/`. Never hard-code a marketplace cache version.
+
+Run one of (the optional argument is a substring filter limiting output to matching projects, e.g. `ProjectA`):
+
+```bash
+bash "$PLUGIN_ROOT/scripts/session-stats.sh"
+bash "$PLUGIN_ROOT/scripts/session-stats.sh" "<project-filter>"
+```
+
+The output has three sections; present them as:
+
+1. Per-project rows (already sorted by last active):
+
+   ```text
+   | Project | Sessions | Size | Last Active |
+   ```
+
+2. The `TOTALS` line as one summary sentence (projects, sessions, total size).
+
+3. The `TOP 5 LARGEST SESSIONS` section:
+
+   ```text
+   | Size | Project | Name |
+   ```
+
+The command is read-only. Projects are grouped by canonical session cwd. Native
+metadata supplies names when present; filesystem compatibility uses the latest
+indexed name. Missing names display as `(untitled)`. Relay backend diagnostics.
+Size describes known physical files; `+ unknown` means some logical sessions
+have no known file size. Do not describe that as a complete storage total.
+`--json` includes row provenance and nullable byte sizes; `--archived` includes
+archives. Suggest `$session-manager:session-list` to inspect a project and the
+separate `$session-manager:session-delete` workflow for cleanup.

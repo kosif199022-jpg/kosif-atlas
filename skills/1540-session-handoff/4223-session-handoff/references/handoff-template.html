@@ -1,0 +1,1725 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="created" content="YYYY-MM-DD HH:MM:SS" />
+    <meta name="branch" content="[output of: git branch --show-current]" />
+    <meta name="repo" content="[monorepo package or app, e.g. apps/web, packages/oxlint-config]" />
+    <meta name="task" content="[slug — what were you doing]" />
+    <meta name="continues-from" content="[previous handoff filename | none]" />
+    <meta name="workstream" content="[slug describing the workstream]" />
+    <title>handoff: [task-slug] [YYYY-MM-DD]</title>
+    <!-- No remote fonts: a handoff names projects and open work, and a webfont
+         request tells its host the file was opened and when. --mono falls back
+         through JetBrains Mono to ui-monospace, so this renders the same on any
+         machine that has a dev font. -->
+    <style>
+/* tokens:core:start */
+/* Shared design core — do not hand-edit; edit scripts/tokens/core.css. */
+:root {
+  --background: #111110;
+  --card: #191918;
+  --card-foreground: #eeeeec;
+  --popover: #222221;
+  --foreground: #eeeeec;
+  --muted: #222221;
+  --muted-foreground: #b5b3ad;
+  --border: #3b3a37;
+  --input: #3b3a37;
+  --primary: #978365;
+  --primary-foreground: #ffffff;
+  --primary-hover: #a39073;
+  --primary-muted: #24231f;
+  --primary-text: #cbb99f;
+  --ring: #978365;
+  --accent: #2a2a28;
+  --success: #71d083;
+  --success-muted: #1b2a1e;
+  --success-border: #2d5736;
+  --warning: #ffca16;
+  --warning-muted: #302008;
+  --warning-border: #5c3d05;
+  --destructive: #ff977d;
+  --destructive-muted: #391714;
+  --destructive-border: #6e2920;
+  --info: #70b8ff;
+  --info-muted: #0d2847;
+  --info-border: #104d87;
+  /* categorical — series identity; neither the accent nor the semantics */
+  --cat-1: #cf686e;
+  --cat-2: #897ed6;
+  --cat-3: #41a265;
+  --cat-4: #3694d4;
+  --cat-5: #94911b;
+  --cat-6: #ba6cae;
+  --cat-7: #c37827;
+  --cat-8: #00a0a4;
+  --cat-other: #686560;
+  --outline: rgba(237, 237, 236, 0.08);
+  --subtle: #686560;
+  --shadow-sm: 0 1px 2px rgba(6, 6, 5, 0.5);
+  --shadow-md: 0 4px 14px rgba(6, 6, 5, 0.55);
+  --shadow-lg: 0 20px 60px rgba(6, 6, 5, 0.62);
+  --mono: "Geist Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  --sans: "Geist", "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.5rem;
+  --text-4xl: 3.5rem;
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.7;
+  --tracking-tight: -0.022em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.06em;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+  --space-12: 4rem;
+  --radius-sm: 0.1875rem;
+  --radius: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --background: #f6f5ef;
+    --card: #fcfbf6;
+    --card-foreground: #36302a;
+    --popover: #fcfbf6;
+    --foreground: #36302a;
+    --muted: #f0efe3;
+    --muted-foreground: #726c5e;
+    --border: #ddd6c6;
+    --input: #ddd6c6;
+    --primary: #967e60;
+    --primary-foreground: #ffffff;
+    --primary-hover: #897254;
+    --primary-muted: #efece0;
+    --primary-text: #6f5e44;
+    --ring: #967e60;
+    --accent: #eae7da;
+    --success: #3f7a34;
+    --success-muted: #e6f5e2;
+    --success-border: #c2e1b3;
+    --warning: #93761d;
+    --warning-muted: #fbf4c4;
+    --warning-border: #ebd87f;
+    --destructive: #bf4f3b;
+    --destructive-muted: #fbe8e2;
+    --destructive-border: #f0c9ba;
+    --info: #3f6fa6;
+    --info-muted: #e6f1fc;
+    --info-border: #bed7ef;
+    --cat-1: #b04d54;
+    --cat-2: #6f63b8;
+    --cat-3: #1e874b;
+    --cat-4: #0a78b7;
+    --cat-5: #797600;
+    --cat-6: #9d5192;
+    --cat-7: #a45e00;
+    --cat-8: #008f93;
+    --cat-other: #a8a294;
+    --outline: rgba(54, 48, 42, 0.08);
+    --subtle: #a8a294;
+    --shadow-sm: 0 1px 2px rgba(54, 48, 42, 0.1);
+    --shadow-md: 0 4px 14px rgba(54, 48, 42, 0.13);
+    --shadow-lg: 0 20px 60px rgba(54, 48, 42, 0.18);
+  }
+}
+:root[data-theme="light"] {
+  --background: #f6f5ef;
+  --card: #fcfbf6;
+  --card-foreground: #36302a;
+  --popover: #fcfbf6;
+  --foreground: #36302a;
+  --muted: #f0efe3;
+  --muted-foreground: #726c5e;
+  --border: #ddd6c6;
+  --input: #ddd6c6;
+  --primary: #967e60;
+  --primary-foreground: #ffffff;
+  --primary-hover: #897254;
+  --primary-muted: #efece0;
+  --primary-text: #6f5e44;
+  --ring: #967e60;
+  --accent: #eae7da;
+  --success: #3f7a34;
+  --success-muted: #e6f5e2;
+  --success-border: #c2e1b3;
+  --warning: #93761d;
+  --warning-muted: #fbf4c4;
+  --warning-border: #ebd87f;
+  --destructive: #bf4f3b;
+  --destructive-muted: #fbe8e2;
+  --destructive-border: #f0c9ba;
+  --info: #3f6fa6;
+  --info-muted: #e6f1fc;
+  --info-border: #bed7ef;
+  --cat-1: #b04d54;
+  --cat-2: #6f63b8;
+  --cat-3: #1e874b;
+  --cat-4: #0a78b7;
+  --cat-5: #797600;
+  --cat-6: #9d5192;
+  --cat-7: #a45e00;
+  --cat-8: #008f93;
+  --cat-other: #a8a294;
+  --outline: rgba(54, 48, 42, 0.08);
+  --subtle: #a8a294;
+  --shadow-sm: 0 1px 2px rgba(54, 48, 42, 0.1);
+  --shadow-md: 0 4px 14px rgba(54, 48, 42, 0.13);
+  --shadow-lg: 0 20px 60px rgba(54, 48, 42, 0.18);
+}
+/* tokens:core:end */
+
+/* kit:css:start */
+/* Shared state layer — do not hand-edit; edit scripts/tokens/kit.css. */
+
+/* :where() keeps these at zero specificity, so a surface overrides them by
+   writing a plain rule rather than escalating into an !important contest. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Mouse users should not see the ring; keyboard users must. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
+  outline: none;
+}
+
+.kit-skip {
+  position: absolute;
+  left: var(--space-2);
+  top: -4rem;
+  z-index: 999;
+  padding: var(--space-2) var(--space-3);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: top var(--dur) var(--ease-out);
+}
+
+.kit-skip:focus {
+  top: var(--space-2);
+}
+
+/* Empty, loading and error states. Namespaced kit- because three of the four
+   surfaces already own an .empty or .error class of their own. */
+.kit-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--muted-foreground);
+}
+
+.kit-empty__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-md);
+  color: var(--foreground);
+}
+
+.kit-empty__body {
+  margin: 0 auto;
+  max-width: 44ch;
+  font-size: var(--text-sm);
+  text-wrap: pretty;
+}
+
+.kit-error {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-3);
+  background: var(--destructive-muted);
+  border: 1px solid var(--destructive-border);
+  border-radius: var(--radius);
+  color: var(--destructive);
+  font-size: var(--text-sm);
+}
+
+/* Shaped like the content it stands in for — never a spinner. Width is the
+   caller's job, so one rule serves a title, a row and a paragraph. */
+.kit-skel {
+  height: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--muted) 0%, var(--accent) 50%, var(--muted) 100%);
+  background-size: 200% 100%;
+  animation: kit-shimmer 1.4s var(--ease-out) infinite;
+}
+
+@keyframes kit-shimmer {
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Keyboard help overlay, populated by kit.js from the live binding registry. */
+.kit-help {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in oklch, var(--background) 78%, transparent);
+}
+
+.kit-help[hidden] {
+  display: none;
+}
+
+.kit-help__panel {
+  width: min(34rem, 100%);
+  max-height: 80dvh;
+  overflow-y: auto;
+  padding: var(--space-5);
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.kit-help__title {
+  margin: 0 0 var(--space-4);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+
+.kit-help__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+}
+
+.kit-help__keys {
+  flex: none;
+  display: flex;
+  gap: var(--space-1);
+}
+
+.kit-kbd {
+  min-width: 1.4rem;
+  padding: 0.1rem 0.4rem;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--foreground);
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.kit-theme {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.kit-theme button {
+  font: inherit;
+  font-size: var(--text-2xs);
+  padding: var(--space-1) var(--space-2);
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.kit-theme button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.kit-theme button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.kit-theme button:hover {
+  color: var(--foreground);
+  border-color: var(--primary);
+}
+
+.kit-theme button[aria-pressed="true"] {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* A keyboard layer nobody can discover is a keyboard layer nobody uses. kit.js
+   places this next to every theme group, so the ? overlay has a visible way in
+   for anyone who was never told the shortcut exists. */
+/* kit.js wraps the theme group and the help button in this. The pairing is
+   content-sized, so ? sits against the group no matter what the host is: in a
+   flex row the wrapper shrink-wraps anyway, and in block flow (a sidebar) the
+   wrapper fills the width but the group no longer stretches across it. Growing
+   the group is opt-in — a host that wants it to fill the row says so itself,
+   the way the style guide's rail does with `.kit-controls > .themebar`. This
+   was the default until 2026-08-25, and the one surface hosting the group in
+   block flow (plan-review's nav) got a ? at the far edge (docket #52). */
+.kit-controls {
+  display: flex;
+  align-items: center;
+}
+
+.kit-controls > .kit-theme {
+  flex: none;
+}
+
+.kit-helpbtn {
+  margin-left: var(--space-2);
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: none;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.kit-helpbtn:hover {
+  color: var(--foreground);
+  border-color: var(--primary);
+}
+
+.kit-copied {
+  color: var(--success);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Browsers do not print background colours by default, so a dark-themed page
+   prints light text onto white and reads as blank. Repointing the tokens is
+   what makes Ctrl-P work at all; hiding chrome is the surface's opt-in. */
+@media print {
+  :root {
+    --background: #ffffff;
+    --card: #ffffff;
+    --popover: #ffffff;
+    --muted: #f4f4f2;
+    --accent: #f4f4f2;
+    --foreground: #000000;
+    --card-foreground: #000000;
+    --muted-foreground: #444444;
+    --subtle: #666666;
+    --border: #999999;
+    --input: #999999;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+  }
+
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .kit-skip,
+  .kit-help,
+  .kit-helpbtn,
+  .kit-theme,
+  [data-kit-chrome] {
+    display: none !important;
+  }
+
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 90%;
+    color: #555555;
+  }
+
+  .kit-skel {
+    animation: none;
+  }
+}
+/* kit:css:end */
+
+      /* session-handoff extensions — semantic variants, named palette entries,
+         and terminal colours. Outside the markers on purpose: anything
+         inside them is replaced by check-tokens.mjs --fix. */
+      :root {
+        --secondary:          #222221;
+        --card-hover:         #222221;
+        --card-active:        #2a2a28;
+        --popover-foreground: #eeeeec;
+        --border-hover:       #494844;
+        --gold-9:             #978365;
+        --gold-10:            #a39073;
+        --success-foreground: #ffffff;
+        --success-solid:      #46a758;
+        --warning-foreground: #21180b;
+        --warning-solid:      #ffc53d;
+        --info-foreground:    #ffffff;
+        --info-solid:         #0090ff;
+        --destructive-foreground:#ffffff;
+        --destructive-solid:  #e54d2e;
+        --term-bg:            var(--background);
+        --term-fg:            var(--foreground);
+        --titlebar:           var(--secondary);
+        --hover:              var(--accent);
+        --clay:               var(--primary);
+        --dim:                var(--muted-foreground);
+        --green:              var(--success);
+        --red:                var(--destructive);
+        --blue:               var(--info);
+        --yellow:             var(--warning);
+        --ivory:              var(--background);
+      }
+
+      /* These extension tokens are dark-first like the core, so the light values
+         are an override — and the override has to be written the way the core
+         writes it. With only a media query here, clicking Dark on a light system
+         flipped every core token but left --secondary (and so --titlebar) cream,
+         because the media query still matched. Tokens that alias a core token
+         (--term-bg: var(--background)) followed the toggle; literal hexes did
+         not, which is why the card inverted and its header did not. */
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme="dark"]) {
+          --secondary:          #f0efe3;
+          --card-hover:         #f0efe3;
+          --card-active:        #eae7da;
+          --popover-foreground: #36302a;
+          --border-hover:       #cfc8b6;
+          --gold-10:            #897254;
+          --success-foreground: #ffffff;
+          --success-solid:      #46a758;
+          --warning-foreground: #21180b;
+          --warning-solid:      #ffc53d;
+          --info-foreground:    #ffffff;
+          --info-solid:         #0090ff;
+          --destructive-foreground:#ffffff;
+          --destructive-solid:  #e54d2e;
+        }
+      }
+
+      :root[data-theme="light"] {
+        --secondary:          #f0efe3;
+        --card-hover:         #f0efe3;
+        --card-active:        #eae7da;
+        --popover-foreground: #36302a;
+        --border-hover:       #cfc8b6;
+        --gold-10:            #897254;
+        --success-foreground: #ffffff;
+        --success-solid:      #46a758;
+        --warning-foreground: #21180b;
+        --warning-solid:      #ffc53d;
+        --info-foreground:    #ffffff;
+        --info-solid:         #0090ff;
+        --destructive-foreground:#ffffff;
+        --destructive-solid:  #e54d2e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        background: var(--ivory);
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        padding: var(--space-8) var(--space-5) calc(var(--space-12) + var(--space-4));
+        font-family: var(--sans);
+        font-size: var(--text-sm);
+        line-height: var(--leading-normal);
+        font-variant-numeric: tabular-nums;
+        color: var(--term-fg);
+        position: relative;
+        min-height: 100dvh;
+      }
+
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(to right,  color-mix(in oklch, var(--foreground) 2%, transparent) 1px, transparent 1px),
+          linear-gradient(to bottom, color-mix(in oklch, var(--foreground) 2%, transparent) 1px, transparent 1px);
+        background-size: 40px 40px;
+      }
+
+      body::after {
+        content: '';
+        position: fixed;
+        top: -240px;
+        left: 50%;
+        width: 640px;
+        height: 640px;
+        z-index: 0;
+        pointer-events: none;
+        transform: translateX(-50%);
+        background: radial-gradient(circle, color-mix(in oklch, var(--gold-9) 9%, transparent) 0%, transparent 70%);
+      }
+
+      ::-webkit-scrollbar { width: 9px; height: 9px; }
+      ::-webkit-scrollbar-thumb {
+        background-color: var(--primary);
+        border-radius: 9999px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      ::-webkit-scrollbar-track { background: transparent; }
+
+      /* Widened from 1000px to hold the rail beside the pane. The card, the grid
+         ground and the glow are the surface's identity and survive the D8
+         redesign; only what is inside the card changed. */
+      .term {
+        max-width: 82rem;
+        margin: 0 auto;
+        background: var(--term-bg);
+        border-radius: var(--radius-lg);
+        outline: 1px solid var(--outline);
+        box-shadow: 0 20px 60px rgba(20, 20, 19, 0.22);
+        position: relative;
+        z-index: 1;
+      }
+      .titlebar {
+        background: var(--titlebar);
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        border-bottom: 1px solid var(--outline);
+        padding: var(--space-3) var(--space-4);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+      }
+      .titlebar .id {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        min-width: 0;
+      }
+      .titlebar .tag {
+        font-family: var(--mono);
+        font-size: var(--text-2xs);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-wide);
+        color: var(--primary);
+        padding: 0.15rem var(--space-2);
+        background: color-mix(in oklch, var(--primary) 12%, transparent);
+        border-radius: var(--radius-full);
+        flex: none;
+      }
+      .titlebar .path {
+        margin: 0;
+        color: var(--dim);
+        font-family: var(--mono);
+        font-size: var(--text-2xs);
+        font-weight: 400;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* minmax(0, 1fr), never a bare 1fr: 1fr floors at min-content, so one long
+         path in a table widens the column past the viewport and the whole page
+         scrolls sideways. min-width: 0 on the children is the other half. */
+      .shell {
+        display: grid;
+        grid-template-columns: 19rem minmax(0, 1fr);
+        gap: var(--space-6);
+        align-items: start;
+        padding: var(--space-5) var(--space-6) var(--space-6);
+      }
+      .rail,
+      .pane {
+        min-width: 0;
+      }
+
+      /* The rail is the only sticky element. The titlebar is the card's header —
+         pinning it would detach a rounded corner from the card it belongs to.
+         With identity, steps, chip and a nine-item nav the rail runs past a
+         laptop viewport, so it scrolls inside itself rather than stranding its
+         tail below the fold. */
+      .rail {
+        position: sticky;
+        top: var(--space-4);
+        display: grid;
+        gap: var(--space-5);
+        align-content: start;
+        max-height: calc(100dvh - var(--space-8));
+        overflow-y: auto;
+        scrollbar-width: thin;
+      }
+      .rail .task {
+        all: unset;
+        display: block;
+        font-family: var(--sans);
+        font-size: var(--text-md);
+        line-height: var(--leading-snug);
+        font-weight: 600;
+        color: var(--clay);
+      }
+      .rail .meta {
+        display: grid;
+        gap: var(--space-2);
+        margin-top: var(--space-3);
+        font-size: var(--text-2xs);
+      }
+      .rail .meta div {
+        display: grid;
+        gap: 0.1rem;
+      }
+      .rail .meta .k {
+        font-family: var(--mono);
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-wide);
+        color: var(--subtle);
+      }
+      .rail .meta .v {
+        font-family: var(--mono);
+        color: var(--dim);
+        overflow-wrap: anywhere;
+      }
+      .railbox {
+        border-left: 2px solid var(--outline);
+        padding-left: var(--space-4);
+      }
+      .railbox.now {
+        border-left-color: var(--clay);
+      }
+      .rail .eyebrow {
+        display: block;
+        margin-bottom: var(--space-3);
+        font-family: var(--mono);
+        font-size: var(--text-2xs);
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-wide);
+        color: var(--subtle);
+      }
+      /* The clamp box is block-level, so the shared inline ::before counter would
+         stack above its own text. Give the row an explicit number gutter. */
+      .rail ol li {
+        display: grid;
+        grid-template-columns: 1.6rem minmax(0, 1fr);
+        gap: var(--space-1);
+        align-items: baseline;
+      }
+      /* The rail indexes; the pane is authoritative. A clamped entry is a link to
+         its full text, never the only copy of it. */
+      .rail ol a {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        color: inherit;
+        text-decoration: none;
+        transition: color var(--dur-fast) var(--ease-out);
+      }
+      .rail ol a:hover,
+      .rail nav a:hover {
+        color: var(--clay);
+      }
+      .rail nav {
+        display: grid;
+        gap: var(--space-1);
+      }
+      .rail nav a {
+        font-size: var(--text-xs);
+        color: var(--muted-foreground);
+        text-decoration: none;
+        transition: color var(--dur-fast) var(--ease-out);
+      }
+      .chip {
+        display: inline-flex;
+        font-family: var(--mono);
+        font-size: var(--text-2xs);
+        padding: var(--space-1) var(--space-3);
+        border-radius: var(--radius-full);
+        text-decoration: none;
+        background: var(--success-muted);
+        color: var(--success);
+        border: 1px solid var(--success-border);
+      }
+      .chip.blocked {
+        background: var(--destructive-muted);
+        color: var(--destructive);
+        border-color: var(--destructive-border);
+      }
+
+      section {
+        margin-top: var(--space-6);
+        scroll-margin-top: var(--space-5);
+      }
+      .pane > .session-handoff > section:first-child {
+        margin-top: 0;
+      }
+      .hr {
+        color: var(--subtle);
+        overflow: hidden;
+        white-space: nowrap;
+        user-select: none;
+        margin-bottom: var(--space-2);
+      }
+      .hr::after {
+        content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
+      }
+      h2 {
+        all: unset;
+        display: block;
+        font-family: var(--sans);
+        font-size: var(--text-lg);
+        line-height: var(--leading-snug);
+        color: var(--clay);
+        font-weight: 600;
+      }
+      /* Scoped to the pane: the marker is a section affordance, and the rail's
+         task heading is also an h2. */
+      .pane h2::before {
+        content: "▸ ";
+      }
+      h3 {
+        all: unset;
+        display: block;
+        font-family: var(--sans);
+        color: var(--dim);
+        font-size: var(--text-2xs);
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-wide);
+        font-weight: 600;
+        margin-top: var(--space-4);
+        margin-bottom: var(--space-2);
+      }
+      .section-body {
+        margin-top: var(--space-3);
+      }
+
+      /* Measure is capped on every prose-bearing block, not only paragraphs: the
+         longest line in a filled handoff was a list item in "important context",
+         the one section marked MUST READ. Table cells keep their column.
+         The ch unit is the width of zero, wider than average prose — 68ch
+         measures about 74 real characters here. */
+      p {
+        margin: 0;
+        color: var(--term-fg);
+        max-width: 68ch;
+        text-wrap: pretty;
+      }
+      li {
+        max-width: 68ch;
+        text-wrap: pretty;
+      }
+      td p,
+      td li {
+        max-width: none;
+      }
+
+      /* The current-state paragraph is the one block a returning reader always
+         reads, so it gets display-weight prose. */
+      .lede p {
+        font-size: var(--text-md);
+        line-height: var(--leading-relaxed);
+      }
+
+      /* Steps are linked from the rail, so each needs an anchor that lands
+         visibly rather than merely scrolling into view. */
+      ol.steps li {
+        scroll-margin-top: var(--space-5);
+      }
+      ol.steps li:target {
+        box-shadow: -0.75rem 0 0 -0.55rem var(--clay);
+      }
+
+      /* key-value rows (stack snapshot) */
+      .kv {
+        display: grid;
+        grid-template-columns: 20ch minmax(0, 1fr);
+        gap: var(--space-4);
+        padding: var(--space-2) 0;
+        border-top: 1px solid var(--outline);
+        align-items: baseline;
+        font-size: var(--text-xs);
+      }
+      .kv:last-of-type {
+        border-bottom: 1px solid var(--outline);
+      }
+      /* No nowrap: the column is a fixed 20ch, so a longer label ("DB migrations
+         in flight" is 23) overflowed straight into its own value with no gap.
+         Wrapping the label keeps the fixed column — which is the only thing
+         aligning values across rows, since every .kv is its own grid — and a
+         label on two lines beats a label touching its value. */
+      .kv .key {
+        color: var(--subtle);
+        font-family: var(--mono);
+      }
+      .kv .val {
+        color: var(--term-fg);
+      }
+
+      /* tables */
+      .scroll {
+        overflow-x: auto;
+        border-top: 1px solid var(--outline);
+        border-bottom: 1px solid var(--outline);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: var(--text-xs);
+      }
+      th,
+      td {
+        text-align: left;
+        padding: var(--space-2) var(--space-3);
+      }
+      td {
+        border-top: 1px solid color-mix(in oklch, var(--foreground) 4%, transparent);
+        color: var(--term-fg);
+        vertical-align: top;
+      }
+      th {
+        background: var(--term-bg);
+        font-family: var(--mono);
+        font-weight: 500;
+        font-size: var(--text-2xs);
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-wide);
+        color: var(--subtle);
+        border-bottom: 1px solid var(--outline);
+        white-space: nowrap;
+      }
+      tbody tr:hover td {
+        background: var(--hover);
+      }
+
+      /* lists */
+      ul,
+      ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+      }
+      ul li::before {
+        content: "— ";
+        color: var(--subtle);
+      }
+      ol {
+        counter-reset: step;
+      }
+      ol li {
+        counter-increment: step;
+        padding-left: 0;
+      }
+      ol li::before {
+        content: counter(step, decimal-leading-zero) "  ";
+        color: var(--clay);
+        font-family: var(--mono);
+        font-weight: 700;
+      }
+      li {
+        font-size: var(--text-xs);
+        color: var(--term-fg);
+      }
+
+      /* callouts */
+      .callout {
+        padding: var(--space-2) 0 var(--space-2) var(--space-4);
+        border-left: 2px solid var(--subtle);
+        color: var(--dim);
+        margin: var(--space-2) 0;
+        font-size: var(--text-xs);
+      }
+      .callout.warn {
+        border-color: var(--red);
+        color: var(--term-fg);
+      }
+      .callout b,
+      .callout code {
+        color: var(--term-fg);
+      }
+      .callout.warn b {
+        color: var(--red);
+      }
+
+      code {
+        font-family: var(--mono);
+        color: var(--blue);
+      }
+
+      footer {
+        margin-top: var(--space-6);
+        color: var(--subtle);
+        font-family: var(--mono);
+        font-size: var(--text-2xs);
+      }
+
+      ::selection {
+        background: var(--clay);
+        color: var(--term-bg);
+      }
+
+      /* An empty optional section states it in one line. The kit's dashed
+         .kit-empty panel suits an interactive surface with a waiting slot; on a
+         read-once document it rebuilds the band of nothing this layout removes. */
+      .pane .kit-empty {
+        display: block;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: none;
+        text-align: left;
+        font-size: var(--text-xs);
+        color: var(--dim);
+      }
+      .pane .kit-empty__title {
+        display: none;
+      }
+      /* The kit centres this block with margin: 0 auto inside a 44ch box, which
+         reads as a stray indent once the dashed panel around it is gone. */
+      .pane .kit-empty__body {
+        margin: 0;
+        max-width: 68ch;
+      }
+
+      /* Below the rail's own width plus a readable pane, the lanes stack. */
+      @media (max-width: 62rem) {
+        .shell {
+          grid-template-columns: minmax(0, 1fr);
+          gap: var(--space-5);
+        }
+        .rail {
+          position: static;
+          max-height: none;
+          overflow-y: visible;
+        }
+      }
+
+      @media (max-width: 640px) {
+        body {
+          padding: var(--space-4) var(--space-3) var(--space-8);
+        }
+        .term {
+          border-radius: var(--radius-md);
+        }
+        .titlebar {
+          border-radius: var(--radius-md) var(--radius-md) 0 0;
+          padding: var(--space-2) var(--space-3);
+        }
+        .shell {
+          padding: var(--space-4) var(--space-4) var(--space-5);
+        }
+        h2 {
+          font-size: var(--text-md);
+        }
+        .kv {
+          grid-template-columns: 14ch minmax(0, 1fr);
+          gap: var(--space-2);
+        }
+        table,
+        th,
+        td {
+          font-size: var(--text-2xs);
+        }
+      }
+
+      /* The kit's print block hides [data-kit-chrome], which covers the rail's
+         nav. The rest of the rail is content and must print — but a sticky
+         two-column grid prints wrong, so the surface collapses it itself. The
+         kit's own print rules are inside kit:css and are not edited here. */
+      @media print {
+        .shell {
+          display: block;
+          padding: 0;
+        }
+        .rail {
+          position: static;
+          max-height: none;
+          overflow: visible;
+          margin-bottom: var(--space-5);
+        }
+        .term {
+          max-width: none;
+          box-shadow: none;
+          outline: 0;
+        }
+        /* The grid ground and the glow are position: fixed, so a printer that
+           honours backgrounds repeats them on every page. */
+        body::before,
+        body::after {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="kit-skip" href="#main">Skip to content</a>
+    <div class="term">
+      <header class="titlebar">
+        <div class="id">
+          <span class="tag">handoff</span>
+          <h1 class="path" id="title-path">~/project — session-handoff</h1>
+        </div>
+        <div class="kit-theme" role="group" aria-label="Theme">
+          <button type="button" data-kit-theme="light">Light</button>
+          <button type="button" data-kit-theme="dark">Dark</button>
+          <button type="button" data-kit-theme="system">Auto</button>
+        </div>
+      </header>
+      <div class="shell">
+        <!-- The rail indexes; the pane holds the authoritative text. Each step
+             below is a clamped link to its twin in #next-steps — write the same
+             text in both, and keep href="#step-N" aligned with the matching
+             id="step-N" when you add or remove a step. -->
+        <aside class="rail">
+          <div>
+            <h2 class="task">[task — what you were doing]</h2>
+            <div class="meta">
+              <div><span class="k">created</span><span class="v">[YYYY-MM-DD HH:MM]</span></div>
+              <div><span class="k">branch</span><span class="v">[branch]</span></div>
+              <div><span class="k">repo</span><span class="v">[repo]</span></div>
+              <div><span class="k">workstream</span><span class="v">[workstream slug]</span></div>
+              <div><span class="k">continues from</span><span class="v">[previous handoff filename | none]</span></div>
+            </div>
+          </div>
+          <div class="railbox now">
+            <span class="eyebrow">pick up here</span>
+            <ol>
+              <li><a href="#step-1">[Step 1 — include file:line where applicable]</a></li>
+              <li><a href="#step-2">[Step 2]</a></li>
+              <li><a href="#step-3">[Step 3]</a></li>
+            </ol>
+          </div>
+          <div class="railbox">
+            <span class="eyebrow">blockers</span>
+            <!-- Nothing stuck? Use: <a class="chip" href="#blockers">none</a> -->
+            <a class="chip blocked" href="#blockers">blocked</a>
+          </div>
+          <!-- data-kit-chrome sits on the whole box, not the <nav>: the kit's print
+               block hides the element it marks, and on the nav alone that left a
+               "sections" label heading nothing on every printout. -->
+          <div class="railbox" data-kit-chrome>
+            <span class="eyebrow">sections</span>
+            <nav aria-label="Sections">
+              <a href="#next-steps">immediate next steps</a>
+              <a href="#blockers">blockers</a>
+              <a href="#current-state">current state</a>
+              <a href="#stack-snapshot">stack snapshot</a>
+              <a href="#architecture">architecture</a>
+              <a href="#completed-work">completed work</a>
+              <a href="#decisions">decisions</a>
+              <a href="#important-context">important context</a>
+              <a href="#deferred">deferred</a>
+            </nav>
+          </div>
+        </aside>
+
+        <main class="pane" id="main">
+        <article class="session-handoff">
+
+          <section data-kit-section id="next-steps" aria-labelledby="next-steps-heading">
+            <h2 id="next-steps-heading">immediate next steps</h2>
+            <!-- Ordered and specific. "Fix auth" is not acceptable. "Add refreshToken to auth.schema.ts:12" is.
+                 Each <li> is the full text; the rail above carries a clamped link to its id. -->
+            <div class="section-body">
+              <ol class="steps">
+                <li id="step-1">[Step 1 — include file:line where applicable]</li>
+                <li id="step-2">[Step 2]</li>
+                <li id="step-3">[Step 3]</li>
+              </ol>
+            </div>
+          </section>
+
+          <section data-kit-section id="blockers" aria-labelledby="blockers-heading">
+            <div class="hr"></div>
+            <h2 id="blockers-heading">blockers</h2>
+            <!-- Nothing stuck? Drop the table and use one line instead, and set the rail chip to none:
+            <div class="kit-empty">
+              <p class="kit-empty__body">None — nothing is stuck on an external dependency or open question.</p>
+            </div>
+            -->
+            <div class="section-body scroll">
+              <table>
+                <thead>
+                  <tr><th scope="col">Blocker</th><th scope="col">Context</th><th scope="col">Workaround tried</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>[What's stuck]</td>
+                    <td>[Why]</td>
+                    <td>[What was attempted]</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="lede" data-kit-section id="current-state" aria-labelledby="current-state-heading">
+            <div class="hr"></div>
+            <h2 id="current-state-heading">current state</h2>
+            <!-- One paragraph: where things stand right now. What just finished, what's in flight. -->
+            <div class="section-body">
+              <p>[FILL]</p>
+            </div>
+          </section>
+
+          <section data-kit-section id="stack-snapshot" aria-labelledby="stack-snapshot-heading">
+            <div class="hr"></div>
+            <h2 id="stack-snapshot-heading">stack snapshot</h2>
+            <div class="section-body">
+              <div class="kv">
+                <span class="key">Package / app</span>
+                <span class="val">[path or package name]</span>
+              </div>
+              <div class="kv">
+                <span class="key">Layer</span>
+                <span class="val">[Frontend | Backend | API | Infra | Tooling | Other]</span>
+              </div>
+              <div class="kv">
+                <span class="key">Docker Compose</span>
+                <span class="val">[up / down / partial — list which services | N/A]</span>
+              </div>
+              <div class="kv">
+                <span class="key">Dev server</span>
+                <span class="val">[running on port X | not running | N/A]</span>
+              </div>
+              <div class="kv">
+                <span class="key">DB migrations in flight</span>
+                <span class="val">[describe | none]</span>
+              </div>
+            </div>
+          </section>
+
+          <section data-kit-section id="architecture" aria-labelledby="architecture-heading">
+            <div class="hr"></div>
+            <h2 id="architecture-heading">architecture context</h2>
+            <div class="section-body">
+              <h3>Critical Files</h3>
+              <div class="scroll">
+                <table>
+                  <thead>
+                    <tr><th scope="col">File</th><th scope="col">Why it matters</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>path/to/file.ts:42</code></td>
+                      <td>[what it does and why it's relevant now]</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h3>Key Discoveries</h3>
+              <ul>
+                <li>[Non-obvious thing learned or confirmed this session]</li>
+              </ul>
+            </div>
+          </section>
+
+          <section data-kit-section id="completed-work" aria-labelledby="completed-work-heading">
+            <div class="hr"></div>
+            <h2 id="completed-work-heading">completed work</h2>
+            <div class="section-body">
+              <h3>Tasks Finished</h3>
+              <ul>
+                <li>[Specific task — include file:line where applicable]</li>
+              </ul>
+
+              <h3>Files Modified</h3>
+              <div class="scroll">
+                <table>
+                  <thead>
+                    <tr><th scope="col">File</th><th scope="col">Change</th><th scope="col">Why</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>path/to/file.ts</code></td>
+                      <td>[what changed]</td>
+                      <td>[rationale]</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section data-kit-section id="decisions" aria-labelledby="decisions-heading">
+            <div class="hr"></div>
+            <h2 id="decisions-heading">decisions made</h2>
+            <!-- Nothing decided this session? Drop the table and use this instead:
+            <div class="kit-empty">
+              <p class="kit-empty__title">No decisions recorded</p>
+              <p class="kit-empty__body">Nothing was chosen between alternatives this session.</p>
+            </div>
+            -->
+            <div class="section-body scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Decision</th>
+                    <th scope="col">Options considered</th>
+                    <th scope="col">Chosen</th>
+                    <th scope="col">Rationale</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>[What was decided]</td>
+                    <td>[A vs B vs C]</td>
+                    <td>[A]</td>
+                    <td>[The constraint, tradeoff, or intent]</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section data-kit-section id="important-context" aria-labelledby="important-context-heading">
+            <div class="hr"></div>
+            <h2 id="important-context-heading">important context</h2>
+            <!-- MUST READ. Things the next agent gets wrong without knowing this. -->
+            <div class="section-body">
+              <div class="callout warn">
+                <b>Must read</b> — things the next session gets wrong without knowing this.
+              </div>
+              <ul>
+                <li>[Critical invariant, hidden constraint, or gotcha]</li>
+                <li>[Known pitfall to avoid]</li>
+              </ul>
+            </div>
+          </section>
+
+          <section data-kit-section id="deferred" aria-labelledby="deferred-heading">
+            <div class="hr"></div>
+            <h2 id="deferred-heading">deferred / out of scope</h2>
+            <!-- Nothing deferred? Drop the list and use this instead:
+            <div class="kit-empty">
+              <p class="kit-empty__title">Nothing deferred</p>
+              <p class="kit-empty__body">Everything raised this session is either done or on the next-steps list.</p>
+            </div>
+            -->
+            <div class="section-body">
+              <ul>
+                <li>[Thing that came up but was intentionally left for later]</li>
+              </ul>
+            </div>
+          </section>
+
+        </article>
+
+        <footer>Generated [YYYY-MM-DD HH:MM] · Read-only — do not modify after creation</footer>
+        </main>
+      </div>
+    </div>
+
+    <script>
+/* kit:js:start */
+/* Shared behaviour layer — do not hand-edit; edit scripts/tokens/kit.js. */
+
+/* Deliberately free of backticks and interpolation openers. No target is a JS
+   template literal since the board-shell extraction, so this is insurance
+   rather than a requirement — but it is the difference between this file being
+   safe to inline anywhere and being safe only where someone remembered to
+   check. Regexes and escapes are avoided for the same reason. */
+
+(function () {
+  'use strict';
+
+  var THEME_KEY = 'jabworks-theme';
+  var THEME_MODES = ['light', 'dark', 'system'];
+  var root = document.documentElement;
+
+  /* localStorage throws on an opaque origin, which is what a file:// artifact
+     often gets. Degrade to session-only theming; never break the page. */
+  function readStored(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeStored(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (e) {
+      /* no-op */
+    }
+  }
+
+  function applyTheme(mode) {
+    if (mode === 'light' || mode === 'dark') root.setAttribute('data-theme', mode);
+    else root.removeAttribute('data-theme');
+
+    writeStored(THEME_KEY, mode);
+
+    var buttons = document.querySelectorAll('[data-kit-theme]');
+
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute('aria-pressed', String(buttons[i].getAttribute('data-kit-theme') === mode));
+    }
+  }
+
+  function currentTheme() {
+    return root.getAttribute('data-theme') || 'system';
+  }
+
+  function cycleTheme() {
+    applyTheme(THEME_MODES[(THEME_MODES.indexOf(currentTheme()) + 1) % THEME_MODES.length]);
+  }
+
+  function items() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-kit-item]'));
+  }
+
+  /* document.activeElement is null in a detached or not-yet-painted document,
+     and Element.closest is absent on the document node itself. */
+  function activeWithin(selector) {
+    var el = document.activeElement;
+
+    return el && el.closest ? el.closest(selector) : null;
+  }
+
+  function moveItem(step) {
+    var all = items();
+
+    if (all.length === 0) return;
+
+    var index = all.indexOf(activeWithin('[data-kit-item]'));
+    var next = all[Math.min(Math.max(index + step, 0), all.length - 1)] || all[0];
+
+    next.setAttribute('tabindex', '-1');
+    next.focus();
+    next.scrollIntoView({ block: 'nearest' });
+
+    /* Reflect the focused item in the URL so a board or a review can be linked
+       to a specific row. replaceState, not a hash assignment: assigning to
+       location.hash pushes a history entry per keypress. */
+    if (next.id && window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', '#' + next.id);
+    }
+  }
+
+  function reveal(el) {
+    if (el && el.focus) {
+      el.focus();
+      if (el.select) el.select();
+
+      return true;
+    }
+
+    return false;
+  }
+
+  /* A surface whose filter field ships hidden cannot hang the hook on the field
+     itself — a hidden element does not take focus, so the binding would be a
+     silent no-op. Those surfaces put the hook on the control that REVEALS the
+     field instead; activate it, then focus what it revealed via aria-controls.
+     Without this the ? overlay would advertise "Focus filter" for a key that
+     only moves focus to a button, and a generated overlay that misdescribes its
+     own bindings is worse than no overlay. */
+  function focusFilter() {
+    var hook = document.querySelector('[data-kit-filter]');
+
+    if (!hook) return false;
+
+    if (hook.tagName === 'BUTTON') {
+      if (hook.getAttribute('aria-expanded') === 'false' && hook.click) hook.click();
+
+      if (reveal(document.getElementById(hook.getAttribute('aria-controls') || ''))) return true;
+    }
+
+    return reveal(hook);
+  }
+
+  function flashCopied(el) {
+    el.classList.add('kit-copied');
+    window.setTimeout(function () {
+      el.classList.remove('kit-copied');
+    }, 900);
+  }
+
+  function copyFrom(el) {
+    if (!el) return;
+
+    var text = el.getAttribute('data-kit-copy') || el.textContent || '';
+
+    if (!text || !navigator.clipboard || !navigator.clipboard.writeText) return;
+
+    navigator.clipboard.writeText(text.trim()).then(
+      function () {
+        flashCopied(el);
+      },
+      function () {
+        /* Clipboard is permission-gated; a refusal is not an error worth
+           interrupting the page for. */
+      },
+    );
+  }
+
+  function sections() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-kit-section]'));
+  }
+
+  function jumpToSection(n) {
+    var target = sections()[n - 1];
+
+    if (target) target.scrollIntoView({ block: 'start' });
+  }
+
+  /* One registry drives both the key handler and the help overlay, so the
+     documented shortcuts cannot drift from the implemented ones. */
+  var BINDINGS = [
+    { keys: ['j'], label: 'Next item', when: function () { return items().length > 0; }, run: function () { moveItem(1); } },
+    { keys: ['k'], label: 'Previous item', when: function () { return items().length > 0; }, run: function () { moveItem(-1); } },
+    {
+      keys: ['/'],
+      label: 'Focus filter',
+      when: function () { return Boolean(document.querySelector('[data-kit-filter]')); },
+      run: focusFilter,
+    },
+    {
+      keys: ['y'],
+      label: 'Copy id or path',
+      when: function () { return Boolean(document.querySelector('[data-kit-copy]')); },
+      run: function () {
+        copyFrom(activeWithin('[data-kit-copy]'));
+      },
+    },
+    { keys: ['t'], label: 'Cycle theme', when: function () { return true; }, run: cycleTheme },
+    {
+      keys: ['g', '1-9'],
+      label: 'Jump to section',
+      when: function () { return sections().length > 0; },
+      run: null,
+    },
+    { keys: ['?'], label: 'Show shortcuts', when: function () { return true; }, run: null },
+    { keys: ['Esc'], label: 'Dismiss', when: function () { return true; }, run: null },
+  ];
+
+  var overlay = null;
+
+  function buildOverlay() {
+    var host = document.createElement('div');
+
+    host.className = 'kit-help';
+    host.hidden = true;
+    host.setAttribute('role', 'dialog');
+    host.setAttribute('aria-modal', 'true');
+    host.setAttribute('aria-label', 'Keyboard shortcuts');
+
+    var panel = document.createElement('div');
+
+    panel.className = 'kit-help__panel';
+
+    var title = document.createElement('p');
+
+    title.className = 'kit-help__title';
+    title.textContent = 'Keyboard shortcuts';
+    panel.appendChild(title);
+
+    for (var i = 0; i < BINDINGS.length; i++) {
+      if (!BINDINGS[i].when()) continue;
+
+      var row = document.createElement('div');
+
+      row.className = 'kit-help__row';
+
+      var label = document.createElement('span');
+
+      label.textContent = BINDINGS[i].label;
+      row.appendChild(label);
+
+      var keys = document.createElement('span');
+
+      keys.className = 'kit-help__keys';
+
+      for (var k = 0; k < BINDINGS[i].keys.length; k++) {
+        var kbd = document.createElement('kbd');
+
+        kbd.className = 'kit-kbd';
+        kbd.textContent = BINDINGS[i].keys[k];
+        keys.appendChild(kbd);
+      }
+
+      row.appendChild(keys);
+      panel.appendChild(row);
+    }
+
+    host.appendChild(panel);
+    host.addEventListener('click', function (event) {
+      if (event.target === host) toggleOverlay(false);
+    });
+    document.body.appendChild(host);
+
+    return host;
+  }
+
+  function toggleOverlay(show) {
+    if (!overlay) overlay = buildOverlay();
+
+    overlay.hidden = !show;
+  }
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+
+    var tag = el.tagName;
+
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+  }
+
+  var pendingJump = false;
+
+  function onKeydown(event) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+    if (event.key === 'Escape') {
+      toggleOverlay(false);
+      if (isTypingTarget(event.target) && event.target.blur) event.target.blur();
+
+      return;
+    }
+
+    /* A filter box must be typeable: every other binding is inert while the
+       caret is in a field. Escape above is the deliberate exception. */
+    if (isTypingTarget(event.target)) return;
+
+    if (pendingJump) {
+      pendingJump = false;
+
+      if (event.key >= '1' && event.key <= '9') {
+        jumpToSection(Number(event.key));
+        event.preventDefault();
+
+        return;
+      }
+    }
+
+    if (event.key === 'g' && sections().length > 0) {
+      pendingJump = true;
+      window.setTimeout(function () {
+        pendingJump = false;
+      }, 1200);
+
+      return;
+    }
+
+    if (event.key === '?') {
+      toggleOverlay(overlay ? overlay.hidden : true);
+      event.preventDefault();
+
+      return;
+    }
+
+    for (var i = 0; i < BINDINGS.length; i++) {
+      if (BINDINGS[i].run && BINDINGS[i].keys.indexOf(event.key) !== -1 && BINDINGS[i].when()) {
+        BINDINGS[i].run();
+        event.preventDefault();
+
+        return;
+      }
+    }
+  }
+
+  function init() {
+    applyTheme(readStored(THEME_KEY) || 'system');
+
+    var buttons = document.querySelectorAll('[data-kit-theme]');
+
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', function (event) {
+        applyTheme(event.currentTarget.getAttribute('data-kit-theme'));
+      });
+    }
+
+    /* Give the ? overlay a visible way in. It rides alongside the theme group
+       because every surface already has one, and because a floating badge is
+       chrome each surface would then have to design around. */
+    var groups = document.querySelectorAll('.kit-theme');
+
+    for (var g = 0; g < groups.length; g++) {
+      if (!groups[g].parentNode) continue;
+
+      var help = document.createElement('button');
+
+      help.type = 'button';
+      help.className = 'kit-helpbtn';
+      help.textContent = '?';
+      help.title = 'Keyboard shortcuts (?)';
+      help.setAttribute('aria-label', 'Keyboard shortcuts');
+      help.addEventListener('click', function () {
+        toggleOverlay(true);
+      });
+
+      /* Wrap rather than insert as a sibling: a surface may host the theme group
+         in a flex row (the board) or in block flow (the guide's rail), and in
+         block flow a bare sibling drops onto its own line. The wrapper makes the
+         pairing hold in either. */
+      var controls = document.createElement('div');
+
+      controls.className = 'kit-controls';
+      groups[g].parentNode.insertBefore(controls, groups[g]);
+      controls.appendChild(groups[g]);
+      controls.appendChild(help);
+    }
+
+    document.addEventListener('click', function (event) {
+      var target = event.target.closest ? event.target.closest('[data-kit-copy]') : null;
+
+      if (target) copyFrom(target);
+    });
+
+    document.addEventListener('keydown', onKeydown);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+/* kit:js:end */
+    </script>
+  </body>
+</html>

@@ -1,0 +1,41 @@
+> Source: https://chat-sdk.dev/docs/getting-started.md
+
+---
+title: Getting Started
+description: Pick a guide to start building with Chat SDK.
+related:
+  - /docs/usage
+  - /docs/platform-adapters
+  - /docs/vercel-connect
+  - /docs/create-chat-sdk
+---
+
+# Getting Started
+
+
+## Usage
+
+Learn the core patterns for handling incoming events and posting messages back to your users.
+
+
+## Adapters
+
+Connect your bot to chat platforms and persist state across restarts.
+
+
+Browse all official, vendor-official, and community adapters on the [Adapters](/adapters) page.
+
+## Resources
+
+* [The Complete Guide to Chat SDK](https://vercel.com/kb/guide/the-complete-guide-to-chat-sdk?utm_source=chat-sdk_site\&utm_medium=docs\&utm_campaign=getting-started\&utm_content=the-complete-guide-to-chat-sdk): an end-to-end walkthrough that takes you from an empty project to a deployed multi-platform bot, covering adapters, state, handlers, cards, and streaming.
+
+See all guides and templates on the [resources](/resources?utm_source=chat-sdk_site\&utm_medium=docs\&utm_campaign=getting-started\&utm_content=resources) page.
+
+
+---
+
+For a semantic overview of all documentation, see [/sitemap.md](/sitemap.md)
+
+For an index of all available documentation, see [/llms.txt](/llms.txt)
+
+For agent-facing discovery, including API and MCP surfaces, see [/agents.md](/agents.md)

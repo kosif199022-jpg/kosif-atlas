@@ -1,0 +1,9 @@
+interface:
+  display_name: "React Development"
+  short_description: "Build, debug, refactor, and review React web apps"
+  default_prompt:
+    "Use $react-development to implement or review the requested React change within this project's existing
+    architecture."
+
+policy:
+  allow_implicit_invocation: true

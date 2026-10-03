@@ -1,0 +1,12 @@
+{
+  "name": "aimm-commands",
+  "description": "Library of 54 named AIMM prompt commands (skeptic, canon-lock, blind-spot-scanner, transcript-miner, ...); use for \"/aimm:<name>\", \"run the skeptic\", or any request naming an AIMM command.",
+  "version": "1.1.0",
+  "commands": ["./commands/"],
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

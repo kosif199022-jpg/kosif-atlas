@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Export"
+  short_description: "GameGen: game export workflow"
+  default_prompt: "Use $game-export for this game using its saved GameGen preferences."

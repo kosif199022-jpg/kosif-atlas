@@ -1,0 +1,407 @@
+---
+description: "Skill-authoring QA for Claude Code skills. Use when: 'check this skill', 'skill quality', 'lint my skill', 'is this SKILL.md valid', 'validate skill frontmatter', 'check skill before publishing', 'validate evals.json', 'shared listing budget', 'is the skill listing overflowing', or before shipping a skill or plugin. Actions: `check [<skill-name>|<root> ...]` runs a twenty-six-check static contract gate over one skill, or over every skill under each given root, and reports PASS/FAIL with warnings; `validate-evals [<skill-name>]` checks a skill's evals/evals.json against the bundled schema, then runs a deterministic eval-quality lint; `listing-budget [<root> ...]` reports the SHARED aggregate listing-budget estimate across every listing-eligible skill under the resolved root(s). `measure-invocation` scores description auto-invocation probes. `check` and `validate-evals` FAILs block; the other two actions are advisory. Not for: writing new skills, or running model-graded evals."
+argument-hint: "[check|validate-evals|listing-budget|measure-invocation] [<skill-or-root> ...]"
+user-invocable: true
+disable-model-invocation: false
+shell: bash
+metadata:
+  workflow-stage: review
+  summary: Static QA gate for skill frontmatter, caps, and evals
+---
+
+## Purpose
+
+Static, deterministic quality gate for skill authoring. The `check` action runs the bundled
+`check-skill.sh`. Twenty-six checks with no model invocation, so results are reproducible in CI or a
+pre-commit hook. The `validate-evals` action checks a skill's `<skill>/evals/evals.json` against the bundled
+JSON schema, then runs the bundled `check-evals-quality.sh`, a deterministic eval-quality lint
+(duplicate case ids/names, missing fixtures, empty or vague grading criteria, set-coverage
+warnings) that goes beyond structure without ever running a model-graded eval. The `listing-budget` action runs `check-listing-budget.sh`, a separate, always-advisory
+report on the SHARED listing budget every loaded skill draws from together (a different, cross-skill
+limit from `check`'s per-skill entry cap). The `measure-invocation` action runs
+`measure-invocation.sh`, a repeatable probe harness that scores whether a skill's listing text
+would win the requests it should.
+
+## Skills-directory resolution
+
+The checker never assumes a repo layout (convention-resolution ladder). It resolves the skills root in
+this order. First hit wins:
+
+1. `${user_config.skills_root}`. Set it when your skills live outside `.claude/skills` (run
+   `/skill-quality:setup` to configure).
+2. `${CLAUDE_PROJECT_DIR}/.claude/skills`. The conventional default.
+
+The skill passes the resolved root to the script via the `CHECK_SKILL_SKILLS_ROOT` environment
+variable. When `skills_root` is configured, export it before invoking the script:
+
+```shell
+CHECK_SKILL_SKILLS_ROOT="${user_config.skills_root}" \
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-skill.sh" <skill-name>
+```
+
+When it is unset, invoke the script plain. It falls back to `${CLAUDE_PROJECT_DIR}/.claude/skills`.
+
+**Gating a marketplace-installed skill.** A `plugin:skill` name (e.g. `source-control:setup`) is
+not auto-resolved: the checker resolves a bare skill name under one root and does not walk Claude
+Code's plugin cache to locate an install. The cache keeps each installed version of a copied plugin
+in its own directory, `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>`, and the previous
+version stays on disk for a grace period after an update
+([plugins-reference](https://code.claude.com/docs/en/plugins-reference), verified 2026-09-02; recheck
+when that page's plugin-cache section changes), so more than one candidate can exist and the checker
+will not guess which one you mean. To gate an installed skill, point the root at its installed
+skills dir explicitly:
+
+```shell
+CHECK_SKILL_SKILLS_ROOT=~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills \
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-skill.sh" <skill-leaf-name>
+```
+
+The cache is a **copy, not a git checkout**, so the git-backed checks (3 trigger-preservation, 8
+vendor byte-identity, 9 stale-metadata, 13 committed-artifact scan) no-op against it. A "new skill /
+skipped" result is expected there, not a defect. Passing a `plugin:skill` name unresolved prints
+this exact guidance.
+
+## Arguments
+
+Parse `$ARGUMENTS`:
+
+- **`check <skill-name>`** (default action). Run the static contract gate over one skill.
+- **`check`** *(no name)*. Run the gate over every skill under the resolved root.
+- **`check <root> [<root> ...]`**. Run the gate over every skill under each given root, grouped
+  per root with a `N passed, M failed` rollup (e.g. every plugin's skills dir in a marketplace
+  repo). Every root given must exist, and must be a skills root rather than a skill directory
+  holding its own `SKILL.md`; either mistake exits 2 naming the argument. A root that exists but
+  holds no skills is named and is not an error. A skill name and a root cannot be mixed in one
+  call. A bare argument that resolves as a skill under the already resolved root is always read as
+  that skill, never as a root, so a relative root whose name collides with an existing skill has to
+  be written with a path separator (`./<name>`) or as an absolute path.
+- **`validate-evals <skill-name>`**. Validate one skill's `<skill>/evals/evals.json` against the schema.
+- **`validate-evals`** *(no name)*. Validate every skill's `<skill>/evals/evals.json` that exists.
+- **`listing-budget`** *(no root)*. Report the shared listing-budget estimate over every
+  listing-eligible skill under the resolved root.
+- **`listing-budget <root> [<root> ...]`**. Pool every listing-eligible skill under each given root
+  into ONE shared aggregate (e.g. every plugin's skills dir in a marketplace repo). Every root given
+  must exist.
+- **`measure-invocation`** *(default `validate` then `score`)*. Run the description-invocation
+  probe harness. See Action: measure-invocation.
+
+## Action: check
+
+1. Resolve the skills root (above). If the directory does not exist, report it and offer
+   `/skill-quality:setup`.
+2. For a named skill, run:
+
+   ```shell
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-skill.sh" <skill-name>
+   ```
+
+   For no name, pass the resolved root itself rather than enumerating by hand. The script walks
+   every immediate subdirectory holding a `SKILL.md`, runs the gate once per skill, prints a
+   header per root and ends with the rollup:
+
+   ```shell
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-skill.sh" <resolved-root>
+   ```
+
+   To gate several trees in one run, pass each root: `check-skill.sh <root> [<root> ...]`.
+3. Report per skill:
+   - **PASS / FAIL** from the script's exit code (0 = pass, 1 = one or more `FAIL:` lines). In root
+     mode that exit code is the AGGREGATE over every skill, so the per-skill verdict is that
+     skill's own `CHECK-SKILL <name>: PASS` or `CHECK-SKILL <name>: FAIL` line instead.
+   - The `FAIL:` lines verbatim (each is an actionable defect). A description/verb-contract polarity
+     mismatch is a FAIL that blocks; fix it by correcting the listing, or use `--fix` in the
+     description as the compliant override.
+   - `WARN:` lines grouped after failures (advisory: a trigger phrase dropped or moved vs the
+     base ref, missing gotchas surface, action-router without evals, orphan
+     spokes, an injection with no `shell:` whose commands only *look* portable, an injected
+     command carrying no `|| <fallback>`, same-context judgment language with no fresh-eyes
+     declaration or a stale exemption directive). A dropped-trigger warning is a review item: confirm the description still names
+     the intent each dropped phrase carried, or restore the phrase.
+4. For a multi-skill run, the script's own last line is the rollup `N passed, M failed`. Surface it
+   verbatim. The action is complete when every `FAIL:` line and that rollup are reported.
+
+The `FAIL:` messages are self-describing. Do not re-derive their meaning; surface them and, when the
+user asks, fix the cited skill. A broken-internal-ref FAIL points at a `SKILL.md:<line>`. Hand-verify
+that line before editing, since it may be an illustrative example path rather than a real broken ref.
+
+## Action: validate-evals
+
+1. Locate `<skills-root>/<skill-name>/evals/evals.json`. If absent, report that the skill ships no
+   evals (not a failure, because evals are warranted, not mandatory).
+2. Read the bundled schema at
+   [`${CLAUDE_PLUGIN_ROOT}/reference/evals.schema.json`](../../reference/evals.schema.json) and the
+   skill's `evals.json`.
+3. If a JSON-schema validator is available (`check-jsonschema`, `ajv`, or `python -m jsonschema`),
+   run it and report conformance. Otherwise validate structurally against the schema: `skill_name`
+   and a non-empty `evals` array are required; each case requires `id`, `prompt`, and at least one
+   non-empty grading criterion: a non-empty `expected_output` string, a non-empty `expectations`
+   array, or a non-empty `assertions` array (a case that cannot be graded is not an eval); a
+   rich-form case may add `name` (kebab-case) and `files`, and any case may add `difficulty`
+   (`hard` or `routine`), `why_hard` (the reason a person judged it hard) and `source` (where
+   the case came from).
+4. Report each violation with its JSON path, or confirm the file conforms.
+5. Run the deterministic eval-quality lint over every located file, all at once. The script
+   accepts multiple paths:
+
+   ```shell
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-evals-quality.sh" <skills-root>/<skill>/evals/evals.json
+   ```
+
+   Report its `FAIL:` lines verbatim (each is an actionable defect: duplicate case ids/names,
+   an unresolvable `files` fixture, an empty criterion item), then its `WARN:` lines grouped
+   after (advisory quality heuristics: vague criterion phrasing, thin sole-criterion
+   `expected_output`, identical prompt+files pairs, a set with no refusal/anti-pattern case, a criterion that leaves an
+   evaluative word such as "appropriate" or "correctly" undefined, a `difficulty: hard` case
+   with no `why_hard`).
+   The script exits 0 when only warnings remain; run `--help` for the full Q1-Q11 check list.
+   If `jq` is absent the script exits 2. Report that the quality lint was skipped for that
+   reason; the schema verdict from steps 3-4 still stands.
+
+`validate-evals` checks structure and lint only. It cannot tell whether a claim needs a no-skill
+baseline arm: `/evals:design` says when one is required, and `/evals:plugin-eval` runs it.
+
+## Action: listing-budget
+
+1. Resolve the root(s): explicit `<root> ...` arguments if given; otherwise the same
+   skills-root resolution as `check` (above).
+2. Run:
+
+   ```shell
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-listing-budget.sh" [<root> ...]
+   ```
+
+3. Report the printed aggregate, the budget it was compared against (and whether that budget is the
+   documented default, a fixed override, or a reconstructed one, and the script labels which), and the
+   biggest contributors when it overflows. The action is complete when the report names all three
+   of those elements; the script exiting 0 alone is not the done-condition (it is advisory and
+   always exits 0 on a successful run).
+
+This is a **different, cross-skill limit** from `check`'s per-skill entry cap (`description` +
+`when_to_use` <= 1536 chars, the documented default of `skillListingMaxDescChars` per
+<https://code.claude.com/docs/en/skills#frontmatter-reference>, verified 2026-08-31; recheck
+trigger: that page or the settings page moving either default re-derives this sentence and the
+scripts' constants): the shared budget every loaded skill draws from together
+(`skillListingBudgetFraction`, default 1% of the model's context window).
+The script exits 0 regardless of overflow, because the live budget depends on the model's context window and a
+consumer's own settings, neither of which this static check can observe. Point `/doctor` at the live
+session for the authoritative resolved cost.
+
+**Only listing-eligible skills count.** A skill with `disable-model-invocation: true` has its
+description kept out of the model-visible listing entirely, so it spends none of the shared budget
+and the report skips it. Counting those would overstate the aggregate. A consumer's
+`skillOverrides` can free further descriptions by collapsing entries to `"name-only"`, which
+repository content cannot reveal, so the reported figure is an upper bound for anyone who sets it.
+A missing explicit root and a nonnumeric override are both environment errors (exit 2), never a
+silent skip or a coerced-to-zero budget.
+
+Both claims are verified 2026-09-06 against Claude Code 2.1.263 and the skills page
+(<https://code.claude.com/docs/en/skills>, the invocation-mode table row for
+`disable-model-invocation: true`, "Description not in context", and "Skill descriptions are cut
+short", which names `"name-only"` as the way to free budget). Recheck when either section stops
+carrying its statement, or when a release note names skill listing budget or `skillOverrides`.
+
+## Action: measure-invocation
+
+Repeatable probe harness for whether a skill's listing text would win the auto-invocation match.
+Default method is a deterministic lexical floor (`listing-overlap`) that runs without a model. CI
+validates the probe schema and runs the harness tests; `score` and `compare` are run by hand.
+Model-graded `claude plugin eval` cases are emitted on demand. Contract:
+[reference/invocation-probes.md](../../reference/invocation-probes.md).
+
+1. Resolve the probes directory. Use a directory the user supplied. Otherwise use
+   `${CLAUDE_PLUGIN_ROOT}/probes` only when its `skill_dir` paths resolve in the current repo, which
+   they do inside the marketplace checkout. Otherwise stop and ask for a probes directory. The
+   shipped seed set is this marketplace's own skills; it is not a general default, and `score`
+   exits 2 when none of its `skill_dir` paths resolve.
+2. Run, in this order unless the user named one sub-action:
+
+   ```shell
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/measure-invocation.sh" validate <probes-dir>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/measure-invocation.sh" score <probes-dir>
+   ```
+
+   `validate` WARNs when a should-trigger probe shares 4 or more consecutive words with the target
+   listing (`--copy-span N` changes the span); reword such a probe the way a user would ask.
+   `compare <baseline> <treatment>` prints per-skill train and validation deltas, each trigger-rate
+   delta with a 95% interval and a "within noise" line when the interval contains 0.
+   `emit-plugin-eval [--runs N] <probes-dir> <out-dir>` writes `claude plugin eval` cases into an
+   empty or new `<out-dir>`, 3 runs per case unless `--runs` says otherwise.
+   Claim: each case is a directory holding `prompt.md` (frontmatter fields, body is the prompt)
+   and `graders/`, and a `tool_used` grader with `tool: Skill` and an `input_match` on the skill
+   name checks that the skill fired. Basis: <https://code.claude.com/docs/en/plugin-evals>, the
+   case layout and `tool_used` grader sections. As of: 2026-09-28. Recheck: that page changes the
+   case layout, the `prompt.md` fields, or the `tool_used` grader fields.
+3. Report per skill, per split (`train` and `validation`): `trigger_rate` and
+   `false_trigger_rate`, sample size, and the method name. A rewrite is compared with `compare`
+   against `probes/baselines/listing-overlap.json` (or a later model-graded snapshot); a delta
+   reported "within noise" is not a gain. The action is complete when both splits are named; a
+   single blended rate is not the done-condition.
+4. `listing-overlap` is a floor, not a model-graded auto-invocation rate. Say so when reporting.
+   Do not treat a 1.0 positive rate on the floor as proof the description saturates live
+   auto-invocation.
+
+The seed probe set is two skills chosen for competitor density (`skill-quality:check`,
+`mcp-tools:audit`). Fleet-wide description rewrites stay attended.
+
+## Cross-skill invocation (doctrine)
+
+The Skill tool executes one skill within the main conversation, so a step needing two skills is two
+calls. Do not instruct Skill-tool invocation of a `disable-model-invocation: true`
+(user-invoked-only) target. Tell the user to run `/plugin:skill` instead. Verified 2026-09-06
+against Claude Code 2.1.263 and two pages: the tools reference
+(<https://code.claude.com/docs/en/tools-reference>, the `Skill` row) and the skills page
+(<https://code.claude.com/docs/en/skills>, "to keep Claude from invoking it through the Skill tool,
+set `disable-model-invocation: true`"). Recheck when the `Skill` row describes more than one skill
+per call, when the skills page stops carrying that sentence, or when a release note names the Skill
+tool. This gate does not automate that reachability check; author and review against the invariant.
+
+## Next
+
+- A FAIL or WARN to fix in a skill being authored: /playbooks:skill-authoring.
+- All checks pass and the change is ready to ship: /verification:confirm.
+
+## Gotchas
+
+- `measure-invocation`'s default `listing-overlap` method is a lexical floor. A 1.0 positive
+  trigger rate means the description already contains the request's nouns, not that live
+  auto-invocation saturates. Report both splits and name the method.
+- The shipped probes are this marketplace's skills. Outside the marketplace checkout `score`
+  needs your own probes directory; no script turns `plugin-eval` or `claude -p` results into a
+  report for `compare`.
+- A git repository is optional. Git-backed checks (trigger-keyword preservation, vendor
+  byte-identity, stale-tracking metadata, committed-artifact scan) skip with a note when cwd
+  is outside a repo. Marketplace plugin-cache installs are plain trees. Set
+  `CHECK_SKILL_SKILLS_ROOT` (or `CLAUDE_PROJECT_DIR`) so the non-git checks still resolve a
+  skills root; without either and without a git toplevel, the script exits 2 naming the
+  missing root.
+- `check-skill.sh` runs `npx markdownlint-cli2` for check 6; when `npx` is absent that check downgrades
+  to a WARN rather than failing, so a run on a machine without Node still gates on every other check.
+- **Check 6 defers to the skill's own repo markdownlint config.** `markdownlint-cli2` discovers config
+  from its working directory downward, never above it, so the checker runs it from the top level of the
+  git repo holding the skill: a repo-root `.markdownlint-cli2.jsonc` applies whichever directory or root
+  you started from. (Claim: config applies from parent directories only "up to the current
+  directory". Basis: the `markdownlint-cli2` v0.23.2 README, Configuration section, and a reproduction
+  against this repo. As of 2026-09-23. Recheck when the repo's `markdownlint-cli2` pin changes major or
+  minor version.) A skill in no git repo (a marketplace-installed skill in the plugin cache, which has
+  no config) is linted where the checker stands, and markdownlint applies its DEFAULTS, so rules a repo deliberately disables (commonly
+  `MD013` line-length for injection blocks and tables, `MD041` first-line-heading for a frontmatter/H2
+  start, `MD060` table-pipe style) fire as spurious failures on a skill that passes in-repo. This is the
+  usual cause of a "shipped marketplace skill fails the marketplace's own gate" report: it is a
+  wrong-config artifact, not a real regression. **Injection blocks are not special-cased**. A declared
+  `shell:` block with long lines is MD013-subject like any other content; whether it fails is entirely the
+  consumer's markdownlint config's call (disable `MD013`, or wrap the lines), never something this gate
+  overrides. In this marketplace's own CI the division of labor is explicit: the skill-quality gate skips
+  markdownlint (`CHECK_SKILL_SKIP_MARKDOWNLINT=1` in the repo's `check-changed-skills.sh` gate) and the
+  hygiene lane lints all repo markdown, SKILL.md included, under the repo config. In root mode
+  each skill is linted from its own repo's top level, so a root such as `plugins/<x>/skills` gets the
+  repo-root config, not the defaults. A dispatched tree that ships no config still gets markdownlint's
+  defaults, exactly as the paragraph above describes.
+- Trigger-keyword preservation compares the working tree against `HEAD` by default, so a brand-new skill
+  (no committed version) skips check 3. That is expected, not a silent pass. For a post-commit audit
+  (where `HEAD` == the working tree hides an already-committed change), set `CHECK_SKILL_BASE_REF` to a
+  ref before the change (e.g. `HEAD^` or a merge-base) and run on a clean tree; it reroutes checks 3/8/9.
+- Check 1 accepts any frontmatter `model` that is a single non-empty token (`inherit`, an alias, or
+  a model id, including provider ids with `:`, `/` or `@` such as Bedrock ids and ARNs) and fails an
+  empty or whitespace-containing value. The field is optional. Auto mode keeps the session model
+  when the named model is one auto mode does not support; that is runtime behavior, not a second
+  finding. Claim: the page defines no grammar beyond "the same values as `/model`, or `inherit`",
+  and the auto-mode exception. Basis:
+  <https://code.claude.com/docs/en/skills#frontmatter-reference>, the `model` row. As of:
+  2026-09-29. Recheck: that row defines a grammar for the value or changes the auto-mode exception.
+- Check 1 also fails an unquoted plain `description` with a colon followed by a space on any line,
+  or a line ending in a colon (a YAML mapping indicator). A quoted or block-scalar description may
+  contain it.
+- Check 3 (trigger-keyword preservation) is advisory: it warns on a dropped phrase and never fails
+  the run. It tracks single-quoted `'phrase'` triggers; an unquoted `Use when:` list is not tracked,
+  and check 12 warns so those phrases get quoted and covered. A dropped phrase found verbatim in a
+  sibling skill's description/when_to_use under the same skills root, where the sibling did NOT
+  already carry it at the base ref, is a trigger MOVE and warns naming the host, because the listing
+  still routes the phrase. A phrase absent everywhere, or one the sibling carried all along
+  (coincidental overlap, not a move), warns as dropped and asks the reviewer to confirm the
+  description still names the intent the phrase carried (a deliberate consolidation of near-synonym
+  triggers into an intent category) or to restore it. Treat that warning as a review item, not
+  noise.
+- Check 19 (injection shell-declaration) FAILs only when a `!` injection carries *detectable*
+  bash-only syntax (`/dev/null`, `command -v`, a pipe into a Unix text tool) AND no `shell:` is
+  declared; portable-looking commands downgrade to a WARN, since static analysis cannot prove
+  portability. A `shell:` declaration is trusted wholesale. The check does not validate that the
+  injected commands actually match the declared shell (so `shell: pwsh` with bash-only commands is
+  out of scope). Both checks 19 and 20 scan the injected command text only. A bash-only token in a
+  plain `` ```bash `` example or in prose never trips them.
+- Check 21 (fresh-eyes declaration conformance) is WARN-only on its judgment-language heuristic;
+  only a malformed or reason-less `fresh-eyes-exempt` directive FAILs. Its proximity window is
+  per-file, so a declaration living in a referenced spoke file cannot satisfy it. The WARN says
+  so; hand-verify before editing. Literal directive examples belong inside code fences (both
+  detectors are fence- and inline-span-aware); a bare `<class>` placeholder in prose FAILs as an
+  unknown class. Spec: `reference/fresh-eyes-declarations.md`.
+- Check 18 (precompute opportunity) is an advisory heuristic, never a FAIL. It cannot tell an
+  instruction-to-run shell block from an illustrative example, so a WARN is a candidate to judge, not a
+  defect. Like a check-5 ref, hand-verify the block before converting it. It reads only fenced shell
+  blocks (not prose "run `git status` first") and stays silent whenever the skill already uses any `!`
+  injection, so it under-reports by design; a clean run is not proof there is no precompute opportunity.
+- Check 23 (completion-criteria signal) is an advisory heuristic, never a FAIL. It fires only when a
+  numbered procedure of three or more steps carries NO completion-signal token at all. It detects
+  the absence of any done-condition, and cannot grade whether a stated criterion is observable or
+  good; its broad token set means it under-reports by design. The write-side doctrine whose floor it
+  checks is `docs-hygiene:write-for-agents` (steps state observable completion criteria; guard
+  premature completion, post-completion obligations, and legwork). When authoring new agent docs or
+  fixing a flagged procedure, invoke `/docs-hygiene:write-for-agents` via the Skill tool.
+- Check 24 (explicit invocation mode) FAILs a marketplace plugin skill (`plugins/*/skills/*`) whose
+  frontmatter omits `disable-model-invocation`, and only WARNs anywhere else: the absent-key default
+  is already `false`, so a consumer's own skill is informed by this fleet's convention rather than
+  broken by it. A non-boolean value FAILs everywhere: the check reads the bare scalar, so a quoted
+  `"false"` fails as the YAML string it is, while a trailing `# comment` naming the exception class
+  is fine. The rubric that owns the decision, the
+  model-invoked default and the only three exception classes a `true` may claim, is
+  [`docs/conventions/invocation-mode/README.md`](https://github.com/melodic-software/claude-code-plugins/blob/main/docs/conventions/invocation-mode/README.md).
+  Class attribution is NOT machine-checkable: only a `setup` skill's `true` is deterministic (class
+  (ii), the plugin-philosophy setup contract), so every other `true` emits a note to hand-verify
+  rather than a warning no scan could clear.
+- Check 25 (description/verb-contract polarity) FAILs on a listing-surface mismatch between the
+  description lead (before `Use when:`) and the Naming verb contract or the body: a report-only
+  leaf (`audit`/`scan`) whose lead advertises mutation without an explicit override, a mutate leaf
+  (`clean`/`tidy`/`fix`) whose lead claims read-only/report-only, a read-only lead whose body
+  mutates on bare invocation, or a mutate-advertising lead whose body claims the skill never
+  mutates. `--fix` in the listing is the compliant override shape and clears a report-only verb.
+  Out of scope: whether any `audit` skill should gain a `--fix` path, and any rename. Trigger
+  phrases, "read-only by default",
+  the noun "remediation", and a negated "or rewrites" list do not advertise mutation.
+- `check-evals-quality.sh` requires `jq` (exit 2 without it, and the schema validation of
+  `validate-evals` steps 3-4 is unaffected). Its WARN-tier checks (Q5-Q11) are lexical heuristics:
+  Q9 (set-coverage) detects refusal/anti-pattern cases by wording, so a set whose guardrail case
+  phrases the prohibition unusually can WARN despite covering it. Read the set before adding a
+  case. It deliberately does not flag low case count: the marketplace's low eval volume is a recorded
+  divergence from the evaluation guidance.
+- `check-evals-quality.sh` resolves each case's `files` entries relative to the skill directory
+  first, then the evals directory. An entry that is prose (environment description) rather than a
+  real path FAILs Q4. Describe environment state in the case's `prompt` parenthetical instead,
+  or ship a fixture. When `files` is empty/absent, path-shaped tokens in `prompt`/`expected_output`
+  that resolve nowhere WARN under the same Q4 roots unless the case sets `narration: true`.
+- A clean `listing-budget` report is a signal to investigate against `/doctor` in a live session,
+  not a guarantee nothing is dropped there. In this marketplace's own repo, each plugin owns its own
+  `plugins/<plugin>/skills/` root, so gating the whole marketplace means pooling every plugin's root
+  into one call (`check-listing-budget.sh plugins/*/skills`) rather than running it once per plugin
+  in isolation. The marketplace's CI workflow runs that pooled call as a dedicated step on every run.
+- **`check <root> ...` pools nothing across roots.** Each skill is gated by its own child run
+  carrying its own root, so the cross-skill scans stay per root: check 3's trigger-move scan looks
+  for a moved phrase only among siblings under the same root, check 5's sibling-ref resolution only
+  names a sibling under the same root, and the `/plugins/<x>/skills` plugin-root detection behind
+  the evals-warrant lookup is derived per root. Two roots in one call are two independent scans
+  sharing one rollup, never one merged corpus. Pooling them would change what those checks mean,
+  which is why it is not done. `listing-budget` is the opposite by design: it pools, because the
+  budget it reports is the shared one.
+- **In root mode each skill is gated with the DISPATCHED tree's git context, never the caller's.**
+  Every git-backed check (3 trigger preservation, 8 vendor byte-identity, 9 stale metadata, 13
+  committed artifacts) joins two values that both derive from the working directory: the repository
+  root, and the skill's path within it. A child left at the caller's directory takes those from two
+  different repositories and reports one against the other, so a path tracked in *your* repo
+  surfaces as a finding against a skill that lives somewhere else entirely. Each child therefore
+  runs at its own root. A root outside any repository skips the git-backed checks with their usual
+  named notes rather than borrowing the caller's repository, and `CHECK_SKILL_BASE_REF` is resolved
+  against the dispatched repository, so a ref that exists only there is accepted and one absent
+  there is an environment error in that child.
+- **One resolved root stays the DEFAULT deliberately.** An explicit root list is how you widen
+  coverage; the resolution ladder never grows on its own to the union of every skills tree in
+  reach. Widening the default would silently widen every existing consumer's gate, including this
+  repo's CI, so broader coverage is something a caller asks for rather than something the ladder
+  decides for them.

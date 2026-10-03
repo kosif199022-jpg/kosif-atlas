@@ -1,0 +1,11 @@
+{
+  "name": "harness-prd",
+  "description": "Interviews the user to design a stateful-agent-harness ProcessSpec (a state machine of agents, skills, gates, artifacts); use for \"build an agent process for X\", \"spec out an agent pipeline\". NOT for code work-breakdowns (wbs-prd).",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

@@ -1,0 +1,309 @@
+# Session Mode: Full 5-Phase Retrospective
+
+Comprehensive post-session analysis. The default mode and the most thorough. Use it at end of
+session or after a PR merges.
+
+## Phase 1: Extract (automated metrics)
+
+> Skip this phase if the user explicitly requests it, or if the parser errors (exit 2). Report the
+> error and continue with conversation-context analysis only.
+
+### Phase 1.0: Discover the session chain (multi-session-aware)
+
+When handoff save-points exist (the sibling `handoff` skill's directory, meaning the resolved
+`<memory_dir>/handoffs/` (default `.work/handoffs/`), or the consuming repo's documented
+location), the retro analyzes EVERY chained session across
+`/session-flow:handoff` + `/clear` cycles, not just the current one. The parser walks the chain itself via
+`--chain-from` (newest handoff file → its `previous_handoff` pointer → repeat; breaks cleanly at
+the first entry lacking `session_id`).
+
+**Continuity gate first.** Use `--chain-from` ONLY when the newest handoff belongs to the current
+work: this session resumed from it (the resume prompt loaded it), this session wrote it, or its
+`topic` frontmatter and stated goal clearly match the current task. A shared directory can hold
+save-points
+from completed or abandoned tasks, and chaining from an unrelated newest file would splice stale
+sessions into this retro's aggregate. When continuity is absent or unclear, fall back to the
+single-session form.
+
+### Phase 1.1: Parse the transcript(s)
+
+Resolve `SESSION_DATA_DIR` per SKILL.md "Paths", then:
+
+```bash
+PARSER="<plugin-root>/skills/retro/scripts/parse_transcript.py"
+
+# Pick an interpreter that is actually Python 3.10+ (a bare `python` may be older):
+PY=""
+for c in python3 python; do
+  if command -v "$c" >/dev/null 2>&1 \
+     && "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+    PY="$c"; break
+  fi
+done
+
+# Single-session form:
+"$PY" "$PARSER" --sessions "${CLAUDE_CODE_SESSION_ID}" --base "$SESSION_DATA_DIR"
+
+# Multi-session form (handoff chain exists). Derive HANDOFF_DIR from the memory
+# root. Resolution: a working-docs convention you inferred from CLAUDE.md /
+# .claude/rules (pass it as DECLARED_MEMORY_DIR; prose is an inference source) ->
+# the plugin default .work. DECLARED_MEMORY_DIR is a memory-tier ROOT, never a
+# handoffs path directly — HANDOFF_DIR always appends /handoffs below, at every
+# rung, matching the handoff skill's "Where handoffs live".
+MEMORY_DIR="${DECLARED_MEMORY_DIR:-.work}"
+HANDOFF_DIR="$MEMORY_DIR/handoffs"
+NEWEST=$(ls -1 "$HANDOFF_DIR"/*-handoff-*.md 2>/dev/null | sort | tail -1)
+if [[ -z "$NEWEST" ]]; then
+  echo "No handoff files found under $HANDOFF_DIR — falling back to single-session form." >&2
+  "$PY" "$PARSER" --sessions "${CLAUDE_CODE_SESSION_ID}" --base "$SESSION_DATA_DIR"
+else
+  "$PY" "$PARSER" --chain-from "$NEWEST" --current-session "${CLAUDE_CODE_SESSION_ID}" --base "$SESSION_DATA_DIR"
+fi
+```
+
+If `PY` resolves empty (no Python 3.10+ available), skip metrics extraction and note why. The
+parser is stdlib-only.
+
+### Script contract
+
+JSON to stdout: `status` / `summary`, plus per-session `data` (session info, turns, tokens, tool
+usage + rejections, compactions, turn durations, stop reasons, files modified, subagents, errors)
+and, in multi-session form, an `aggregate` block and a `chain_coverage` block. Exit codes:
+0 = success, 1 = warning, 2 = error.
+
+`--sessions` accepts its ids space-separated OR comma-joined; both spell the same list.
+
+### Check chain coverage before presenting
+
+`chain_coverage` reports `requested` / `found` / `available` / `ratio` / `project_transcripts`.
+`available` is the chain: the sessions requested (the walk, under `--chain-from`), plus under
+`--chain-from` the other transcripts that mention the handoff's topic (named in `topic`), which are
+the sessions a walk that stopped early did not reach. `project_transcripts` counts every transcript
+in the project directory; it is a diagnostic and never the denominator, because a chain launched
+from a shared directory such as `$HOME` shares that directory with every unrelated session on the
+machine. `fork_candidates` lists transcripts outside the requested set that share
+record uuids with it: forks no handoff points at. Offer them for a `--sessions` re-run; never add
+them silently. The
+`--chain-from` walk ends at the first session that wrote no handoff file, so a chain linked by
+hand-pasted continuation prompts can cover a fraction of the work and still look complete here.
+
+When `ratio` is below ~0.5, say so before presenting the retro. Name `found` and `available`, and
+offer to re-run with the ids enumerated:
+
+```bash
+"$PY" "$PARSER" --sessions <sid1> <sid2> ... --base "$SESSION_DATA_DIR"
+```
+
+Do not silently scope a chain retrospective to what the walk happened to reach.
+
+### Present metrics
+
+Format as two GFM tables: **Session Summary** (duration, model, assistant turns, human messages,
+compactions, total context tokens, tool rejections, subagent count) and **Tool Distribution**
+(tool / count / %, sorted descending).
+
+---
+
+## Session type detection
+
+Before analysis, identify the session type from conversation context. It calibrates Phase 5
+scoring:
+
+- **Coding.** Code changes made. Score Technical quality on code quality
+- **Planning/Design.** Architecture decisions, documentation, API design. Score on design
+  reasoning and decision quality
+- **Research.** Investigation, comparison, learning. Score on research rigor and conclusion
+  quality
+- **Mixed.** Score each task individually, then aggregate
+
+---
+
+## Phase 2: Analyze (qualitative assessment)
+
+Analyze across five dimensions using BOTH Phase 1 metrics AND conversation context. Derive the
+convention baseline from the consuming repo's own instruction files: its `CLAUDE.md`, the
+`.claude/rules/` files relevant to the ecosystems touched this session, and any review-criteria
+docs it names. Read only the relevant ones.
+
+### 2A. Error analysis
+
+- Mistakes made and corrected; failed approaches and wasted cycles
+- Incorrect assumptions that had to be revised
+- Build or test failures caused by changes
+- Stale information used without verification
+
+### 2B. Behavioral assessment
+
+Check adherence to the staged workflow (the sibling `workflow` skill, or the consuming repo's own
+documented workflow if it defines one):
+
+- Which stages were followed? Which were skipped, and was the skip justified?
+- Was research performed for the claims the work depends on, with current authoritative sources?
+- Was a plan written and approved for non-trivial work? Stress-tested when blast radius was wide?
+- Was uncertainty flagged when verification wasn't possible?
+
+### 2C. Feedback regression check
+
+This check prevents repeating previously corrected mistakes. If the consumer
+uses Claude Code auto-memory (`<SESSION_DATA_DIR>/memory/` exists), read the `feedback_*.md` files
+and check whether this session violated any saved guidance:
+
+| Memory file | Violated? | Evidence |
+| --- | --- | --- |
+| `feedback_example.md` | YES / No / N/A | (specific session behavior) |
+
+Flag regressions prominently. A regression means a previously corrected behavior has resurfaced.
+No memory directory → note "auto-memory not in use" and move on.
+
+### 2D. Technical assessment
+
+Evaluate code changes (if any) against the consuming repo's own engineering conventions. If no
+code changes were made, note "N/A" and skip.
+
+### 2E. Efficiency assessment
+
+- Compaction count. Did each continuation follow the router in
+  [`../../workflow/context/continuation.md`](../../workflow/context/continuation.md), and would
+  tighter reads have spared any compaction?
+- Parallel tool-call opportunities missed; redundant file reads
+- Subagent usage. Was the delegation appropriate?
+- Longest/slowest turns. What caused them?
+
+### Phase 2 output
+
+Present findings as a GFM table per dimension:
+
+| # | Severity | Finding | Evidence | Impact |
+| --- | --- | --- | --- | --- |
+
+---
+
+## Phase 3: Recommend (improvements)
+
+Map each Phase 2 finding to an improvement target. Also identify improvements not tied to specific
+findings.
+
+**Research before recommending.** For any recommendation involving skills, hooks, agents, or Claude
+Code configuration: verify it against current official docs before presenting. Never recommend
+features from training-data assumptions.
+
+**Load the catalog.** Read `<plugin-root>/skills/retro/reference/ecosystem-improvement-catalog.md`
+before filling the table. The placement decision tree and the per-target recommendation formats
+(memory, rules, hooks, skills, agents, MCP servers, settings) live there.
+
+Present as a GFM table with a **Scope** column distinguishing:
+
+- **project.** Git-tracked, shared with the team (the repo's `CLAUDE.md`, rules, skills, settings)
+- **personal.** Machine-specific, NOT committed (auto-memory, user settings)
+
+| # | Target | Scope | Type | Recommendation | Justification | Priority |
+| --- | --- | --- | --- | --- | --- | --- |
+
+Each Justification cell opens with a `Basis:`: `verified` with the transcript line, `file:line`,
+tool output, or doc URL it rests on, or `judgment` (never for a consequential recommendation:
+cross-repo, shared infrastructure, irreversible, or security). A consequential one research cannot
+settle is withheld: list it under "Queue for follow-up" as an open question naming the evidence
+that would settle it. Contract:
+[`context/recommendation-basis.md`](../../../context/recommendation-basis.md);
+full convention: [recommendation-basis](https://github.com/melodic-software/claude-code-plugins/blob/main/docs/conventions/recommendation-basis/README.md#basis-label).
+
+### Skill candidate analysis (REQUIRED, always include)
+
+Evaluate whether the session revealed a genuinely repeatable multi-step workflow worth
+encapsulating as a skill:
+
+| Factor | Minimum for a skill | Skip if |
+| --- | --- | --- |
+| Steps | 3+ distinct phases | Linear, 1-2 step process |
+| Reuse | Likely monthly+ | Truly one-off |
+| Complexity | Requires judgment or branching | Simple command alias |
+| Context | Needs reference files or rubrics | Self-evident workflow |
+
+Always present the subsection, either candidate(s) with name/description/rationale, or "no
+candidates" with a one-line explanation of what was considered.
+
+**Name where an accepted candidate goes.** Invoke `/playbooks:skill-authoring` via the Skill
+tool to read its doctrine, draft the candidate against it, then gate the result on
+`/skill-quality:check`, when those are installed; otherwise say the candidate has no authoring
+route here and leave it recorded. A candidate with no destination is a finding that evaporates
+between sessions, and a skill written ad hoc at the end of a retro is the one most likely to
+miss the conventions that playbook exists to carry. It is a knowledge surface with no arguments
+and no actions, so it informs the drafting rather than doing it: there is nothing to hand it.
+
+### Follow-up candidates (REQUIRED, always include)
+
+Evaluate whether the session produced follow-up work for the consumer's work-item tracker:
+deferred research, discovered gaps (missing tests, undocumented conventions), research context
+worth preserving. Present as a table, or "no candidates. Session work was self-contained."
+
+---
+
+## Phase 4: Act (with user approval)
+
+Group Phase 3 recommendations by action type, then **explicitly ask the user** which items to
+execute. Do not proceed without their response.
+
+- **Personal (not committed):** proposed auto-memory entries, created only on approval
+- **Project (already validated this session):** rule/instruction-file updates codifying what
+  HAPPENED (a gotcha discovered through failures, a convention established through implementation).
+  Apply on approval
+- **Queue for follow-up (needs further research):** recommendations beyond what this session
+  validated. List them; do NOT make those changes now
+
+Apply the team-shared-first lens: if a learning generalizes to ANY contributor, it belongs in a
+tracked surface (the repo's instruction files), not personal memory. Reserve auto-memory for facts
+true only for this machine/person.
+
+**Every approved codification follows the workflow:** verify the claim, cross-reference existing
+content for duplication, then edit. No "just save it" shortcut.
+
+End Phase 4 with an explicit question, e.g.: "Which of these recommendations should I execute now?
+Reply with the numbers, 'all', or 'skip' to proceed to the summary."
+
+---
+
+## Phase 5: Summary
+
+### Accomplishments
+
+1-3 bullets of what the session achieved.
+
+### Key learnings
+
+- **Behavioral:** what to do differently next time
+- **Technical:** patterns learned, gotchas discovered
+
+### Actions taken
+
+Checklist of memory saved / rules edited / items queued.
+
+### Session health score
+
+**Calibration:** read the score history (SKILL.md "Paths", `<project-slug>.md`) if it
+exists and note trends alongside this session's scores.
+
+| Dimension | Score | Notes |
+| --- | --- | --- |
+| Workflow adherence | /10 | |
+| Technical quality | /10 | calibrate to session type |
+| Alignment | /10 | convention compliance + memory utilization |
+| Efficiency | /10 | |
+| Error rate | /10 | 10 = no errors |
+| **Overall** | **/10** | weighted average |
+
+**Scoring anchors** (consistency across sessions): 9-10 exemplary (all stages followed, no errors,
+feedback respected); 7-8 good (minor gaps); 5-6 mixed (some stages skipped, recoverable errors);
+3-4 below standard (multiple skips, regressions, avoidable errors); 1-2 poor (fundamental process
+failures or incorrect code shipped).
+
+Every dimension gets a numeric score; use N/A only when truly irrelevant.
+
+### Score tracking
+
+Append this session's scores to the score history (SKILL.md "Paths", `<project-slug>.md`; create the
+directory and file with a header row on first use):
+
+```markdown
+| Date | Session | Type | Workflow | Technical | Alignment | Efficiency | Errors | Overall |
+| 2026-03-21 | session-id-short | Coding | 8 | 7 | 8 | 8 | 9 | 8 |
+```

@@ -1,0 +1,558 @@
+#!/usr/bin/env node
+/**
+ * Suite A — teams lifecycle roster safety (scripts/toggle-team.sh, scripts/verify-team.sh).
+ * Covers BCOP08: a `## Agents` roster value is interpolated into move/probe/delete paths, so a row
+ * like `../../../outside/README` renamed a file OUTSIDE the project. Runs entirely inside an isolated
+ * temp base; never touches the real ~/.claude or the repo tree.
+ * Assertion policy: unconditional exact-equality checks with a description.
+ */
+import { spawnSync } from 'node:child_process';
+import {
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, realpathSync, existsSync,
+} from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+const HERE = join(fileURLToPath(import.meta.url), '..');
+const TOGGLE = join(HERE, '..', 'scripts', 'toggle-team.sh');
+const VERIFY = join(HERE, '..', 'scripts', 'verify-team.sh');
+const OWNERS = join(HERE, '..', 'scripts', 'agent-owners.sh');
+const FRAMEWORK = join(HERE, '..', 'references', 'framework-files.md');
+
+// realpath: macOS /var is a symlink to /private/var
+const BASE = realpathSync(mkdtempSync(join(tmpdir(), 'teams-lifecycle-')));
+let passed = 0;
+let failed = 0;
+const results = [];
+
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return false;
+  if (typeof a !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!deepEqual(a[k], b[k])) return false;
+  }
+  return true;
+}
+
+/** JSON, capped: a failed byte comparison must not bury the report under a whole agent file. */
+function render(v) {
+  const s = JSON.stringify(v);
+  return s.length <= 220 ? s : `${s.slice(0, 220)}...<${s.length} chars>`;
+}
+
+function check(name, actual, expected, message) {
+  if (deepEqual(actual, expected)) {
+    passed++;
+    results.push(`  PASS  ${name}  (${message})`);
+  } else {
+    failed++;
+    results.push(`  FAIL  ${name}  (${message} | actual=${render(actual)} expected=${render(expected)})`);
+  }
+}
+
+function run(script, args, cwd) {
+  const r = spawnSync('bash', [script, ...args], { cwd, encoding: 'utf8', timeout: 20000 });
+  return { stdout: r.stdout || '', stderr: r.stderr || '', status: r.status };
+}
+
+/**
+ * Trailing `KEY:VALUE` summary block of toggle-team.sh, as an object. Read from the LAST occurrence
+ * of each key: per-file progress lines share the `MOVED:` prefix with the summary.
+ */
+function summary(stdout) {
+  const out = {};
+  for (const key of ['ACTION', 'TEAM', 'MOVED', 'SKIPPED', 'MISSING', 'INVALID']) {
+    const hits = [...stdout.matchAll(new RegExp(`^${key}:(.*)$`, 'gm'))];
+    out[key] = hits.length === 0 ? '<absent>' : hits[hits.length - 1][1];
+  }
+  return out;
+}
+
+const linesStartingWith = (stdout, prefix) =>
+  stdout.split('\n').filter((l) => l.startsWith(prefix));
+
+const AGENT_BODY = (name) => `---
+name: ${name}
+description: "Fixture agent for lifecycle validation."
+model: sonnet
+tools: Read
+doc_type: llm
+version: "6.1.4"
+generated_by: "brewcode:teams-setup"
+last_updated: "2026-08-16"
+---
+
+## Mission
+${name}: fixture mission.
+
+## Owned surfaces
+Fixture paths.
+
+## Exclusions
+Foreign work.
+
+## Must-load references
+- \`.claude/teams/t1/team.md\` first.
+
+## Unique invariants
+Preserve fixture bytes.
+
+## Unique verification
+Run lifecycle checks.
+`;
+
+/**
+ * The `## Agents` header separator, in the three spellings the parser must tell apart: the compact
+ * one the shipped template writes, the space-padded one a markdown formatter produces, and none.
+ */
+const SEPARATORS = {
+  compact: '|-------|--------|---------|--------|---------|------|---------|',
+  padded: '| ------- | -------- | --------- | -------- | --------- | ------ | --------- |',
+  malformedSlash: '|---/|--------|---------|--------|---------|------|---------|',
+  none: null,
+};
+
+/**
+ * A project root with one team. `rows` are `## Agents` Agent-column values, in table order;
+ * `agentFiles` are the names actually written to .claude/agents/.
+ */
+function makeProject(label, rows, agentFiles, separator = 'compact') {
+  const root = join(BASE, label, 'proj');
+  const teamDir = join(root, '.claude', 'teams', 't1');
+  mkdirSync(join(root, '.claude', 'agents'), { recursive: true });
+  mkdirSync(teamDir, { recursive: true });
+  const policy = rows.includes('intent-guard') ? 'required' : 'legacy-absent';
+  const domainRows = rows.filter((name) => name !== 'intent-guard')
+    .map((name) => `|${name}|api|fixture mission|active|2026-08-16|domain|6.1.4|`);
+  const guardRow = policy === 'required'
+    ? '|intent-guard|--|Anti-drift check: what was ASKED vs what was DELIVERED|active|2026-08-16|review-only|6.1.4|'
+    : '';
+  const framework = readFileSync(FRAMEWORK, 'utf8');
+  const headingAt = framework.indexOf('## team.md');
+  const fenceAt = framework.indexOf('```markdown\n', headingAt) + '```markdown\n'.length;
+  const fenceEnd = framework.indexOf('\n```', fenceAt);
+  const canonicalSeparator = '|---|---|---|---|---|---|---|';
+  const selectedSeparator = SEPARATORS[separator] ?? '';
+  const team = framework.slice(fenceAt, fenceEnd)
+    .replaceAll('{TEAM_NAME}', 't1')
+    .replaceAll('{DATE}', '2026-08-16')
+    .replaceAll('{LAST_UPDATED}', '2026-08-16')
+    .replaceAll('{PLUGIN_VERSION}', '6.1.4')
+    .replaceAll('{CONTENT_VERSION}', '6.1.0')
+    .replaceAll('{N}', String(domainRows.length))
+    .replaceAll('{CWD}', root)
+    .replaceAll('{REPORT_ROOT}', '.claude/reports')
+    .replaceAll('{INTENT_GUARD_POLICY}', policy)
+    .replaceAll('{INTENT_GUARD_SHARED_CONTRACT}', policy === 'required'
+      ? '`intent-guard` is review-only, keeps its own output contract, and never implements.' : '')
+    .replaceAll('{INTENT_GUARD_ROW}', [guardRow, ...domainRows].filter(Boolean).join('\n'))
+    .replace(canonicalSeparator, selectedSeparator);
+  writeFileSync(
+    join(teamDir, 'team.md'),
+    `${team}\n`,
+  );
+  writeFileSync(join(teamDir, 'trace.jsonl'), '');
+  for (const f of agentFiles) writeFileSync(join(root, '.claude', 'agents', `${f}.md`), AGENT_BODY(f));
+  return root;
+}
+
+/** A file that lives OUTSIDE the project root — the BCOP08 victim. */
+function makeVictim(label, body) {
+  const p = join(BASE, label, 'outside', 'README.md');
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, body);
+  return p;
+}
+
+const ls = (dir) => readdirSync(dir).sort();
+// A renamed victim is the BCOP08 failure itself, so reading it must report, never throw.
+const readOrGone = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '<file gone>');
+const TRAVERSAL = '../../../outside/README';
+
+// ────────────────────────────────────────────────────────────────────────────
+// A1 — BCOP08: a traversal roster row must move nothing, inside or outside.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const root = makeProject('a1', ['worker-one', TRAVERSAL, 'intent-guard'], ['worker-one', 'intent-guard']);
+  const victim = makeVictim('a1', 'VICTIM\n');
+  const r = run(TOGGLE, ['t1', 'disable'], root);
+
+  check('a1.status', r.status, 1, 'disable exits 1 when a roster row is not an agent id');
+  check(
+    'a1.summary',
+    summary(r.stdout),
+    { ACTION: 'disable', TEAM: 't1', MOVED: '1', SKIPPED: '1', MISSING: '0', INVALID: '1' },
+    'one valid member parked, intent-guard skipped, one row refused',
+  );
+  check(
+    'a1.skipLines',
+    linesStartingWith(r.stdout, 'SKIP:'),
+    [
+      'SKIP:intent-guard (shared with superreview-setup)',
+      `SKIP:invalid agent id '${TRAVERSAL}' (not ^[a-z0-9][a-z0-9-]*$) -- nothing under .claude/agents touched`,
+    ],
+    'the canonical guard row is skipped and the refusal names the offending domain value',
+  );
+  check('a1.victimBytes', readOrGone(victim), 'VICTIM\n', 'the file outside the project is byte-unchanged');
+  check(
+    'a1.outsideDir',
+    ls(join(BASE, 'a1', 'outside')),
+    ['README.md'],
+    'no .md.disabled was created outside the project',
+  );
+  check(
+    'a1.agentsDir',
+    ls(join(root, '.claude', 'agents')),
+    ['intent-guard.md', 'worker-one.md.disabled'],
+    'only the valid member was parked; intent-guard stayed live',
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// A2 — the dry run refuses the same row: `WOULD:` never names a path outside.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const root = makeProject('a2', ['worker-one', TRAVERSAL], ['worker-one']);
+  const victim = makeVictim('a2', 'VICTIM\n');
+  const r = run(TOGGLE, ['t1', 'disable', '--dry-run'], root);
+
+  check('a2.status', r.status, 1, 'the dry run reports the invalid row as a failure too');
+  check(
+    'a2.wouldLines',
+    linesStartingWith(r.stdout, 'WOULD:'),
+    ['WOULD:.claude/agents/worker-one.md -> .claude/agents/worker-one.md.disabled'],
+    'exactly one planned move, and it is inside .claude/agents/',
+  );
+  check('a2.victimBytes', readOrGone(victim), 'VICTIM\n', 'dry run leaves the outside file alone');
+  check(
+    'a2.agentsDir',
+    ls(join(root, '.claude', 'agents')),
+    ['worker-one.md'],
+    'dry run writes nothing',
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// A3 — the full rejected shape set: traversal, slash, leading dot, uppercase,
+//      underscore. An empty Agent cell is skipped silently, as before.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const bad = [TRAVERSAL, 'sub/dir', '.hidden', '..', 'Upper-Case', 'snake_case'];
+  const root = makeProject('a3', [...bad, '', 'worker-one'], ['worker-one']);
+  const r = run(TOGGLE, ['t1', 'disable'], root);
+
+  check('a3.status', r.status, 1, 'any invalid id fails the run');
+  check(
+    'a3.summary',
+    summary(r.stdout),
+    { ACTION: 'disable', TEAM: 't1', MOVED: '1', SKIPPED: '0', MISSING: '0', INVALID: '6' },
+    'all six malformed ids refused; the empty cell is not counted; the one real member moved',
+  );
+  check(
+    'a3.skipCount',
+    linesStartingWith(r.stdout, 'SKIP:invalid agent id').length,
+    6,
+    'one refusal line per malformed row',
+  );
+  check(
+    'a3.agentsDir',
+    ls(join(root, '.claude', 'agents')),
+    ['worker-one.md.disabled'],
+    'nothing but the valid member exists under .claude/agents/',
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// A4 — the parking contract still holds: disable/enable is a byte-preserving
+//      round trip and intent-guard is never parked.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const root = makeProject('a4', ['alpha-agent', 'beta-agent', 'intent-guard'],
+    ['alpha-agent', 'beta-agent', 'intent-guard']);
+  const agents = join(root, '.claude', 'agents');
+  const before = {
+    alpha: readFileSync(join(agents, 'alpha-agent.md'), 'utf8'),
+    beta: readFileSync(join(agents, 'beta-agent.md'), 'utf8'),
+    guard: readFileSync(join(agents, 'intent-guard.md'), 'utf8'),
+  };
+
+  const off = run(TOGGLE, ['t1', 'disable'], root);
+  check('a4.disableStatus', off.status, 0, 'a clean roster disables successfully');
+  check(
+    'a4.disableSummary',
+    summary(off.stdout),
+    { ACTION: 'disable', TEAM: 't1', MOVED: '2', SKIPPED: '1', MISSING: '0', INVALID: '0' },
+    'both domain members parked, intent-guard skipped, nothing invalid',
+  );
+  check(
+    'a4.parkedDir',
+    ls(agents),
+    ['alpha-agent.md.disabled', 'beta-agent.md.disabled', 'intent-guard.md'],
+    'parking renames only the two domain members',
+  );
+  check(
+    'a4.parkedBytes',
+    readFileSync(join(agents, 'alpha-agent.md.disabled'), 'utf8'),
+    before.alpha,
+    'the parked body is byte-identical',
+  );
+
+  const on = run(TOGGLE, ['t1', 'enable'], root);
+  check('a4.enableStatus', on.status, 0, 'enable is the exact inverse');
+  check(
+    'a4.enableSummary',
+    summary(on.stdout),
+    { ACTION: 'enable', TEAM: 't1', MOVED: '2', SKIPPED: '1', MISSING: '0', INVALID: '0' },
+    'both members restored',
+  );
+  check(
+    'a4.restoredTree',
+    {
+      names: ls(agents),
+      alpha: readFileSync(join(agents, 'alpha-agent.md'), 'utf8'),
+      beta: readFileSync(join(agents, 'beta-agent.md'), 'utf8'),
+      guard: readFileSync(join(agents, 'intent-guard.md'), 'utf8'),
+    },
+    {
+      names: ['alpha-agent.md', 'beta-agent.md', 'intent-guard.md'],
+      alpha: before.alpha,
+      beta: before.beta,
+      guard: before.guard,
+    },
+    'the round trip restores every name and every byte',
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// A5 — verify-team.sh fails the same row and probes nothing outside the tree.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const root = makeProject('a5', ['worker-one', TRAVERSAL], ['worker-one']);
+  const victim = makeVictim('a5', 'VICTIM\n');
+  const r = run(VERIFY, ['t1'], root);
+
+  check('a5.status', r.status, 1, 'verification fails on a roster value that is not an agent id');
+  check(
+    'a5.failLine',
+    linesStartingWith(r.stdout, `CHECK: agent '`),
+    [`CHECK: agent '${TRAVERSAL}' ... FAIL (not an agent id: must match ^[a-z0-9][a-z0-9-]*$ --`],
+    'the failure quotes the offending value',
+  );
+  check(
+    'a5.verdict',
+    linesStartingWith(r.stdout, 'VERIFY:'),
+    ['VERIFY: FAIL'],
+    'exactly one verdict line, and it is FAIL',
+  );
+  check('a5.victimBytes', readOrGone(victim), 'VICTIM\n', 'verification never touches the outside file');
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// A6 — verify-team.sh still passes a clean roster, parked or live.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const root = makeProject('a6', ['alpha-agent', 'intent-guard'], ['alpha-agent', 'intent-guard']);
+  const live = run(VERIFY, ['t1'], root);
+  check('a6.liveStatus', live.status, 0, 'a clean live roster verifies');
+  check(
+    'a6.liveDisabledCount',
+    linesStartingWith(live.stdout, 'DISABLED_AGENTS:'),
+    ['DISABLED_AGENTS:0'],
+    'no member is parked',
+  );
+
+  run(TOGGLE, ['t1', 'disable'], root);
+  const parked = run(VERIFY, ['t1'], root);
+  check('a6.parkedStatus', parked.status, 0, 'a parked roster is a state, not a defect');
+  check(
+    'a6.parkedDisabledCount',
+    linesStartingWith(parked.stdout, 'DISABLED_AGENTS:'),
+    ['DISABLED_AGENTS:1'],
+    'the one domain member is reported as parked',
+  );
+  check(
+    'a6.parkedExtension',
+    parked.stdout.includes('agent file(s) parked as .md.disabled'),
+    true,
+    'the disabled summary names the Claude agent parking extension',
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// A7 — a SPACE-PADDED header separator (`| ------ |`, what a markdown formatter
+//      leaves behind) must parse. Matching only the compact `---|` spelling set
+//      past_header to 0, parsed zero rows and still printed `MOVED:0` + `✅
+//      disable` while every agent file stayed LIVE.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const root = makeProject('a7', ['alpha-agent', 'beta-agent', 'intent-guard'],
+    ['alpha-agent', 'beta-agent', 'intent-guard'], 'padded');
+  const agents = join(root, '.claude', 'agents');
+  const r = run(TOGGLE, ['t1', 'disable'], root);
+
+  check('a7.status', r.status, 0, 'a padded separator is a valid roster, not a failure');
+  check(
+    'a7.summary',
+    summary(r.stdout),
+    { ACTION: 'disable', TEAM: 't1', MOVED: '2', SKIPPED: '1', MISSING: '0', INVALID: '0' },
+    'both domain members parked from a padded roster, intent-guard skipped',
+  );
+  check(
+    'a7.agentsDir',
+    ls(agents),
+    ['alpha-agent.md.disabled', 'beta-agent.md.disabled', 'intent-guard.md'],
+    'disable actually parked the files -- MOVED:0 with live agents is the bug this pins',
+  );
+
+  const v = run(VERIFY, ['t1'], root);
+  check('a7.verifyStatus', v.status, 0, 'verify reads the padded roster too');
+  check(
+    'a7.verifyDisabledCount',
+    linesStartingWith(v.stdout, 'DISABLED_AGENTS:'),
+    ['DISABLED_AGENTS:2'],
+    'verify counts both parked members instead of seeing an empty table',
+  );
+  check(
+    'a7.verifyExtension',
+    v.stdout.includes('agent file(s) parked as .md.disabled'),
+    true,
+    'the disabled summary names the Claude agent parking extension',
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// A8 — a roster whose separator row is absent parses nothing. `disable` must
+//      FAIL there: a success verdict over an unparsed table is the silent no-op.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const root = makeProject('a8', ['alpha-agent'], ['alpha-agent'], 'none');
+  const r = run(TOGGLE, ['t1', 'disable'], root);
+
+  check('a8.status', r.status, 1, 'an unparseable ## Agents table fails the run');
+  check(
+    'a8.summary',
+    summary(r.stdout),
+    { ACTION: 'disable', TEAM: 't1', MOVED: '0', SKIPPED: '0', MISSING: '0', INVALID: '0' },
+    'nothing was moved, and the counters alone would have read as a clean empty team',
+  );
+  check(
+    'a8.failLine',
+    linesStartingWith(r.stdout, '❌ FAILED -- parsed no ## Agents rows').length,
+    1,
+    'the run names the parse failure instead of printing a disable verdict',
+  );
+  check(
+    'a8.verdictLines',
+    linesStartingWith(r.stdout, '✅'),
+    [],
+    'no success line is printed while the agent file is still live',
+  );
+  check(
+    'a8.agentsDir',
+    ls(join(root, '.claude', 'agents')),
+    ['alpha-agent.md'],
+    'the agent file is untouched, which is exactly why the run must not exit 0',
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// A9 — valid_agent_id is a path-traversal guard, so its rejection set is pinned
+//      directly: the single-`case` form must reject every shape the three-block
+//      form did, and accept the ordinary ids.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  // The guard is exercised as the shipped source, lifted verbatim from toggle-team.sh -- a copy
+  // pasted into the test would pass while the real one drifted.
+  const lines = readFileSync(TOGGLE, 'utf8').split('\n');
+  const from = lines.findIndex((l) => l.startsWith('valid_agent_id()'));
+  const to = lines.indexOf('}', from);
+  check('a9.guardFound', [from >= 0, to > from], [true, true], 'valid_agent_id() was located in toggle-team.sh');
+
+  const probe = join(BASE, 'a9-probe.sh');
+  writeFileSync(probe, [
+    '#!/bin/sh',
+    'set -eu',
+    ...lines.slice(from, to + 1),
+    'for id in "$@"; do if valid_agent_id "$id"; then echo "ACCEPT"; else echo "REJECT"; fi; done',
+  ].join('\n'));
+
+  const reject = [
+    TRAVERSAL, '..', '.', '.hidden', 'sub/dir', '/abs', 'a/b', 'Upper-Case', 'snake_case',
+    '-leading-dash', 'trailing space', 'semi;colon', 'dollar$sign', 'dot.ted', '',
+  ];
+  const accept = ['worker-one', 'intent-guard', 'a', 'a1', '9lives', 'x-y-z'];
+  const r = run(probe, [...reject, ...accept], BASE);
+
+  check(
+    'a9.verdicts',
+    r.stdout.trim().split('\n'),
+    [...reject.map(() => 'REJECT'), ...accept.map(() => 'ACCEPT')],
+    'the collapsed guard rejects every traversal/charset shape and accepts every ordinary id',
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// A10 — separator recognition is exact: triple hyphens inside a valid agent id
+//       are data, while near-separators containing foreign bytes are unreadable.
+// ────────────────────────────────────────────────────────────────────────────
+{
+  const validRoot = makeProject('a10-valid', ['foo---bar'], ['foo---bar']);
+  const toggled = run(TOGGLE, ['t1', 'disable'], validRoot);
+  const verified = run(VERIFY, ['t1'], validRoot);
+  const owned = run(OWNERS, ['foo---bar'], validRoot);
+  check('a10.validToggle', [toggled.status, summary(toggled.stdout).MOVED], [0, '1'],
+    'toggle parses and parks a valid triple-hyphen agent id');
+  check('a10.validVerify', [verified.status, verified.stdout.includes('CHECK: agent foo---bar ...')], [0, true],
+    'verify does not skip a valid triple-hyphen roster row');
+  check('a10.validOwner', [owned.status, owned.stdout], [0, 't1\n'],
+    'ownership lookup retains the valid triple-hyphen row');
+
+  const malformedRoot = makeProject('a10-malformed', ['alpha-agent'], ['alpha-agent'], 'malformedSlash');
+  const malformedToggle = run(TOGGLE, ['t1', 'disable'], malformedRoot);
+  const malformedVerify = run(VERIFY, ['t1'], malformedRoot);
+  const malformedOwner = run(OWNERS, ['alpha-agent'], malformedRoot);
+  check('a10.malformedToggle', malformedToggle.status, 1,
+    'toggle refuses a foreign-byte near-separator instead of skipping it as valid');
+  check('a10.malformedVerify', malformedVerify.status, 1,
+    'verify refuses the same unreadable roster');
+  check('a10.malformedOwner', [malformedOwner.status, malformedOwner.stdout], [1, ''],
+    'ownership lookup fails closed with no partial answer');
+
+  const scriptSources = [TOGGLE, VERIFY, OWNERS].map((path) => {
+    const lines = readFileSync(path, 'utf8').split('\n');
+    const from = lines.findIndex((line) => line.startsWith('is_separator_row()'));
+    const to = lines.indexOf('}', from);
+    return lines.slice(from, to + 1).join('\n');
+  });
+  check('a10.predicateParity', new Set(scriptSources).size, 1,
+    'toggle, verify, and ownership use one byte-identical separator predicate');
+  const probe = join(BASE, 'a10-separator-probe.sh');
+  writeFileSync(probe, [
+    '#!/bin/sh', 'set -eu', scriptSources[0],
+    'for row in "$@"; do if is_separator_row "$row"; then echo SEP; else echo DATA; fi; done',
+  ].join('\n'));
+  const shells = ['/bin/sh', '/bin/bash', '/bin/zsh', '/usr/bin/dash'].filter((path) => existsSync(path));
+  for (const shell of shells) {
+    const result = spawnSync(shell, [probe,
+      SEPARATORS.compact, SEPARATORS.padded, SEPARATORS.malformedSlash,
+      '|foo---bar|api|mission|active|2026-08-28|domain|6.1.4|',
+    ], { encoding: 'utf8' });
+    check(`a10.shell.${shell}`, [result.status, result.stdout], [0, 'SEP\nSEP\nDATA\nDATA\n'],
+      'the supported shell classifies exact separators and hostile/data rows identically');
+  }
+}
+
+// ── report ──────────────────────────────────────────────────────────────────
+rmSync(BASE, { recursive: true, force: true });
+console.log('suite-lifecycle.mjs');
+for (const line of results) console.log(line);
+console.log(`  ${passed} passed, ${failed} failed`);
+process.exit(failed === 0 ? 0 : 1);

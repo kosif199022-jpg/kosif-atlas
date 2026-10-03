@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Development Best Practices: A Comprehensive Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0f766e;
+            --secondary: #1e293b;
+            --accent: #0891b2;
+            --neutral: #64748b;
+            --surface: #f8fafc;
+            --text: #0f172a;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            line-height: 1.7;
+            color: var(--text);
+        }
+
+        .font-display {
+            font-family: 'Tiempos Text', Georgia, serif;
+        }
+
+        .toc-fixed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 280px;
+            height: 100vh;
+            background: linear-gradient(135deg, var(--surface) 0%, #ffffff 100%);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            z-index: 1000;
+            padding: 2rem 1.5rem;
+        }
+
+        .main-content {
+            margin-left: 280px;
+            min-height: 100vh;
+        }
+
+        .hero-gradient {
+            background: linear-gradient(135deg,
+                rgba(15, 118, 110, 0.05) 0%,
+                rgba(8, 145, 178, 0.08) 50%,
+                rgba(30, 41, 59, 0.03) 100%);
+        }
+
+        .citation-link {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+            border-bottom: 1px dotted var(--primary);
+        }
+
+        .citation-link:hover {
+            border-bottom: 1px solid var(--primary);
+        }
+
+        .bento-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            align-items: start;
+        }
+
+        .insight-highlight {
+            background: linear-gradient(135deg, rgba(8, 145, 178, 0.1), rgba(15, 118, 110, 0.05));
+            border-left: 4px solid var(--accent);
+            padding: 1.5rem;
+            margin: 2rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .stat-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 1024px) {
+            .toc-fixed {
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+
+            .toc-fixed.open {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+
+            .bento-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Table of Contents -->
+    <nav class="toc-fixed">
+        <div class="mb-8">
+            <h2 class="font-display text-xl font-bold text-gray-900 mb-4">Contents</h2>
+            <ul class="space-y-2 text-sm">
+                <li>
+                    <a href="#executive-summary" class="block py-1 px-2 rounded hover:bg-gray-100 text-gray-700">Executive Summary</a>
+                </li>
+                <li>
+                    <a href="#performance" class="block py-1 px-2 rounded hover:bg-gray-100 text-gray-700">1. Performance Optimization</a>
+                </li>
+                <li class="ml-4">
+                    <a href="#core-web-vitals" class="block py-1 px-2 rounded hover:bg-gray-100 text-gray-600">1.1 Core Web Vitals</a>
+                </li>
+                <li class="ml-4">
+                    <a href="#asset-optimization" class="block py-1 px-2 rounded hover:bg-gray-100 text-gray-600">1.2 Asset Optimization</a>
+                </li>
+                <li>
+                    <a href="#security" class="block py-1 px-2 rounded hover:bg-gray-100 text-gray-700">2. Security Best Practices</a>
+                </li>
+                <li class="ml-4">
+                    <a href="#authentication" class="block py-1 px-2 rounded hover:bg-gray-100 text-gray-600">2.1 Authentication</a>
+                </li>
+                <li class="ml-4">
+                    <a href="#data-protection" class="block py-1 px-2 rounded hover:bg-gray-100 text-gray-600">2.2 Data Protection</a>
+                </li>
+                <li>
+                    <a href="#accessibility" class="block py-1 px-2 rounded hover:bg-gray-100 text-gray-700">3. Accessibility Standards</a>
+                </li>
+                <li>
+                    <a href="#conclusion" class="block py-1 px-2 rounded hover:bg-gray-100 text-gray-700">4. Conclusion</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Hero Section -->
+        <section class="hero-gradient min-h-screen flex items-center border-b border-gray-200">
+            <div class="container mx-auto px-8 py-16">
+                <div class="bento-grid">
+                    <!-- Left Column - Hero Content -->
+                    <div class="space-y-8">
+                        <div class="space-y-6">
+                            <h1 class="font-display text-6xl font-bold text-gray-900 leading-tight">
+                                <em class="text-teal-700">Web Development</em>
+                                <br>Best Practices Guide
+                            </h1>
+                            <p class="text-xl text-gray-600 max-w-2xl">
+                                Master the essential techniques for building fast, secure, and accessible web applications that deliver exceptional user experiences.
+                            </p>
+                        </div>
+
+                        <div class="flex items-center space-x-6 text-sm text-gray-500">
+                            <span class="flex items-center"><i class="fas fa-clock mr-2"></i>Comprehensive Guide</span>
+                            <span class="flex items-center"><i class="fas fa-chart-line mr-2"></i>Data-Driven Insights</span>
+                            <span class="flex items-center"><i class="fas fa-cogs mr-2"></i>Technical Implementation</span>
+                        </div>
+                    </div>
+
+                    <!-- Right Column - Key Insights -->
+                    <div class="space-y-6">
+                        <div class="stat-card">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-3xl font-bold text-teal-700">53%</p>
+                                    <p class="text-gray-600">Users abandon sites loading >3s</p>
+                                </div>
+                                <i class="fas fa-tachometer-alt text-3xl text-teal-600"></i>
+                            </div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-3xl font-bold text-cyan-700">70%</p>
+                                    <p class="text-gray-600">Breaches from poor authentication</p>
+                                </div>
+                                <i class="fas fa-shield-alt text-3xl text-cyan-600"></i>
+                            </div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-3xl font-bold text-slate-700">15%</p>
+                                    <p class="text-gray-600">Global users have disabilities</p>
+                                </div>
+                                <i class="fas fa-universal-access text-3xl text-slate-600"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Executive Summary -->
+        <section id="executive-summary" class="py-16 bg-white">
+            <div class="container mx-auto px-8 max-w-4xl">
+                <h2 class="font-display text-4xl font-bold text-gray-900 mb-8">Executive Summary</h2>
+
+                <div class="prose prose-lg max-w-none">
+                    <p class="text-xl text-gray-700 leading-relaxed mb-6">
+                        Modern web development requires a holistic approach that balances <strong>performance</strong>, <strong>security</strong>, and <strong>accessibility</strong>. This guide provides actionable strategies for building web applications that meet today's demanding standards.
+                    </p>
+
+                    <div class="insight-highlight">
+                        <h3 class="font-display text-xl font-semibold text-gray-900 mb-3">Key Finding: Performance Impact on Business</h3>
+                        <p class="text-gray-700">
+                            Research shows that a <strong>1-second delay in page load time</strong> can result in a <strong>7% reduction in conversions</strong>, a <strong>11% decrease in page views</strong>, and a <strong>16% decrease in customer satisfaction</strong>.
+                        </p>
+                    </div>
+
+                    <div class="grid md:grid-cols-3 gap-6 my-8">
+                        <div class="stat-card text-center">
+                            <i class="fas fa-rocket text-4xl text-teal-600 mb-4"></i>
+                            <h4 class="font-semibold text-gray-900 mb-2">Performance</h4>
+                            <p class="text-sm text-gray-600">Core Web Vitals, lazy loading, code splitting, CDN optimization</p>
+                        </div>
+
+                        <div class="stat-card text-center">
+                            <i class="fas fa-lock text-4xl text-cyan-600 mb-4"></i>
+                            <h4 class="font-semibold text-gray-900 mb-2">Security</h4>
+                            <p class="text-sm text-gray-600">HTTPS, CSP headers, input validation, secure authentication</p>
+                        </div>
+
+                        <div class="stat-card text-center">
+                            <i class="fas fa-universal-access text-4xl text-slate-600 mb-4"></i>
+                            <h4 class="font-semibold text-gray-900 mb-2">Accessibility</h4>
+                            <p class="text-sm text-gray-600">WCAG 2.1 compliance, semantic HTML, ARIA labels, keyboard navigation</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 1: Performance -->
+        <section id="performance" class="py-16 bg-gray-50">
+            <div class="container mx-auto px-8 max-w-6xl">
+                <h2 class="font-display text-4xl font-bold text-gray-900 mb-12">1. Performance Optimization</h2>
+
+                <div id="core-web-vitals" class="mb-16">
+                    <h3 class="font-display text-2xl font-semibold text-gray-900 mb-8">1.1 Core Web Vitals</h3>
+
+                    <div class="grid md:grid-cols-3 gap-6 mb-8">
+                        <div class="stat-card">
+                            <div class="flex items-center justify-between mb-4">
+                                <h4 class="font-semibold text-gray-900">LCP</h4>
+                                <i class="fas fa-image text-2xl text-teal-600"></i>
+                            </div>
+                            <p class="text-3xl font-bold text-teal-700 mb-2">&lt; 2.5s</p>
+                            <p class="text-gray-700 text-sm mb-4">
+                                Largest Contentful Paint - measures loading performance.
+                            </p>
+                            <ul class="text-sm text-gray-600 space-y-1">
+                                <li>• Optimize server response times</li>
+                                <li>• Preload critical resources</li>
+                                <li>• Use efficient image formats</li>
+                            </ul>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="flex items-center justify-between mb-4">
+                                <h4 class="font-semibold text-gray-900">FID</h4>
+                                <i class="fas fa-mouse-pointer text-2xl text-cyan-600"></i>
+                            </div>
+                            <p class="text-3xl font-bold text-cyan-700 mb-2">&lt; 100ms</p>
+                            <p class="text-gray-700 text-sm mb-4">
+                                First Input Delay - measures interactivity.
+                            </p>
+                            <ul class="text-sm text-gray-600 space-y-1">
+                                <li>• Break up long tasks</li>
+                                <li>• Use web workers</li>
+                                <li>• Minimize main thread work</li>
+                            </ul>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="flex items-center justify-between mb-4">
+                                <h4 class="font-semibold text-gray-900">CLS</h4>
+                                <i class="fas fa-arrows-alt text-2xl text-slate-600"></i>
+                            </div>
+                            <p class="text-3xl font-bold text-slate-700 mb-2">&lt; 0.1</p>
+                            <p class="text-gray-700 text-sm mb-4">
+                                Cumulative Layout Shift - measures visual stability.
+                            </p>
+                            <ul class="text-sm text-gray-600 space-y-1">
+                                <li>• Set image dimensions</li>
+                                <li>• Reserve space for ads</li>
+                                <li>• Avoid inserting content above</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="asset-optimization" class="mb-16">
+                    <h3 class="font-display text-2xl font-semibold text-gray-900 mb-8">1.2 Asset Optimization</h3>
+
+                    <div class="grid lg:grid-cols-2 gap-8">
+                        <div class="bg-white p-8 rounded-lg border border-gray-200">
+                            <h4 class="font-semibold text-lg text-gray-900 mb-4">Image Optimization</h4>
+                            <p class="text-gray-700 mb-4">
+                                Modern image formats and responsive images can reduce page weight by up to 50%.
+                            </p>
+
+                            <div class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm overflow-x-auto">
+                                <pre>&lt;picture&gt;
+  &lt;source srcset="image.avif" type="image/avif"&gt;
+  &lt;source srcset="image.webp" type="image/webp"&gt;
+  &lt;img src="image.jpg"
+       alt="Description"
+       loading="lazy"
+       width="800"
+       height="600"&gt;
+&lt;/picture&gt;</pre>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-8 rounded-lg border border-gray-200">
+                            <h4 class="font-semibold text-lg text-gray-900 mb-4">Code Splitting</h4>
+                            <p class="text-gray-700 mb-4">
+                                Dynamic imports allow loading code on demand, reducing initial bundle size.
+                            </p>
+
+                            <div class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm overflow-x-auto">
+                                <pre>// Dynamic import with React
+const Dashboard = React.lazy(() =&gt;
+  import('./Dashboard')
+);
+
+// Route-based splitting
+&lt;Suspense fallback={&lt;Loading /&gt;}&gt;
+  &lt;Dashboard /&gt;
+&lt;/Suspense&gt;</pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Security -->
+        <section id="security" class="py-16 bg-white">
+            <div class="container mx-auto px-8 max-w-6xl">
+                <h2 class="font-display text-4xl font-bold text-gray-900 mb-12">2. Security Best Practices</h2>
+
+                <div id="authentication" class="mb-16">
+                    <h3 class="font-display text-2xl font-semibold text-gray-900 mb-8">2.1 Authentication</h3>
+
+                    <div class="insight-highlight">
+                        <h4 class="font-semibold text-gray-900 mb-3">Modern Authentication Standards</h4>
+                        <p class="text-gray-700 mb-4">
+                            Implement <strong>multi-factor authentication (MFA)</strong> and use industry-standard protocols like <strong>OAuth 2.0</strong> and <strong>OpenID Connect</strong> for secure user authentication.
+                        </p>
+
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div class="bg-white p-4 rounded border">
+                                <h5 class="font-semibold text-gray-900 mb-2">Password Requirements</h5>
+                                <ul class="text-sm text-gray-700 space-y-1">
+                                    <li>• Minimum 12 characters</li>
+                                    <li>• Use bcrypt or Argon2 hashing</li>
+                                    <li>• Implement rate limiting</li>
+                                    <li>• Check against breached passwords</li>
+                                </ul>
+                            </div>
+
+                            <div class="bg-white p-4 rounded border">
+                                <h5 class="font-semibold text-gray-900 mb-2">Session Management</h5>
+                                <ul class="text-sm text-gray-700 space-y-1">
+                                    <li>• Use secure, HttpOnly cookies</li>
+                                    <li>• Implement session timeouts</li>
+                                    <li>• Rotate session IDs on login</li>
+                                    <li>• Invalidate on logout</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="data-protection" class="mb-16">
+                    <h3 class="font-display text-2xl font-semibold text-gray-900 mb-8">2.2 Data Protection</h3>
+
+                    <div class="bg-white p-8 rounded-lg border border-gray-200">
+                        <h4 class="font-semibold text-lg text-gray-900 mb-4">Security Headers Configuration</h4>
+
+                        <div class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm overflow-x-auto mb-4">
+                            <pre># Nginx security headers
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-XSS-Protection "1; mode=block" always;
+add_header Content-Security-Policy "default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';" always;
+add_header Strict-Transport-Security
+    "max-age=31536000; includeSubDomains" always;</pre>
+                        </div>
+
+                        <div class="bg-red-50 border-l-4 border-red-500 p-4">
+                            <h5 class="font-semibold text-gray-900 mb-2">Critical: Never Store Sensitive Data in LocalStorage</h5>
+                            <p class="text-sm text-gray-700">
+                                LocalStorage is vulnerable to XSS attacks. Use HttpOnly cookies for tokens and sensitive data.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: Accessibility -->
+        <section id="accessibility" class="py-16 bg-gray-50">
+            <div class="container mx-auto px-8 max-w-6xl">
+                <h2 class="font-display text-4xl font-bold text-gray-900 mb-12">3. Accessibility Standards</h2>
+
+                <div class="grid lg:grid-cols-2 gap-8 mb-12">
+                    <div class="bg-white p-8 rounded-lg border border-gray-200">
+                        <h4 class="font-semibold text-lg text-gray-900 mb-4">Semantic HTML</h4>
+                        <p class="text-gray-700 mb-4">
+                            Use proper HTML elements to convey meaning and structure to assistive technologies.
+                        </p>
+
+                        <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                            <p class="text-sm font-semibold text-gray-800 mb-2">Example Transformation:</p>
+                            <p class="text-sm text-gray-600 mb-2">&#x2716; <code>&lt;div onclick="..."&gt;Click me&lt;/div&gt;</code></p>
+                            <p class="text-sm text-teal-700">&#x2714; <code>&lt;button type="button"&gt;Click me&lt;/button&gt;</code></p>
+                        </div>
+
+                        <ul class="text-sm text-gray-600 space-y-1">
+                            <li>• Use <code>&lt;header&gt;</code>, <code>&lt;main&gt;</code>, <code>&lt;footer&gt;</code></li>
+                            <li>• Use <code>&lt;nav&gt;</code> for navigation</li>
+                            <li>• Use heading hierarchy (h1-h6)</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-white p-8 rounded-lg border border-gray-200">
+                        <h4 class="font-semibold text-lg text-gray-900 mb-4">ARIA Labels</h4>
+                        <p class="text-gray-700 mb-4">
+                            ARIA attributes provide additional context when native HTML semantics are insufficient.
+                        </p>
+
+                        <div class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm overflow-x-auto">
+                            <pre>&lt;button
+  aria-label="Close dialog"
+  aria-pressed="false"&gt;
+  &lt;svg&gt;...&lt;/svg&gt;
+&lt;/button&gt;
+
+&lt;div
+  role="alert"
+  aria-live="polite"&gt;
+  Form submitted successfully
+&lt;/div&gt;</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-8 rounded-lg border border-gray-200">
+                    <h3 class="font-display text-xl font-semibold text-gray-900 mb-6">WCAG 2.1 Checklist</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-gray-200">
+                                    <th class="text-left py-3 px-4 font-semibold text-gray-900">Principle</th>
+                                    <th class="text-left py-3 px-4 font-semibold text-gray-900">Requirement</th>
+                                    <th class="text-left py-3 px-4 font-semibold text-gray-900">Level</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-gray-700">
+                                <tr class="border-b border-gray-100">
+                                    <td class="py-3 px-4 font-medium">Perceivable</td>
+                                    <td class="py-3 px-4">Text alternatives for non-text content</td>
+                                    <td class="py-3 px-4"><span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">A</span></td>
+                                </tr>
+                                <tr class="border-b border-gray-100">
+                                    <td class="py-3 px-4 font-medium">Operable</td>
+                                    <td class="py-3 px-4">All functionality keyboard accessible</td>
+                                    <td class="py-3 px-4"><span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">A</span></td>
+                                </tr>
+                                <tr class="border-b border-gray-100">
+                                    <td class="py-3 px-4 font-medium">Understandable</td>
+                                    <td class="py-3 px-4">Consistent navigation and identification</td>
+                                    <td class="py-3 px-4"><span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs">AA</span></td>
+                                </tr>
+                                <tr class="border-b border-gray-100">
+                                    <td class="py-3 px-4 font-medium">Robust</td>
+                                    <td class="py-3 px-4">Compatible with assistive technologies</td>
+                                    <td class="py-3 px-4"><span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">A</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4: Conclusion -->
+        <section id="conclusion" class="py-16 bg-white">
+            <div class="container mx-auto px-8 max-w-4xl">
+                <h2 class="font-display text-4xl font-bold text-gray-900 mb-8">4. Conclusion</h2>
+
+                <div class="insight-highlight">
+                    <h3 class="font-display text-xl font-semibold text-gray-900 mb-3">Building for the Future</h3>
+                    <p class="text-gray-700">
+                        By implementing these best practices for <strong>performance</strong>, <strong>security</strong>, and <strong>accessibility</strong>, you create web applications that serve all users effectively while maintaining high standards of quality and reliability.
+                    </p>
+                </div>
+
+                <div class="grid md:grid-cols-3 gap-6 mt-8">
+                    <div class="stat-card text-center">
+                        <i class="fas fa-check-circle text-4xl text-teal-600 mb-4"></i>
+                        <h4 class="font-semibold text-gray-900 mb-2">Test Regularly</h4>
+                        <p class="text-sm text-gray-600">Use Lighthouse, WAVE, and security scanners</p>
+                    </div>
+
+                    <div class="stat-card text-center">
+                        <i class="fas fa-sync-alt text-4xl text-cyan-600 mb-4"></i>
+                        <h4 class="font-semibold text-gray-900 mb-2">Stay Updated</h4>
+                        <p class="text-sm text-gray-600">Keep dependencies current and patched</p>
+                    </div>
+
+                    <div class="stat-card text-center">
+                        <i class="fas fa-users text-4xl text-slate-600 mb-4"></i>
+                        <h4 class="font-semibold text-gray-900 mb-2">User Testing</h4>
+                        <p class="text-sm text-gray-600">Include diverse users in testing</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="py-12 bg-gray-900 text-white">
+            <div class="container mx-auto px-8 max-w-6xl">
+                <div class="text-center">
+                    <h3 class="font-display text-2xl font-bold mb-4">Web Development Best Practices Guide</h3>
+                    <p class="text-gray-300 mb-6">
+                        Building fast, secure, and accessible web applications for everyone.
+                    </p>
+
+                    <div class="flex justify-center space-x-8 text-sm text-gray-400">
+                        <span>Performance &bull; Security &bull; Accessibility</span>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    </main>
+
+    <script>
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Mobile menu toggle
+        function toggleTOC() {
+            const toc = document.querySelector('.toc-fixed');
+            toc.classList.toggle('open');
+        }
+
+        // Responsive TOC handling
+        function handleResponsiveTOC() {
+            const toc = document.querySelector('.toc-fixed');
+
+            if (window.innerWidth <= 1024) {
+                if (!document.getElementById('toc-toggle-btn')) {
+                    const toggleBtn = document.createElement('button');
+                    toggleBtn.id = 'toc-toggle-btn';
+                    toggleBtn.className = 'fixed top-4 left-4 z-[1001] bg-teal-700 text-white p-2 rounded shadow-lg';
+                    toggleBtn.innerHTML = '<i class="fas fa-bars"></i>';
+                    toggleBtn.onclick = toggleTOC;
+                    document.body.appendChild(toggleBtn);
+                }
+
+                document.addEventListener('click', function(event) {
+                    const toggleBtn = document.getElementById('toc-toggle-btn');
+                    if (toc.classList.contains('open') &&
+                        !toc.contains(event.target) &&
+                        event.target !== toggleBtn &&
+                        !toggleBtn.contains(event.target)) {
+                        toc.classList.remove('open');
+                    }
+                });
+            } else {
+                const existingBtn = document.getElementById('toc-toggle-btn');
+                if (existingBtn) existingBtn.remove();
+                toc.classList.remove('open');
+            }
+        }
+
+        handleResponsiveTOC();
+        window.addEventListener('resize', handleResponsiveTOC);
+    </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD Stories"
+  short_description: "User stories from an approved PRD"
+  default_prompt: "Use $sdd-stories to create, revise, or resolve applicability for user stories."

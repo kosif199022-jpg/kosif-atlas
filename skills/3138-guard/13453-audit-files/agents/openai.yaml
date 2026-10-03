@@ -1,0 +1,6 @@
+interface:
+  display_name: "Audit Guard file queue"
+  short_description: "Review pending edited files at a checkpoint"
+  default_prompt: "Use $audit-files to audit Guard's pending edited files."
+policy:
+  allow_implicit_invocation: false

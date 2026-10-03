@@ -1,0 +1,56 @@
+# Judge: Assertion Judge
+
+Binary pass/fail evaluation of explicit outcome assertions. Used when `--assert` flags are provided to `score`. Runs after the rubric judge panel, independently.
+
+```
+## Assertion Check
+
+Content to evaluate:
+---
+{content}
+---
+
+Evaluate each assertion below as PASS, FAIL, or UNCERTAIN based solely on what is
+verifiable in the content above. Do NOT speculate about intent. Use FAIL when the
+content contradicts the assertion, and UNCERTAIN when the content lacks enough
+evidence to decide.
+
+Assertions:
+{assertion_list}
+
+Output format (strict — one line per assertion):
+Assertion: <text> | Result: PASS | Reason: <one-line evidence>
+Assertion: <text> | Result: FAIL | Reason: <one-line contradictory evidence>
+Assertion: <text> | Result: UNCERTAIN | Reason: <one-line explanation of missing evidence>
+```
+
+## Result Interpretation (aggregated across judges)
+
+| Judge agreement | Status | Effect on `passed` |
+|-----------------|--------|--------------------|
+| All judges PASS | ✓ PASS | No impact |
+| Majority FAIL (≥ ⌈N/2⌉) | ⛔ HARD FAIL | Forces `passed = false` regardless of rubric score |
+| No majority and any UNCERTAIN | ⚠ UNCERTAIN | Warning in output; does not force `passed = false` |
+
+## Example Output (3 judges on 2 assertions)
+
+```
+📋 Assertions (2 checked, 3 judges)
+
+| Assertion                                 | Result      | Confidence |
+|-------------------------------------------|-------------|------------|
+| function handles empty input (head=None)  | ✓ PASS      | 3/3        |
+| no global mutable state                   | ⛔ HARD FAIL | 0/3        |
+
+⛔ 1 assertion hard-failed — passed = false (override rubric score 8.2)
+```
+
+## Applies to
+Invoked by `score` when one or more `--assert` flags are present. Run after the rubric panel via a dedicated Agent call (`run_in_background: true`). Does not replace rubric scoring — both run independently and results are combined.
+
+## When NOT to use this judge
+A statement a command can settle — tests pass, a file exists, a pattern is absent, a JSON
+field has a value — is an **executable assertion** (`xm eval assert`, see the
+"Executable Assertions" section of `subcommands/score.md`), not a judge question. Reserve
+judge assertions for statements no command can decide. If an assertion is unverifiable
+from the content alone, mark it UNCERTAIN rather than inventing a verdict.

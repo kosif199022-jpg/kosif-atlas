@@ -1,0 +1,10 @@
+# devbook-config
+
+Owns a repository's .devbook/config.json and explains the stack that reads it. `init` decides which installed plugins a repository adopts, writes .devbook/config.json — its id, plus the engine-owned keys (bindings, extensions, policy, gates) when delivery is among them — before anything is installed, then hands every adopted component its own init skill; `update` moves the whole configured stack forward in one run, fanning out to every adopted component’s own update skill and skipping what this machine has not installed or this checkout has not enabled, migrations included; `doctor` diagnoses the installation without writing — every stamp against disk, outstanding migrations, a stale AGENTS.md section, a bound provider id that resolves to no skill, installed against newest — and names the update that fixes each finding; `ask` answers a question about this marketplace from what is on disk — what devbook, the delivery engine, the surfaces, and the unattended lane are and how they fit, which version of each plugin is installed against the newest published, and which are enabled; `adoption` reports where the ai/ adoption record no longer matches what is installed and hands the write to flow-spec; `local` writes what is true of one machine — the stack-config overlay at the user or repository layer, the model-selection file, AGENTS.local.md — and never the committed config. All six are backed by a read-only report that names the file behind every fact. Declares no dependency, devbook included: it is named for the folder it writes into, not for a plugin it needs, and one it names but cannot find is reported as not installed.
+
+- License: **MIT** (no license file shipped; see the source repository)
+- Source: https://github.com/jsdotnet/devbook/tree/585d8b881ae5011f1cf21caaeafb7bf876e04e25/plugins/devbook-config
+- Commit: `585d8b881ae5011f1cf21caaeafb7bf876e04e25`
+- KOSIF static inspection: **REVIEW_BEFORE_INSTALL** (hooks: 0, MCP servers: 0, scripts: 2). Read the scripts before running anything.
+
+Unofficial mirror of the skill text for reference. All rights remain with the original authors under the license above.

@@ -1,0 +1,174 @@
+{
+  "lang": "en",
+  "project": "Acme Console",
+  "date": "28 August 2026",
+  "scope": "Full audit of the acme-console repository on branch main (commit a1b2c3d): 47 route handlers, 12 frontend components carrying role gates, 6 deploy files, and the git history since repository creation.",
+  "methodology": "The five categories were mapped onto the detected stack as follows: (1) tenant isolation is a manual organization_id predicate in the Drizzle repository layer, there is no RLS in Postgres; (2) each React role gate was cross-referenced one by one against its Hono handler; (3) IDOR was checked across all 47 handlers including those keyed by UUID; (4) the secret sweep covered source, docker-compose, GitHub Actions workflows, the Vite bundle, and git history via git log -p -S; (5) XSS covered innerHTML and dangerouslySetInnerHTML sinks on the frontend and email templates on the backend.",
+  "stack": [
+    ["Language", "TypeScript 5.4 (Node 20)"],
+    ["Backend framework", "Hono 4.x on Cloudflare Workers"],
+    ["Data access", "Drizzle ORM over Postgres (Neon)"],
+    ["Isolation", "Manual organization_id predicate, no RLS"],
+    ["Auth", "JWT signed with HS256, verified in middleware"],
+    ["Frontend", "React 18 + Vite, no sanitization library installed"],
+    ["Deploy", "wrangler.toml, docker-compose.yml (dev), GitHub Actions"]
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "critical",
+      "category": "Missing tenant isolation",
+      "title": "Report export endpoint does not filter by organization",
+      "file": "src/routes/reports.ts",
+      "lines": "88-104",
+      "wstg": "WSTG-ATHZ-02",
+      "code": "app.get('/reports/export', requireAuth, async (c) => {\n  const rows = await db\n    .select()\n    .from(invoices)\n    .where(between(invoices.issuedAt, from, to));\n  return c.body(toCsv(rows), 200, { 'content-type': 'text/csv' });\n});",
+      "why": "The handler requires authentication but never scopes the result set to the caller's organization. Any authenticated user, from any tenant, calls GET /reports/export?from=2020-01-01&to=2030-01-01 and receives a CSV of every invoice on the platform.",
+      "preconditions": "None. A valid account from the public /signup flow is enough.",
+      "impact": "Complete cross-tenant disclosure of financial data: amounts, customer names, and dates for every organization.",
+      "fix": "Add the organization predicate the rest of the repository already uses: and(eq(invoices.organizationId, c.get('session').organizationId), ...). Consider promoting this to RLS in Postgres so a handler cannot forget it."
+    },
+    {
+      "id": "F2",
+      "severity": "critical",
+      "category": "Hardcoded secrets",
+      "title": "JWT signing secret has a public default and no startup validation",
+      "file": "docker-compose.yml",
+      "lines": "23",
+      "wstg": "WSTG-CRYP-04",
+      "code": "environment:\n  JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}\n\n# src/env.ts:11 - no boot assertion rejects the default\nexport const env = { jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-me' };",
+      "why": "The default value sits in a public repository. A deploy that forgets to set JWT_SECRET comes up silently on a known secret, and nothing at boot refuses. With it, an attacker signs an arbitrary token with any sub and organizationId and becomes admin of any tenant.",
+      "preconditions": "The environment must not define JWT_SECRET. Nothing in the code signals that this happened.",
+      "impact": "Full identity forgery, including escalation to admin of any organization.",
+      "fix": "Remove the default in both places and add a boot check that throws when JWT_SECRET is absent or matches any known value. Rotate the production secret, since the value has been exposed."
+    },
+    {
+      "id": "F3",
+      "severity": "high",
+      "category": "IDOR",
+      "title": "Document DELETE trusts the route ID without an ownership check",
+      "file": "src/routes/documents.ts",
+      "lines": "142-149",
+      "wstg": "WSTG-ATHZ-04",
+      "code": "app.delete('/documents/:id', requireAuth, async (c) => {\n  await db.delete(documents).where(eq(documents.id, c.req.param('id')));\n  return c.json({ ok: true });\n});",
+      "why": "The handler deletes by raw id. No clause ties the document to the session's organization. A UUID belonging to another tenant, obtained from a share link or an export, is enough to destroy the record.",
+      "preconditions": "The attacker needs the UUID. F1 supplies exactly that.",
+      "impact": "Cross-tenant data destruction with no authorization trail.",
+      "fix": "Use the requireDocAccess() helper the read handlers already apply, or include eq(documents.organizationId, session.organizationId) in the where clause."
+    },
+    {
+      "id": "F4",
+      "severity": "high",
+      "category": "Client-side-only permission",
+      "title": "Member invite route performs no server-side role check",
+      "file": "src/routes/members.ts",
+      "lines": "57-70",
+      "wstg": "WSTG-ATHZ-03",
+      "code": "// Frontend: src/components/MembersPanel.tsx:34\n{isAdmin && <InviteMemberButton />}\n\n// Backend: src/routes/members.ts:57\napp.post('/members/invite', requireAuth, async (c) => {\n  const { email, role } = await c.req.json();\n  await inviteMember(session.organizationId, email, role);\n});",
+      "why": "The invite button is hidden from non-admins, but requireAuth only proves authentication. An ordinary member POSTs to /members/invite directly and invites any address, including with role 'admin', escalating their own access through a second signup.",
+      "preconditions": "Being an ordinary member of any organization.",
+      "impact": "Horizontal and vertical privilege escalation inside the tenant.",
+      "fix": "Apply the existing requireRole('admin') middleware from src/middleware/rbac.ts:22, and validate the role field against an allowlist."
+    },
+    {
+      "id": "F5",
+      "severity": "medium",
+      "category": "Unsanitized input (XSS)",
+      "title": "Project name rendered through dangerouslySetInnerHTML",
+      "file": "src/components/ProjectHeader.tsx",
+      "lines": "28",
+      "wstg": "WSTG-INPV-02",
+      "code": "<h1 dangerouslySetInnerHTML={{ __html: project.displayName }} />",
+      "why": "displayName comes from the project creation form with no sanitization at either end. A member stores <img src=x onerror=...> as the name and the script runs in the browser of every other member who opens the project, admins included.",
+      "preconditions": "None beyond being able to create or rename a project.",
+      "impact": "Stored XSS reaching admin sessions within the tenant.",
+      "fix": "Render as plain text. If HTML is intentional, install DOMPurify (absent from package.json) and sanitize before rendering."
+    },
+    {
+      "id": "F6",
+      "severity": "low",
+      "category": "Hardcoded secrets",
+      "title": "Development database credential inlined in compose",
+      "file": "docker-compose.yml",
+      "lines": "9-11",
+      "wstg": "WSTG-CONF-02",
+      "code": "POSTGRES_USER: acme\nPOSTGRES_PASSWORD: acme123",
+      "why": "Fixed credential for a local Postgres that is not exposed outside the compose network. Reachable only by someone who already has the developer's machine.",
+      "preconditions": "Local access to a development machine.",
+      "impact": "Low. No production data lives in this database.",
+      "fix": "Move to an untracked local .env file, more for hygiene than for risk."
+    },
+    {
+      "id": "F7",
+      "severity": "informational",
+      "category": "Hardcoded secrets",
+      "title": "Supabase anon key present in the frontend bundle",
+      "file": "src/lib/supabase.ts",
+      "lines": "4",
+      "wstg": "WSTG-INFO-05",
+      "code": "const client = createClient(url, import.meta.env.VITE_SUPABASE_ANON_KEY);",
+      "why": "The anon key is public by design and the VITE_ prefix makes that explicit. Recorded only to confirm the bundle sweep ran and that no service-role key was found.",
+      "preconditions": "Not applicable.",
+      "impact": "None, provided server-side access policies are correct.",
+      "fix": "No action. Confirmed the service-role key appears in no file reachable by the build."
+    }
+  ],
+  "strengths": [
+    {
+      "title": "Object-level authorization across document read handlers",
+      "evidence": "src/routes/documents.ts - all 9 GET handlers load through requireDocAccess() (:14), which joins on organization_id taken from the session. Verified line by line: :31, :48, :66, :83, :97, :112, :130, :158, :171. Only the DELETE (:142, finding F3) escapes the helper."
+    },
+    {
+      "title": "Parameterized queries across all data access",
+      "evidence": "No string concatenation into SQL at any of the 63 data-access sites. Every access goes through Drizzle, which parameterizes. Searched for sql.raw and interpolated template literals: zero occurrences outside migrations."
+    },
+    {
+      "title": "JWT verification with a pinned algorithm",
+      "evidence": "src/middleware/auth.ts:19 - jwtVerify with an explicit algorithms: ['HS256'], exp and iss validated (:24-27). Does not accept alg none or algorithm substitution. The problem in F2 is the secret, not the verification."
+    },
+    {
+      "title": "Git history clean of live secrets",
+      "evidence": "git log -p -S across 14 key patterns (sk-, ghp_, AKIA, BEGIN PRIVATE KEY, among others) over 1,204 commits: no hits. No .env was ever tracked, confirmed via git log --all --name-only -- '*.env'."
+    }
+  ],
+  "weaknesses": [
+    "Tenant isolation rests on a manual predicate repeated in 63 places. It is correct in 62 of them, and the single omission (F1) exposes the entire financial dataset. The mechanism has no safety net.",
+    "Role authorization lives only on the frontend for at least one sensitive route (F4), and the RBAC middleware exists but is applied inconsistently.",
+    "Secrets carry public defaults and nothing at boot refuses to start on them (F2), which turns a forgotten deploy variable into full compromise."
+  ],
+  "not_applicable": [
+    {
+      "category": "Row Level Security",
+      "reason": "This project's Postgres does not use RLS. The audited equivalent was the manual organization_id predicate in the Drizzle repository layer, covered under category 1."
+    },
+    {
+      "category": "SQL injection",
+      "reason": "Outside the five requested categories, but checked incidentally during the data-access sweep and recorded as a strength."
+    }
+  ],
+  "coverage": [
+    {"sweep": "Tenant isolation", "checked": "63 data-access sites, 21 of them returning collections", "findings": 1},
+    {"sweep": "Client-side-only permission", "checked": "12 frontend role gates cross-referenced against 12 endpoints", "findings": 1},
+    {"sweep": "IDOR", "checked": "47 route handlers, every verb", "findings": 1},
+    {"sweep": "Secrets", "checked": "source, 6 deploy files, Vite bundle, 1,204 commits", "findings": 3},
+    {"sweep": "XSS", "checked": "12 frontend render sinks, 4 email templates", "findings": 1}
+  ],
+  "recommendations": [
+    {"priority": "P1", "text": "Rotate JWT_SECRET in production and add boot validation that refuses known defaults.", "refs": ["F2"]},
+    {"priority": "P1", "text": "Fix the report export and the document DELETE, the two paths that leak or destroy cross-tenant data today.", "refs": ["F1", "F3"]},
+    {"priority": "P2", "text": "Apply requireRole('admin') across all member-management routes and audit the rest of the router against the frontend gates.", "refs": ["F4"]},
+    {"priority": "P2", "text": "Adopt RLS in Postgres for organization_id, so that forgetting the predicate stops being sufficient to leak data.", "refs": ["F1", "F3"]},
+    {"priority": "P3", "text": "Install DOMPurify and sanitize the HTML sinks, or drop the use of dangerouslySetInnerHTML.", "refs": ["F5"]},
+    {"priority": "P3", "text": "Move development credentials out of compose into an untracked local .env.", "refs": ["F6"]}
+  ],
+  "issues": [
+    {
+      "n": 1,
+      "markdown": "# [Security] Report export leaks invoices across all tenants\n\n**Labels:** `security`, `severity:critical`\n\n## Problem\n\nThe `GET /reports/export` handler requires authentication but does not scope the result set to the caller's organization. Any authenticated user retrieves invoices for the entire platform.\n\n## Evidence\n\n`src/routes/reports.ts:88-104`\n\n```ts\napp.get('/reports/export', requireAuth, async (c) => {\n  const rows = await db.select().from(invoices)\n    .where(between(invoices.issuedAt, from, to));\n  return c.body(toCsv(rows), 200, { 'content-type': 'text/csv' });\n});\n```\n\n## Impact\n\nCross-tenant disclosure of financial data. No precondition: a account from the public signup flow is enough.\n\n## Suggested fix\n\nInclude the organization predicate already used elsewhere in the repository:\n\n```ts\n.where(and(\n  eq(invoices.organizationId, c.get('session').organizationId),\n  between(invoices.issuedAt, from, to),\n))\n```\n\n## Acceptance criteria\n\n- [ ] The handler filters by `organizationId` taken from the session, never from the request\n- [ ] An integration test with two tenants confirms A cannot see B's invoices\n- [ ] A sweep of the other 20 collection endpoints confirms the same predicate\n- [ ] Export access logging records organization and user"
+    },
+    {
+      "n": 2,
+      "markdown": "# [Security] Public secret defaults and missing startup validation\n\n**Labels:** `security`, `severity:critical`\n\n## Problem\n\nTwo places define a default value for secrets committed to the repository, and nothing at boot refuses to start on them. A deploy that forgets the variable comes up on a publicly known secret.\n\n## Evidence\n\n`docker-compose.yml:23`\n\n```yaml\nJWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}\n```\n\n`src/env.ts:11`\n\n```ts\nexport const env = { jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-me' };\n```\n\n## Impact\n\nWith the secret known, an attacker signs a token carrying any `sub` and `organizationId`, becoming admin of any tenant.\n\n## Suggested fix\n\nRemove the defaults and fail at boot:\n\n```ts\nconst FORBIDDEN = new Set(['dev-secret-change-me', 'changeme', 'secret']);\nif (!process.env.JWT_SECRET || FORBIDDEN.has(process.env.JWT_SECRET)) {\n  throw new Error('JWT_SECRET missing or set to a default value');\n}\n```\n\n## Acceptance criteria\n\n- [ ] No secret default remains in compose or in source\n- [ ] The process fails at boot without `JWT_SECRET` or with a denylisted value\n- [ ] `JWT_SECRET` rotated in production\n- [ ] Tests cover boot with the variable absent and with a default value"
+    }
+  ]
+}

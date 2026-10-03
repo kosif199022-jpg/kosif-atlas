@@ -1,0 +1,192 @@
+---
+description: "Pass/fail gate over path-scoped instruction surfaces: every .claude/rules/ glob must resolve, and the always-loaded rules index must match disk. Failures are SILENT in Claude Code. Use when: 'check my rules', 'are my path-scoped rules actually firing', 'is the rules index stale', 'validate paths frontmatter', 'why is my rule not loading', 'CI gate for .claude/rules', or after a change to a rule's paths: or the rules tree. Read-only; sibling realign applies fixes."
+argument-hint: "[--file <index-path>] [--breadth-max <pct>]"
+user-invocable: true
+disable-model-invocation: false
+allowed-tools:
+  [
+    "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/glob-tools.sh:*)",
+    "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/render-index.sh:*)",
+    "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/verify-load.sh:*)",
+    "Read",
+    "Grep",
+    "Glob",
+  ]
+shell: bash
+metadata:
+  workflow-stage: anytime
+  summary: Gate that every path-scoped rule glob resolves and the rules index is current
+---
+
+**Arguments.** `[--file <index-path>] [--breadth-max <pct>]`. Default: gate the whole repository
+
+## Pre-computed context
+
+!`"${CLAUDE_PLUGIN_ROOT}/scripts/precompute.sh" check 2>/dev/null || echo "- Orientation unavailable"`
+
+## Purpose
+
+A gate, not an audit. It answers one question with one exit code: **would every path-scoped
+instruction surface in this repository actually load when it is supposed to, and does the
+always-loaded index still describe what is on disk?**
+
+It exists because every failure mode here is silent. Claude Code does not warn when a rule's glob
+matches nothing, when a bracket expression is malformed, or when a pattern exceeded the brace budget
+and was used unexpanded. The rule simply never fires, and the convention it carries is quietly
+absent from every session that needed it. A repository can accumulate a dozen dead rules and look
+perfectly healthy.
+
+Wire it into CI beside the linters. It is fast, deterministic, and has no judgment layer to drift.
+
+## What it checks
+
+| Check | Mechanism | Failure means |
+|---|---|---|
+| Glob resolves | `glob-tools.sh rules` | The rule never fires for any file in the repository |
+| Bracket expressions valid | same | The pattern silently matches nothing |
+| Brace budget respected | same | The pattern is used unexpanded; its braces match nothing |
+| Glob not over-broad | same | Advisory. The rule loads so often it saves nothing |
+| Index in sync | `render-index.sh check` | Deferred surfaces go unnamed: nothing tells an agent they exist |
+| Index target loaded at all | `render-index.sh reachable` | A root `CLAUDE.md` is read instead of the index and does not import it |
+| Nested AGENTS.md wired | `render-index.sh wiring` | An indexed nested surface never loads: a `CLAUDE.md` on its path is read instead and no `CLAUDE.md` imports it |
+
+The last two are the least obvious. A `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the
+working directory or above it is read *instead of* `AGENTS.md`, so a repository carrying both with
+no import between them gets a perfectly-generated, perfectly-in-sync index that never enters
+context, the entire subagent-gap mitigation doing nothing while every other check reports green. The
+same silence repeats one level down: a nested `AGENTS.md` is indexed as a surface that loads when
+Claude reads its directory, and a `CLAUDE.md` on that path takes its place unless one of them
+imports or symlinks it. Sync, reachability, and wiring are independent questions; ask all three.
+
+The reachability and wiring gates treat an `AGENTS.md`, at the root and in a subdirectory alike,
+as shadowed wherever a `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working
+directory or above it, and treat direct `AGENTS.md` reading as dependent on the CLI floor and
+session recorded in `skills/migrate/reference/sources.md`, "The minimum CLI version". Canary runs
+on Claude Code 2.1.278 observed the shadowing.
+
+- **Pointer**: for when Claude Code reads `AGENTS.md` and when that support is unavailable, see
+  <https://code.claude.com/docs/en/memory#when-claude-code-reads-agents-md> and
+  <https://code.claude.com/docs/en/memory#when-agents-md-support-is-unavailable>.
+- **As of**: 2026-09-29
+- **Recheck trigger**: those sections change which file names shadow `AGENTS.md`, or a release note
+  names `AGENTS.md` or instruction-file loading.
+
+Over-broad is the one **warning** rather than a failure: breadth is a judgment about whether a
+demotion was worth making, not a statement that the rule is broken. Everything else is a hard fail.
+
+## Running it
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/glob-tools.sh" rules
+"${CLAUDE_PLUGIN_ROOT}/scripts/render-index.sh" check --file <index-file>
+"${CLAUDE_PLUGIN_ROOT}/scripts/render-index.sh" reachable --file <index-file>
+"${CLAUDE_PLUGIN_ROOT}/scripts/render-index.sh" wiring
+```
+
+`wiring` takes no file: it walks every nested `AGENTS.md` the index would list and prints one
+`WIRED`, `NATIVE` or `UNWIRED` row per file, exiting 1 on any `UNWIRED`. A repository with no
+nested files prints `NONE` and exits 0, so silence from this subcommand means it did not run. The fix for an unwired file
+is a one-line `@AGENTS.md` `CLAUDE.md` beside it, never removing the row. A `NATIVE` row is not a
+finding: no `CLAUDE.md` on that file's path displaces it, so the shim is not what makes it load
+there. It remains the cover for sessions that cannot read `AGENTS.md` at all, which is why a
+`NATIVE` row is never a reason to remove one.
+
+`<index-file>` is a precedence order, not a procedure. Take the first that exists:
+
+| Precedence | Target | Why |
+|---|---|---|
+| 1 | An explicit `--file` argument | The operator's own choice wins |
+| 2 | Root `AGENTS.md` | The portable home. Other agents read it too |
+| 3 | Root `CLAUDE.md` | The Claude-only fallback |
+
+Name the winner in the report; the run is not complete until the output states which file was
+checked. If none exists, say so and skip the index check rather than inventing a target. The glob
+checks still decide the verdict.
+
+**A repository with no index block yet is not a failure.** `render-index.sh check` exits 3 for that
+case, and 3 means "nothing to compare", not "broken". Report it as a recommendation. The index is
+what names every deferred rule, since no deferred surface announces that it exists. Leave the
+gate's verdict to the glob checks. Only a repository that *has* an index and has let it drift
+fails on that check.
+
+### Escalating to empirical verification
+
+Every check above is static. It reads files and reasons about what Claude Code *would* do. When the
+operator asks why a rule is not firing despite a green gate, or wants proof rather than inference,
+escalate:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/verify-load.sh" --trigger <covered file> --expect <the rule>
+```
+
+That drives the real CLI with an `InstructionsLoaded` hook and reports what actually loaded, with
+the reason for each load. It costs a model call, so it is an escalation rather than part of the
+default gate. `VERDICT UNKNOWN` means the probe could not run. Report it as unmeasured, never as a
+pass.
+
+Pass `--breadth-max` through when the operator supplies it. The default of 75% is a starting point,
+not a law; a documentation repository where `**/*.md` legitimately covers most files should raise
+it rather than live with a standing warning.
+
+## Reading the output
+
+Both scripts emit deterministic TSV. `glob-tools.sh` rows are:
+
+```text
+PATTERN <tab> source-rule <tab> pattern <tab> expanded <tab> matches <tab> status
+SUMMARY <tab> tracked <tab> patterns <tab> invalid <tab> overbroad <tab> verdict
+```
+
+Report per failing pattern: the rule file, the pattern, the status, and **what the operator should
+do about it**. The three failure statuses have different fixes and saying "invalid" helps nobody.
+
+| Status | What actually happened | Fix |
+|---|---|---|
+| `zero-match` | No tracked file matches | The glob is wrong, or the code it described was moved or deleted. Correct the pattern, or retire the rule |
+| `bad-bracket` | A `[` cannot be read as a bracket expression | Escape it as `\[` if it is a literal, or close the expression |
+| `over-budget` | Expansion exceeded 1,000 patterns or 4 MiB | Split the rule, or replace brace groups with a broader pattern |
+| `over-broad` | Matches most of the repository | Advisory. Narrow it, or accept it and raise `--breadth-max` |
+
+## Hard rules
+
+- **Read-only.** No `Edit`, no `Write`, no mutating `Bash`. Fixing a broken glob is the sibling
+  `realign` skill's job, or the operator's.
+- **Never fabricate a verdict.** If a script cannot run, because this is not a git repository or
+  tooling is missing, report that plainly and exit non-zero. A gate that passes because it could
+  not measure is worse than no gate.
+- **Never consult the findings artifact.** This skill verifies the repository's actual state. An
+  audit artifact is a snapshot of a past run, and a gate that trusted one could report health for a
+  repository that has since broken.
+- **Exit code is the product.** 0 clean, non-zero otherwise, whatever the prose around it says.
+
+## Next
+
+`/instruction-placement:realign`. It fixes a failing glob or a stale index behind the per-item gate.
+
+## Gotchas
+
+- **Exit 3 is not a failure.** `render-index.sh check` returns 3 when the file carries no index
+  block at all. Treating that as drift fails every repository that has not adopted the index yet,
+  which is most of them on first run.
+- **A begin marker with no end marker returns 3, not 1.** The tools refuse to guess a block's
+  extent rather than overwrite an unknown span. Read it as "malformed, needs a human", not as
+  "absent".
+- **`over-broad` never moves the verdict.** It shares an output column with the three real
+  failures and is the one that does not fail the gate. Reporting it as a failure trains operators
+  to ignore the gate.
+- **A zero-match glob usually means stale content, not a typo.** The reflex is to fix the pattern.
+  Check whether the code it described still exists first. A rule for a deleted subsystem should be
+  retired, not re-globbed.
+- **Passing because nothing could be measured is the worst outcome.** Outside a git repository, or
+  with tooling missing, the scripts cannot answer. Exit non-zero and say why; a green gate that
+  measured nothing is a false assurance a reviewer will act on.
+- **An in-sync index can still be inert.** `check` and `reachable` answer different questions, and a
+  repository can pass the first while failing the second. Reporting "index in sync" without the
+  reachability verdict is the exact false assurance the previous point warns about. `NATIVE` is the
+  honest middle verdict, not a pass: it says only that nothing in the repository blocks the target,
+  which is all a static check can see. `verify-load.sh` is what answers whether it actually loaded.
+- **Rules discovery follows symlinks and does not require git.** A symlinked rule points outside the
+  repository by design. That is the documented way to share one rule set across projects, so it is
+  never tracked. Nested instruction files are the opposite: tracked-only, because an untracked or
+  vendored `AGENTS.md` must never reach the consuming repository's always-loaded surface. If a rule
+  seems missing from a report, check which of the two rules applies before assuming a bug.

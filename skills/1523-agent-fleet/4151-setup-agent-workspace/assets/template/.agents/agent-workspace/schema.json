@@ -1,0 +1,291 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Agent workspace configuration",
+  "description": "Project-specific roster, execution policy, repository boundaries, and Backlog integration for the shared coordination CLI.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "project",
+    "defaultAgent",
+    "staleAfterMinutes",
+    "executionPolicy",
+    "agents",
+    "repositories",
+    "backlog"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Relative path or URI of this configuration's JSON Schema for editor assistance.",
+      "default": "./.agents/agent-workspace/schema.json"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Configuration format understood by the coordination CLI.",
+      "default": 1
+    },
+    "project": { "type": "string", "minLength": 1, "description": "Human-readable project name." },
+    "defaultAgent": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Name of a configured roster member used when no agent is selected. The CLI checks that this name exists."
+    },
+    "staleAfterMinutes": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Minutes without a heartbeat before status flags a session as stale. Staleness never releases ownership.",
+      "default": 30
+    },
+    "executionPolicy": { "$ref": "#/definitions/executionPolicy" },
+    "agents": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Project-specific agent roster, independent of provider or model. The CLI enforces unique names.",
+      "items": { "$ref": "#/definitions/agent" }
+    },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Git repository boundaries and checks, relative to this workspace. Use a single root entry for a normal repo or monorepo.",
+      "items": { "$ref": "#/definitions/repository" }
+    },
+    "backlog": { "$ref": "#/definitions/backlog" }
+  },
+  "definitions": {
+    "executionPolicy": {
+      "type": "object",
+      "description": "Required defaults and rules used to resolve a run. Runs snapshot these values; changing them affects future runs.",
+      "additionalProperties": false,
+      "required": ["defaultProfile", "profiles"],
+      "properties": {
+        "defaultProfile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Key in profiles used unless overridden by the agent or run. The CLI checks that this profile exists.",
+          "examples": ["assisted", "unattended"]
+        },
+        "profiles": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "minLength": 1 },
+          "description": "Named execution profiles. Names and settings may vary by project.",
+          "additionalProperties": { "$ref": "#/definitions/profile" }
+        },
+        "permissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "External actions are unsupported by this helper and remain disabled. Local commit permission is configured per profile.",
+          "properties": {
+            "push": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "This helper does not push commits."
+            },
+            "merge": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "This helper does not merge branches or pull requests."
+            },
+            "tags": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "This helper does not create or publish tags."
+            },
+            "deployment": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "This helper does not deploy applications."
+            }
+          }
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "description": "Independent controls for delegation, review, local commits, human input, and bounded work. Every field must be specified.",
+      "additionalProperties": false,
+      "required": ["delegation", "maxAgents", "review", "commits", "onHumanInput", "maxTasks", "maxMinutes"],
+      "properties": {
+        "delegation": {
+          "type": "string",
+          "enum": ["single", "as-needed"],
+          "description": "Use one agent or permit useful independent workers and reviewers. Single requires maxAgents=1."
+        },
+        "maxAgents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Maximum concurrent registered agents, including the coordinator and reviewers. Independent review requires at least two."
+        },
+        "review": {
+          "type": "string",
+          "enum": ["self", "independent"],
+          "description": "Require author review or a genuinely separate reviewer in the same run. Independent review also applies when commits are disabled."
+        },
+        "commits": {
+          "type": "string",
+          "enum": ["never", "on-request", "automatic"],
+          "description": "Leave changes uncommitted, require an explicit commit request, or allow guarded local commits within an authorized scoped run."
+        },
+        "onHumanInput": {
+          "type": "string",
+          "enum": ["ask", "defer"],
+          "description": "Ask the user for material input, or record a gated handoff and continue independent eligible work."
+        },
+        "maxTasks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Maximum distinct tasks attempted in a run, including deferred tasks."
+        },
+        "maxMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Elapsed run limit before new claims or worker starts are refused. Cleanup remains allowed."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "delegation": { "const": "single" } },
+            "required": ["delegation"]
+          },
+          "then": { "properties": { "maxAgents": { "const": 1 } } }
+        },
+        {
+          "if": { "properties": { "review": { "const": "independent" } }, "required": ["review"] },
+          "then": { "properties": { "maxAgents": { "type": "integer", "minimum": 2 } } }
+        }
+      ]
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Unique lowercase nickname used in task assignment and session registration. Chat selection is case-insensitive."
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable responsibility, such as coordinator, builder, or reviewer."
+        },
+        "focus": {
+          "type": "string",
+          "description": "Project-specific guidance for choosing this agent."
+        },
+        "defaultProfile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional key in executionPolicy.profiles overriding the project default. An explicit run profile takes precedence.",
+          "examples": ["assisted", "unattended"]
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "readOnly"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+          "description": "Workspace-relative Git repository path using forward slashes, with no parent traversal. Use . for the workspace repository.",
+          "examples": [".", "engine"]
+        },
+        "purpose": {
+          "type": "string",
+          "description": "Why this repository exists and how agents should use it."
+        },
+        "readOnly": {
+          "type": "boolean",
+          "description": "Prevent writable claims and guarded commits in this repository."
+        },
+        "checks": {
+          "type": "array",
+          "description": "All checks required by guarded verification, executed in this repository. A nonempty list is required to verify a snapshot.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "command"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Readable check name used in verification evidence."
+              },
+              "command": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string" },
+                "description": "Executable followed by literal arguments, without shell expansion. BACKLOG_CWD points to the workspace.",
+                "examples": [["node", "--test"]]
+              }
+            }
+          }
+        }
+      }
+    },
+    "backlog": {
+      "type": "object",
+      "description": "Native Backlog CLI command and project-specific lifecycle names.",
+      "additionalProperties": false,
+      "required": ["command", "todoStatus", "activeStatus", "doneStatus", "reviewLabel"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Backlog executable or package manager launcher.",
+          "default": "backlog"
+        },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional launcher arguments placed before the native Backlog command.",
+          "examples": [["exec", "backlog"]]
+        },
+        "testedVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Documented Backlog version verified against this project; does not install or pin the executable."
+        },
+        "todoStatus": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "Configured Backlog status for available or paused work.",
+          "default": "To Do"
+        },
+        "activeStatus": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "Configured Backlog status for claimed work.",
+          "default": "In Progress"
+        },
+        "doneStatus": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "Configured Backlog status for verified completion.",
+          "default": "Done"
+        },
+        "reviewLabel": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "Label for a released agent-review handoff, separate from the human-review gate.",
+          "default": "needs-review"
+        }
+      }
+    }
+  }
+}

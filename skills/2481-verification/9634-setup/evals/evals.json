@@ -1,0 +1,42 @@
+{
+  "skill_name": "setup",
+  "evals": [
+    {
+      "id": 1,
+      "name": "check-reports-memory-root-and-writes-nothing",
+      "prompt": "/verification:setup",
+      "expected_output": "Runs the read-only check with no argument. Reports the memory root the verification skills resolve (.work/ unless the project's instructions declare another root) as INFO, probes a representative file path under it with git check-ignore -v, and writes nothing. It says there is nothing to configure because placement is fixed by the artifact protocol.",
+      "files": [],
+      "expectations": [
+        "Treats no argument as check",
+        "Reports the memory root, or the root a project instruction declares, as INFO",
+        "Probes a representative file path rather than only the directory",
+        "Writes no file and runs no verification pass"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "apply-is-not-offered",
+      "prompt": "/verification:setup apply\n\nPersist my artifact directory settings.",
+      "expected_output": "Says this setup is check-only: manifests, baselines and raw captures land in the memory slice <memory_dir>/<slug>/ and are never committed, and there is nothing for an apply to write. It runs the check, creates no .claude/ concern file, and does not edit any ignore file.",
+      "files": [],
+      "expectations": [
+        "States that there is no apply action and nothing to persist",
+        "Names the memory slice as the placement and does not invent a configuration file",
+        "Does not edit any ignore file or the consumer's root .gitignore"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "absent-ignore-guard-is-info-not-fail",
+      "prompt": "/verification:setup check\n\nNo verification run has happened in this repo yet, so .work/ does not exist.",
+      "expected_output": "Reports the ignore probe as INFO, not FAIL: the memory root's self-ignoring .gitignore is created by the first memory-slice write, so its absence before any run is expected. It does not create the directory or the guard file.",
+      "files": [],
+      "expectations": [
+        "Reports the missing guard as INFO, never FAIL",
+        "Explains that the first memory-slice write creates the guard",
+        "Creates no directory and no .gitignore"
+      ]
+    }
+  ]
+}

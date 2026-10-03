@@ -1,0 +1,11 @@
+{
+  "name": "aimm-newsletter",
+  "description": "Sends a newsletter email to all members of a named Google Contacts group; use for \"send this to [group]\", \"send the newsletter\", \"email the group\". Previews recipients and content before sending.",
+  "version": "1.1.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

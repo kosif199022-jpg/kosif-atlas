@@ -1,0 +1,111 @@
+# Guardrail slice
+
+One slice of the `apply` action in [`../SKILL.md`](../SKILL.md), selected by argument and run only
+when `apply` reaches it. The hub's
+[guardrail binding resolution](../SKILL.md#guardrail-binding-resolution) section owns how bound
+policy resolves; this slice is the action that produces the binding it resolves.
+
+Wires the enforced state of the [guardrail contract](../../../reference/guardrails.md):
+detect → bind → live-validate → fail-closed, always detect-diff-reconciling against the org's
+existing guardrail surfaces. Everything lands as reviewable changes; paid scanner
+SKUs are advisory + explicit opt-in with cost surfaced.
+
+**This slice prepares, never writes the security surface directly.** The security binding lives
+in the settings-as-code home, outside the blast radius of the agents it governs, a surface the
+running agent cannot write (that is the whole point of the split). So the slice produces the
+binding document and its locator-registry entry as reviewable changes a human lands on the
+governance surface (a proposed change on the settings-as-code home, a registry entry on the
+org-policy home). It never mutates the agent-unwritable surface in place. Nothing autonomous
+depends on the binding until that human-landed change exists.
+
+1. **Detect substrates per level per machine surface**. For each execution surface the
+   trigger/dispatch slice recorded (the same surface ids the security binding's
+   `isolation_bindings` key on), inspect what isolation substrates are available at each ladder
+   level per the [isolation-ladder leaf](../../../reference/guardrails/isolation-ladder.md):
+   an `L2` whole-process OS-sandbox wrap or default-deny-egress container, an `L3` kernel-separated
+   VM/microVM or hosted ephemeral executor. Detection is per surface, a substrate present on one
+   surface says nothing about another, and the flat "some surface has L2" answer never satisfies a
+   different dispatch surface. For a surface whose host is Windows (native, WSL2, or a VM launched
+   from it), read [`windows-surfaces.md`](windows-surfaces.md) first.
+2. **Detect-diff-reconcile against existing guardrail surfaces**, never greenfield-assume, never
+   silently overwrite. Before proposing any binding value, read the org's existing guardrail
+   surfaces. Sandbox/runner configurations, branch protections, review workflows and scanner
+   configuration, and diff the detected state against them. Where an existing surface already
+   encodes a policy (a branch protection rule, a configured scanner, an isolation setting), the
+   slice reconciles: it surfaces the diff and proposes the binding that matches or tightens the
+   existing surface, and it never overwrites an existing surface as a side effect of binding. A
+   pre-existing surface is authoritative input to reconcile against, not a blank field to fill.
+3. **Live-validate before recording**, the empirical probe per substrate class (recipe in
+   [`templates/isolation-probe.md`](../templates/isolation-probe.md)). A candidate `L2`/`L3`
+   substrate is validated by running, inside the boundary, three probes that must all fail (four
+   on a WSL2 surface, below):
+   - a **denied-egress smoke test**, a network fetch must fail against two well-known external
+     hosts under different operators and against every destination the level binding ratifies as
+     component-reachable (a boundary that lets egress through is not an `L2` boundary, and a probe
+     that samples only what the base policy denies never looks where an installed component may
+     already have widened it);
+   - a **host-credential-path read attempt**, a read of a host credential path must be absent or
+     denied (a boundary that leaks host secrets is not an `L2` boundary);
+   - a **workspace host-write containment check**. Randomized canaries written inside must all be
+     absent on the host after teardown (a boundary the host later executes writes from is not an
+     `L2` boundary).
+
+   A WSL2 surface also runs the interop launch check from
+   [`windows-surfaces.md`](windows-surfaces.md), a launch of a present Windows executable that must
+   succeed outside and fail inside, recorded in the transcript as the fourth checker assertion,
+   `interop_launch_denied`. Every `L2`/`L3` level binding states `host_interop`: `"wsl2"` makes
+   that assertion required, `"none"` is the human claim that no host interop applies, and an entry
+   without it stays unproven. Without the assertion a `"wsl2"` level stays unproven, and a `"none"`
+   level whose capture reached a Windows drive mount (`/mnt/<letter>/`) stays unproven too.
+
+   The checker resolves no DNS and reads no remote host, so it validates the probe's targets against
+   operator-configured seams. The egress target checks against `--egress-hosts <host,...>` (a
+   configured trusted external target; without it the checker falls back to its
+   local/private/encoded/special-use deny lists). Each host credential path checks against
+   `--credential-roots <path,...>` deny-by-default: a filesystem credential entry proves absence only
+   when its recorded host-side expansion resolves under a configured trusted root, and with no roots
+   configured every filesystem credential entry is untrusted and the level fails closed. A
+   cloud-metadata-endpoint route and a well-known credential env token stay bounded closed sets that
+   need no allowlist. The allowlist shape (that these seams exist, and their schema) is a
+   repo-committed convention; the host-secret-sensitive root values, which reveal where an org's
+   credentials live, bind per the deployment's secret-binding classification (a machine/userConfig
+   binding), never inlined into the committed binding document.
+
+   The binding for that level on that surface lands only when the probe transcript proves every
+   failure: denied egress, absent host credentials, contained workspace host-writes, and on a WSL2
+   surface a denied interop launch;
+   the transcript's reference is recorded in the level binding's `probe_evidence`
+   field (schema-required, a binding without probe evidence is invalid per
+   [`scripts/check-security-binding.mjs`](../scripts/check-security-binding.mjs)). A binding never
+   lands ahead of the probe that proves its boundary.
+4. **Bind level → substrate per surface**. Record each validated substrate under its surface in
+   `isolation_bindings` (surface id → level token → substrate instance + the human-ratified
+   `substrate_class`, `host_interop`, and `component_reachable_hosts` + `probe_evidence` + the
+   non-forgeable `runtime_markers` the dispatch seam attests against, plus the optional
+   `base_egress_allowlist`, an informational record of the base allowlist that is never merged into
+   `component_reachable_hosts` and never read as proof of denial), plus the merge policy,
+   verification-blocking knobs, each class's `verification_topology`, escalation routes, and
+   admission rules and caps. All on the
+   prepared security-binding change, validated by
+   [`scripts/check-security-binding.mjs`](../scripts/check-security-binding.mjs) against
+   [`schemas/guardrails-security-binding.schema.json`](../schemas/guardrails-security-binding.schema.json)
+   before it is proposed.
+   The lens pool and the advisory visual narration lane are not binding fields. They resolve from
+   plugin `userConfig` per the [third home above](../SKILL.md#guardrail-binding-resolution), and proposing
+   either here is invalid.
+5. **Security-review wiring folds in here (no separate capability)**, the security-review policy
+   is one part of this single guardrail slice, never a near-duplicate setup capability. Wire the
+   [security-review leaf's](../../../reference/guardrails/security-review.md) two
+   layers (deterministic scanners + AI security review) into the binding's `verification_blocking`
+   knobs, detect-diff-reconciling against the org's existing scanners, review workflows, and branch
+   protections. Free-path scanner classes satisfy every blocking obligation on the default path:
+   zero paid dependencies. Entitlement-gated paid code-scanning SKUs stay advisory + explicit
+   opt-in with cost surfaced at opt-in time; an entitlement gap routes the tool to the advisory
+   path, never silently passing a blocking layer.
+6. **Fail-closed verify**, when no substrate on a surface reaches the `L2` floor, autonomous
+   dispatch is blocked for that surface and the slice names the compliant paths (provision an
+   `L2`-capable substrate on the surface, or route the surface's work to a surface that has one,
+   or keep the surface human-gated). Silent degrade to a lower level is never conforming. Under
+   `dispatch_posture: human-gated-only` a surface with no `L2` binding is the org's declared
+   posture, not a defect, the verify reports blocked autonomous dispatch as declared, and the
+   binding still validates.

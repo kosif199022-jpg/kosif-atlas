@@ -1,0 +1,2 @@
+# Mirror: keep every file byte-for-byte as in the source (no line-ending conversion)
+* -text

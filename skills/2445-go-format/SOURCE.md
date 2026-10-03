@@ -1,0 +1,10 @@
+# go-format
+
+Auto-fix Go formatting and import management on edit via goimports. Runs unconditionally (no consumer-config gate), skipping generated files.
+
+- License: **MIT** (no license file shipped; see the source repository)
+- Source: https://github.com/melodic-software/claude-code-plugins/tree/c8fa858c9059d3183cfc08f646e4a97f44b33973/plugins/go-format
+- Commit: `c8fa858c9059d3183cfc08f646e4a97f44b33973`
+- KOSIF static inspection: **REVIEW_BEFORE_INSTALL** (hooks: 2, MCP servers: 0, scripts: 7). Read the scripts before running anything.
+
+Unofficial mirror of the skill text for reference. All rights remain with the original authors under the license above.

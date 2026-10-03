@@ -1,0 +1,161 @@
+{
+  "skill_name": "batch-simplify",
+  "evals": [
+    {
+      "id": 1,
+      "name": "default-48h-full-workflow",
+      "prompt": "/batch-simplify",
+      "expected_output": "Discovers files changed in the last 48h, groups them by ecosystem/project, runs a simplifier agent on each group, reports per-group results and final verification.",
+      "files": [],
+      "expectations": [
+        "Runs git log to discover changed files",
+        "Filters out non-code files (.md, .lock, data files)",
+        "Verifies files exist on disk",
+        "Groups files by project/ecosystem relatedness",
+        "Orders groups by dependency (config first, tests last)",
+        "Creates tasks for each group",
+        "Runs a simplifier agent per group",
+        "Runs each group's verification through /toolchain:check when installed, else the project's own canonical commands, after each group",
+        "Presents the final summary table"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "time-window-argument",
+      "prompt": "/batch-simplify 7d",
+      "expected_output": "Same workflow but scans 7 days of git history instead of the default 48h, normalizing the shorthand for git's approxidate parser.",
+      "files": [],
+      "expectations": [
+        "Parses '7d' as the time window argument",
+        "Normalizes the shorthand to '7 days' before passing it to git log --since",
+        "Handles a larger file count gracefully (may produce more groups)"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "natural-language-trigger",
+      "prompt": "I've been working on a bunch of stuff over the past few days and forgot to run simplify after each task. Can you clean everything up?",
+      "expected_output": "Triggers the batch-simplify skill automatically from natural language and runs the full workflow with the default window.",
+      "files": [],
+      "expectations": [
+        "Skill triggers from natural language (not slash command)",
+        "Uses the default 48h time window",
+        "Produces the same grouped simplification workflow"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "deferred-items-resolved-in-run",
+      "prompt": "/batch-simplify branch",
+      "expected_output": "Branch-mode run where simplifier agents report deferred items; the skill consolidates them and resolves them fix-first in the same run, the resolution wave's edits landing as uncommitted working-tree changes exactly like the primary wave's, so only Needs-human and Too-large items survive to the report. No work items are filed unless the user explicitly asks.",
+      "files": [],
+      "expectations": [
+        "Extracts each agent's ## Deferred section verbatim rather than paraphrasing",
+        "Consolidates duplicate cross-group concerns into single items",
+        "Runs a fix-first resolution wave that applies Fix-now deferrals in this same run rather than filing them, its edits left as uncommitted working-tree changes like the primary wave's (diff-scoped modes never commit)",
+        "Presents only the surviving deferrals (Needs-human, Too-large, or an item the resolution wave could not finish) in the summary report, with their grounds",
+        "Does NOT file work items or create issues by default; filing happens only on an explicit user request"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "argument-parsing-is-token-exact",
+      "prompt": "/batch-simplify rebranch",
+      "expected_output": "Does not route to branch mode. 'rebranch' merely contains the substring 'branch'; it equals no branch trigger phrase and matches no time-window pattern, so the skill asks the user what was meant rather than guessing.",
+      "files": [],
+      "expectations": [
+        "Does NOT treat 'rebranch' as a branch-mode request (substring containment is not a match)",
+        "Does not silently fall back to the 48h default for an argument it cannot classify",
+        "Asks the user what scope was intended, per the detection heuristic's unknown-argument rule",
+        "The docs flag is stripped token-wise: a token is dropped only when it equals 'docs', so an argument containing those letters is left intact for the mode parser",
+        "Does NOT treat 'rebranch' as a path: a token counts as a path only when it resolves to an existing file or directory, so a non-resolving token still falls through to the ask-the-user rule rather than narrowing the sweep to nothing"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "repo-mode-gates-on-a-confirmed-inventory",
+      "prompt": "/batch-simplify repo",
+      "expected_output": "Enters repo mode, discovers the whole-repository file universe, refuses to start if the sweep universe carries tracked modifications, and presents an inventory summary for confirmation before dispatching any simplifier agent.",
+      "files": [],
+      "expectations": [
+        "Routes 'repo' to repo mode rather than the 48h default or the ask-the-user rule",
+        "Discovers files with git ls-files --cached --others --exclude-standard anchored to the repository root, not a time-window or branch diff",
+        "Checks for tracked modifications in the sweep universe only, and does not refuse on the basis of the working-notes location",
+        "Presents an inventory summary — file count, group count, wave plan, scale estimate, exclusions by class — and waits for confirmation before spawning any simplifier",
+        "Does NOT dispatch simplifier agents before the user confirms",
+        "Loads context/repo-mode.md for the repo-scale machinery rather than improvising it"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "empty-scan-offers-repo-mode-without-escalating",
+      "prompt": "/batch-simplify 24h",
+      "expected_output": "Finds no changed code files in the window, reports that, and names repo mode as an option the user may choose. It does not widen its own scope.",
+      "files": [],
+      "expectations": [
+        "Reports that no code files changed in the 24h window and exits",
+        "Names /code-tidying:batch-simplify repo as an available next step in that same report",
+        "Does NOT begin a whole-repository sweep on its own — offering is not entering",
+        "Waits for the user to ask before any repo-mode work starts"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "repo-mode-verifies-and-delivers-per-its-own-doctrine",
+      "prompt": "I reviewed the inventory summary you just presented for the repo-mode run. It looks right — go ahead and run it.",
+      "expected_output": "Treats the reply as the confirmation the gate was waiting on and proceeds with the planned run: each group through a simplifier and then a fresh-context refutation verifier, everything committed to one feature branch delivered as one pull request for the whole run, deferrals resolved fix-first in the same run with nothing auto-filed, and every deferral persisted to the run-state inventory.",
+      "files": [],
+      "expectations": [
+        "Proceeds from the already-presented inventory rather than re-discovering or re-planning the run",
+        "Runs a fresh-context verifier per group that tries to refute 'behavior preserved' — mandatory in repo mode, not optional as in the diff-scoped modes",
+        "Does NOT treat the end-of-run cross-ecosystem pass as sufficient on its own at repo scale",
+        "Reports groups with no mapped test suite as unmapped rather than as passing",
+        "Persists every deferred item to the run-state inventory at the consuming project's working-notes location, never a hardcoded path",
+        "Resolves deferrals fix-first via the Phase 6.5 resolution wave on the same branch, and does NOT file work items unless the user explicitly asks",
+        "Delivers one feature branch and one pull request for the whole run, with at least one commit per group and the base branch merged in at every wave boundary — not one PR per wave or per group",
+        "Keeps concurrency to a 4-6 simplifier soft cap and degrades to sequential under rate-limit pressure rather than retrying"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "path-narrows-a-non-repo-scope",
+      "prompt": "/batch-simplify 7d plugins/knowledge",
+      "expected_output": "Runs the 7-day time-window mode narrowed to plugins/knowledge. Scope and path are independent: the scope still selects which universe (changed in 7 days), the path selects which region of it, and narrowing is not reserved to repo mode.",
+      "files": [],
+      "expectations": [
+        "Routes '7d' to time-window mode and treats 'plugins/knowledge' as a path, not as an unknown scope",
+        "Does NOT refuse the path on the grounds that narrowing belongs to repo mode",
+        "Passes the path as a native git pathspec (-- plugins/knowledge) on the discovery commands rather than filtering results afterwards",
+        "Applies the pathspec to BOTH halves of the union — the git log window and the working-tree git diff",
+        "Normalizes '7d' to '7 days' for git's approxidate parser"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "path-narrows-repo-mode-without-loosening-its-gate",
+      "prompt": "/batch-simplify repo plugins/code-tidying",
+      "expected_output": "Enters repo mode narrowed to plugins/code-tidying. The narrowing changes the file universe only; the confirmation gate, the tracked-modification refusal and the repo-mode spoke all still apply, now over the narrowed inventory.",
+      "files": [],
+      "expectations": [
+        "Routes 'repo' to repo mode with 'plugins/code-tidying' as a path rather than asking the user",
+        "Adds the pathspec to git ls-files --cached --others --exclude-standard, still anchored to the repository root",
+        "Still presents an inventory summary and waits for confirmation before dispatching any simplifier",
+        "Scopes the tracked-modification refusal to the narrowed universe, not the whole tree",
+        "Still loads context/repo-mode.md for the repo-scale machinery"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "a-non-resolving-token-is-not-a-path",
+      "prompt": "/batch-simplify repo plugins/does-not-exist",
+      "expected_output": "Does not sweep. 'plugins/does-not-exist' resolves to nothing, so it is neither a path nor a scope and falls through to the ask-the-user rule. Treating it as a path would silently sweep an empty universe and report a clean run over nothing.",
+      "files": [],
+      "expectations": [
+        "Checks that the token resolves to an existing file or directory before accepting it as a path",
+        "Asks the user what was meant rather than sweeping an empty file universe",
+        "Does NOT report 'no code files found' as though the run had succeeded",
+        "Does not fall back to an unnarrowed whole-repository sweep, which would be wider than what was asked for"
+      ]
+    }
+  ]
+}

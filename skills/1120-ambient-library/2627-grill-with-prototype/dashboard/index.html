@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Skill App</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="theme.css">
+</head>
+<body>
+<!-- shell:start -->
+<div class="shell" id="shell" data-drawer="closed">
+  <aside class="rail" aria-label="Navigation">
+    <div class="rail-head">
+      <h1 class="app-name" id="app-name">…</h1>
+      <p class="app-desc" id="app-desc"></p>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="rail-foot">
+      <button type="button" class="indicator" id="ind-tasks" data-tab="tasks" data-active="false">
+        <span class="ind-dot" aria-hidden="true"></span><span id="ind-tasks-text">No tasks running</span>
+      </button>
+      <button type="button" class="indicator" id="tray" data-tab="log" data-pending="false" title="Actions waiting for the agent to read them">
+        <span class="ind-dot" aria-hidden="true"></span><span id="tray-text">Nothing waiting</span>
+      </button>
+      <div class="conn" id="conn">connecting</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="strip" id="strip" data-busy="false">
+      <div class="strip-pulse" aria-hidden="true"></div>
+      <div class="strip-phase" id="strip-phase">idle</div>
+      <div class="strip-message" id="strip-message">Ready</div>
+      <button type="button" class="activity-btn" id="activity-btn" aria-controls="drawer" aria-expanded="false">
+        Activity <span class="activity-badge" id="activity-badge" hidden></span>
+      </button>
+    </header>
+    <section class="page" id="page" aria-live="polite">
+      <h2 class="page-title" id="page-title"></h2>
+      <div class="widgets" id="widgets"></div>
+    </section>
+  </main>
+
+  <aside class="drawer" id="drawer" aria-label="Activity" hidden>
+    <div class="drawer-head">
+      <div class="drawer-tabs" role="tablist">
+        <button type="button" role="tab" class="drawer-tab" id="tab-tasks" data-tab="tasks" aria-selected="true">Tasks <span class="tab-count" id="tab-tasks-count"></span></button>
+        <button type="button" role="tab" class="drawer-tab" id="tab-log" data-tab="log" aria-selected="false">Log <span class="tab-count" id="tab-log-count"></span></button>
+      </div>
+      <button type="button" class="drawer-close" id="drawer-close" aria-label="Close activity">×</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<!-- shell:end -->
+<script src="widgets.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

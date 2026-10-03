@@ -1,0 +1,13 @@
+interface:
+  display_name: Astra Develop
+  short_description: Plan, implement, and verify code with smart model routing
+  default_prompt:
+    "Use $astra-develop to implement this task end-to-end: plan first, ask only material unresolved questions, implement
+    the accepted plan, then run minimal relevant verification against the acceptance criteria."
+policy:
+  products:
+    - chatgpt
+    - codex
+    - api
+    - atlas
+  allow_implicit_invocation: true

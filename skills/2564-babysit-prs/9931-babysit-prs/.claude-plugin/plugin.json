@@ -1,0 +1,20 @@
+{
+  "name": "babysit-prs",
+  "version": "0.2.0",
+  "description": "Babysit a GitHub PR from review all the way to MERGED.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/babysit-prs",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "pull-request",
+    "code-review",
+    "github",
+    "ci",
+    "automation",
+    "engineering-workflow"
+  ]
+}

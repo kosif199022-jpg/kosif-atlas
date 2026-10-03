@@ -1,0 +1,11 @@
+{
+  "name": "leaderize-storytelling-framework",
+  "description": "Selects and applies storytelling frameworks for Leaderize's mid-level-leader audience across content stages and live sessions; use for Leaderize content or session design.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

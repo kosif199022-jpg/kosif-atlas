@@ -1,0 +1,10 @@
+# agent-launcher-skills
+
+Turn Anthropic's launch-your-agent reference skill into a full domain plugin for building Claude Managed Agents (CMA). Every session starts with a goal (./my-agent/goal.json, surfaced by an opt-in AGENT_LAUNCHER_SESSION=1 SessionStart hook and driven by /cs:goal); a deterministic loop_compiler.py compiles that goal into a grade->iterate loop (CMA user.define_outcome self-grading, bounded by max_iterations), a recurring cron scheduled-deployment loop (run without you), or a single-pass interview->stage->launch workflow. 6 skills: agent-launcher-orchestrator (context: fork goal router) + interview (build sheet: primitives table + v1/v2 deferrals + eval plan) + stage-launch (validated env/agent/session/kickoff payloads + resumable BYOK curl launch script that never prints the key) + grade-iterate (outcome/rubric + verdict reader + held-back eval scaffold) + run-without-you (POSIX-cron deployment + NEXT-DIRECTIONS) + wrap-up (primitive inventory + regenerated overview HTML + next upgrades). 18 stdlib-only deterministic scaffolder tools (no network/API calls; live launches emitted as BYOK curl), 4 agents (orchestrator + interviewer + grader + deployer), 8 commands, opt-in SessionStart/SessionEnd hooks, 5 shared references, 4 assets. Validators enforce CMA limits (<=20 skills/session, <=8 memory stores, <=20 roster / 25 threads / depth-1 multiagent, max_iterations 1..20, <=20 creds/vault, <=1000 deployments/org). Inspired by anthropics/launch-your-agent (Apache-2.0); independent re-implementation, not a fork.
+
+- License: **MIT** (no license file shipped; see the source repository)
+- Source: https://github.com/alirezarezvani/claude-skills/tree/19392f7a08264ed00486a251f5b2098321771f94/agent-launcher
+- Commit: `19392f7a08264ed00486a251f5b2098321771f94`
+- KOSIF static inspection: **REVIEW_BEFORE_INSTALL** (hooks: 2, MCP servers: 0, scripts: 20). Read the scripts before running anything.
+
+Unofficial mirror of the skill text for reference. All rights remain with the original authors under the license above.

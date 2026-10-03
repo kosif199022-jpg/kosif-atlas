@@ -1,0 +1,20 @@
+{
+  "name": "publish-skill",
+  "version": "0.2.0",
+  "description": "Publish one of your own skills from ~/.claude/skills to this repo: copy it under skills/<name>/, mint its plugin.json, upsert marketplace.json, bump SemVer, and open a PR (CI-gated). Idempotent.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/publish-skill",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "publish",
+    "skill-authoring",
+    "marketplace",
+    "bunx-skills",
+    "git",
+    "meta"
+  ]
+}

@@ -1,0 +1,353 @@
+# Watch pipeline: full phase procedure
+
+Read for the **watch action only** (and for `resume`, which re-enters it). The hub carries the
+ordered phase spine; this file carries what each phase actually does. A `transcript` run needs
+none of it. Binary criteria SSOT: `quality-gates.md`. Artifact enumeration: `output-contract.md`.
+Phase-flow diagram: `workflow.md`.
+
+- [Phase 0b: companion deep-dive](#phase-0b-companion-deep-dive)
+- [CLI bootstrap](#cli-bootstrap)
+- [Prerequisites gate](#prerequisites-gate)
+- [Execution model: subagent fan-out](#execution-model-subagent-fan-out)
+- [Watch checklist](#watch-checklist)
+- [Phase 1: vision planning](#phase-1-vision-planning)
+- [Phase 2: claim inventory](#phase-2-claim-inventory)
+- [Phase 3: staged deck harvest](#phase-3-staged-deck-harvest)
+- [Phase 4: vision absorption (three-pass)](#phase-4-vision-absorption-three-pass)
+- [Phase 5: high-volume advisory](#phase-5-high-volume-advisory)
+- [Phase 6: research stage](#phase-6-research-stage)
+- [Phase 7: synthesis](#phase-7-synthesis)
+- [Phase 8: interview handoff](#phase-8-interview-handoff)
+- [Phase 9: outcome verification](#phase-9-outcome-verification)
+- [Frame selection pipeline (reference)](#frame-selection-pipeline-reference)
+
+## Phase 0b: companion deep-dive
+
+Runs **before** CLI bootstrap, when `source/companion-sources.md` exists. **SSOT:**
+`companion-primary-sources.md`.
+
+WebFetch companion URL(s) → subagent fan-out per section table → `source/companion-digest/<section-slug>.md`
+plus hub `source/companion-digest/README.md` → `mark-phase <slice-dir> companion`. No surface
+reads; use deep external research per section. Downstream phases frame against the digest (claim
+inventory, research agenda, vision, synthesis).
+
+On resume: if companion is unmarked, run 0b before vision even when CLI phases already exist.
+
+## CLI bootstrap
+
+```bash
+node "<skill-dir>/extraction/run.mjs" watch/run-watch.js "<url>" [--skip-research] [--target <repo>] [--max-frame-gap-sec <sec>]
+```
+
+Pass an explicit `--target <repo>` through from the invoking `watch <url> --target <repo>` command.
+It is recorded in `watch.json` (`state.target`) so an interrupted watch's `resume` recovers it
+instead of re-asking (see [Phase 7](#phase-7-synthesis)).
+
+`--max-frame-gap-sec <sec>` sets the longest stretch between timed frames before a gap-fill frame
+is extracted; without it the run uses `MAX_FRAME_GAP_SEC`. The effective value is recorded in
+`watch.json` (`state.maxFrameGapSec`) and `coverage-plan.json`, and `run-watch.js --recover` plans
+with the recorded value.
+
+Runs acquire (retry + throttle) → transcript → dynamic coverage watching → metadata link harvest.
+Writes:
+
+- `source/transcript.txt`
+- `run-state/watch.json`: phase-map + `tempSession` paths
+- `key-frames/selection.json`: temp frame/sheet paths (no bulk copy into repo)
+- `key-frames/coverage-plan.json`: dynamic sampling plan
+- `source/harvested-links.json`
+- `run-state/continuation-prompt.md`
+
+Bulk frames and working contact sheets stay in `tempSession` dirs (the sheets are additionally
+snapshotted to `key-frames/contact-sheets/` for local disaster recovery, see
+`output-contract.md`); re-run `run-watch.js` to regenerate bulk frames when temp expired.
+`highVolume: true` in output → fan out vision subagents; no hard frame cap.
+
+## Prerequisites gate
+
+Before `watch` or `resume` when frames are needed:
+
+```bash
+node "<skill-dir>/extraction/setup-deps.mjs"
+```
+
+STOP if the hub's pre-computed context shows MISSING for yt-dlp, ffmpeg, or ImageMagick. Cloud
+agents without the media toolchain: fail closed. Do not run watch.
+
+## Execution model: subagent fan-out
+
+After CLI bootstrap, parallelize like `/knowledge:course-digest` Phase 3:
+
+| Wave | Agents | Output |
+| --- | --- | --- |
+| Parallel | Transcript agent | Claims + timestamps → `research/research-agenda.md` draft |
+| Parallel | Visual agent | Contact-sheet triage → detail reads → `key-frames/visual-frames.md` + on-screen URLs |
+| Parallel | Link/repo agent | WebFetch previews + `node "<skill-dir>/extraction/run.mjs" harvesting/analyze-harvested-repos.js <slice-dir>` when GitHub links exist |
+| Sequential | Research fan-out | external research (standard or deep) per claim cluster → `RESEARCH.md` + `research/findings/` |
+| Sequential | Synthesis agent | `recommendations/menu.md` + `recommendations/takeaways.md` (hub: `recommendations/README.md`) |
+| Sequential | Interview handoff | `recommendations/interview.md` → offer `/planning:interview` for POC/full-slice picks |
+
+Mark each phase in `watch.json` after the wave completes (idempotent, re-running an
+already-marked phase is a no-op):
+
+```bash
+node "<skill-dir>/extraction/run.mjs" watch/watch-state.js mark-phase <slice-dir> <phase>
+```
+
+`mark-phase <slice-dir> synthesis` delegates to `close` (Phase 9).
+
+Promote only via vision-gated decisions:
+
+```bash
+node "<skill-dir>/extraction/run.mjs" watch/vision-gated-promote.js "<slice-dir>"
+```
+
+(`promote-key-frames.js` remains for ad-hoc single copies, not the completion path.)
+
+## Watch checklist
+
+After CLI bootstrap (or on resume), materialize and maintain the slice checklist:
+
+```bash
+node "<skill-dir>/extraction/run.mjs" watch/init-watch-checklist.js "<slice-dir>"
+```
+
+Use `--force` to regenerate per-sheet rows after `contactSheetCount` changes. Tick `[ ]` → `[x]`
+only with verification evidence (command exit code, artifact path, verify row). **Ordered
+checkboxes:** `templates/watch-checklist.md` → slice `run-state/watch-checklist.md`.
+
+Do not run `mark-phase` while the phase verify script fails. Only `watch-state.js close` sets
+`status: complete` (Phase 9).
+
+## Phase 1: vision planning
+
+Before fan-out, write `key-frames/vision-plan.md` from deterministic signals plus a small
+inspection sample:
+
+- Inputs: `run-state/watch.json` (`contactSheetCount`, `densificationWindows`, `highVolume`,
+  duration), `key-frames/coverage-plan.json`, `key-frames/selection.json`, transcript session
+  boundaries
+- Classify content: `conference-multi-session` | `single-talk` | `screencast` | `slide-talk`
+- Segment long VODs by talk (welcome markers, agenda intros); assign triage scope per segment
+  (full sheet vs spot-check vs escalation)
+- Escalate scope when: a segment has ≥3 densification windows and &lt;1 promoted frame; the sample
+  shows code/diagram cells; the transcript claims a demo/slide not yet captured
+- Promotion targets: `code-or-diagram`, `on-screen-text`, `relevant-to-synthesis`; dedupe against
+  transcript + prior research
+
+## Phase 2: claim inventory
+
+Before the research agenda, write `research/claim-inventory.md`:
+
+- Segment the transcript into sessions with timestamps
+- Extract verifiable claims per segment (product names, version gates, metrics, comparisons) as
+  tier-3 rows
+- Derive `research/research-agenda.md` clusters from the inventory; do not jump to research without
+  this landscape pass
+
+## Phase 3: staged deck harvest
+
+Template: `templates/deck-inventory.md`; contract: `synthesis-contract.md`.
+
+- **Pass A (before full vision fan-out):** type URLs in `harvested-links.json`
+  (`deck` | `repo` | `doc` | `other`); fetch deck candidates from metadata/chapters →
+  `source/decks/<session-slug>/` + `source/deck-inventory.md`
+- **Pass 1 triage** includes deck inventory: a static slide covered by a fetched deck → `skip`
+- **Pass B:** merge on-screen URLs from early sheets; fetch new decks; re-filter remaining sheets
+- Other downloads → `source/attachments/<kind>/`; citations → `research/sources.md` (template:
+  `templates/sources.md`)
+
+## Phase 4: vision absorption (three-pass)
+
+Checklist: `watching/frame-triage-checklist.json`; **JSON SSOT** + rendered markdown.
+
+- **Pass 1 contact-sheet triage:** One subagent per sheet from `tempSession.contactSheetsDir`
+  (or `key-frames/contact-sheets/`). Write `key-frames/triage/batches/sheet_NNN.json` (cells per
+  `sheet-frame-index.json`). Merge:
+  `node "<skill-dir>/extraction/run.mjs" watch/merge-triage-json.js "<slice>"`;
+  validate: `validate-triage-json.js`; render: `render-triage-log.js`.
+- **Pass 2 detail reads:** All `keep-detail` frames + transcript interleave
+  (`key-frames/selection.json` timeline). Escalate text-dense frames to **1920×1080**.
+- **Pass 3 transcript alignment:** For each densification window in `coverage-plan.json`, confirm
+  ≥1 promoted or logged frame; gaps → `key-frames/visual-gaps.md`.
+- **On-screen URLs:** Merge into `source/harvested-links.json` via `mergeHarvestedLinks()`.
+- **Promote:** Write `key-frames/promotion-decisions.json` (vision verdict per candidate PNG).
+  Apply `vision-gated-promote.js`. Sparse synthesis OK; no quota filler.
+- **Pre-promotion gate:** Read the actual PNG; reject deck-covered slides, talking-head,
+  transcript-redundant, unreadable, mislabeled. See `synthesisPromotionBar` +
+  `synthesis-contract.md`.
+- **Post-promotion review:** One subagent reads every `frames/*.png`; write
+  `key-frames/key-frame-quality-audit.json` (substantive `note` per frame, min 20 chars); render
+  `render-quality-audit.js` + `render-key-frames-manifest.js`. **Delete** failures with
+  `pass: false`.
+- **Repair pass (when filename verify fails):**
+  `node "<skill-dir>/extraction/run.mjs" watch/repair-synthesis-promotions.js "<slice-dir>"`
+  Semantic renames from `gapNote`, reject generic pipeline placeholders, fix forbidden sessions.
+
+## Phase 5: high-volume advisory
+
+When `frameSelection.highVolume` is true, fan out vision subagents; do not truncate frames in temp.
+
+**Context-cost fan-out trigger** (independent of `highVolume`). Pass 2 accumulates a read-count:
+every `keep-detail` frame escalated to 1920×1080 is a full-res Read that will not be reused after
+the vision pass. When that count is high enough that the reads would flood main context with
+output you won't reuse, route to a per-sheet vision subagent returning **only
+JSON** (triage rows), keeping the main watch context lean. The signal is deterministic (the skill
+surfaces the read-count, mirroring the `highVolume` boolean shape); the *decide-to-delegate* is the
+agent acting on that fact. Do not hard-force fan-out in a script. The agent may have context
+reasons to process inline; the skill documents the threshold, the agent routes.
+
+## Phase 6: research stage
+
+Default-on. Gate: `mark-phase <slice-dir> research` only after `check-research-complete.js` exits 0
+and agenda clusters are `done` or `deferred`:
+
+```bash
+node "<skill-dir>/extraction/run.mjs" evals/check-research-complete.js "<slice-dir>"
+```
+
+- `research/claim-inventory.md` must exist; draft or expand `research/research-agenda.md` with
+  **claim clusters** mapped to inventory rows
+- Per cluster: standard research, or deep external research when 3+ vendors/tools (template:
+  `templates/research-cluster.md`)
+- Write slice `RESEARCH.md` + optional `research/findings/*.md`
+- Name each shard `research/findings/<cluster-topic-slug>.md` (e.g. `complex-types.md`) after the
+  topic, not an opaque `RA1`/`RA2` ordinal; the agenda carries cluster ordering
+- Each finding: author claim, consensus, staleness, promoted tier
+- WebFetch top harvested URLs; `analyze-harvested-repos.js` clones to **temp only**
+
+## Phase 7: synthesis
+
+Runs after the research gate. Template: `templates/synthesis-item.md`.
+
+**Synthesis target resolution.** Every menu item and `templates/readme-journey.md`'s TLDR are
+framed against one resolved target, never an implicit "the repo I'm in". Because
+`templates/synthesis-item.md`'s **Target touchpoints** are grep-backed, the target must resolve to
+a **local working tree on disk**, not merely a name. Rungs, in order:
+
+1. Explicit `--target <repo>`, resolved to a local checkout of that repo
+2. The consuming project (`CLAUDE_PROJECT_DIR`) when `watch` runs directly inside a repo, with no
+   separate corpus session
+3. Ask
+
+An explicit `--target <repo>` with no local checkout (e.g. run from a separate corpus session where
+that repo isn't cloned locally) does **not** resolve. Stop and ask for its local checkout path
+rather than falling through to `CLAUDE_PROJECT_DIR`, grepping the current directory, or inventing
+touchpoint paths.
+
+Whichever rung resolves it, record the target's **portable name** in `README.md`'s `**Target:**`
+line, never the resolved checkout path, which is machine-local while `README.md` is a staged
+artifact. That line is a record for readers and downstream consumers of a finished slice, not
+resume state. An explicit `--target` passed at CLI bootstrap is separately recorded in `watch.json`
+(`state.target`, the portable name only); on `resume`, check `state.target` / the continuation
+prompt's "Synthesis target" section first. When set, reuse it and skip this resolution entirely;
+when unset, run the rungs above.
+
+Outputs:
+
+- Materialize `recommendations/` from `templates/recommendations/` (hub README links all docs)
+- `recommendations/menu.md`. Categories:
+  `immediate-takeaway` | `worth-investigating` | `poc-candidate` | `full-slice` | `no-go`; P0–P2 +
+  consensus notes
+- `recommendations/takeaways.md`: safe actions without further research
+- `recommendations/questions.md`: open questions for the user
+- Update `README.md` per `templates/readme-journey.md`
+- **Offer an HTML view.** Optionally offer a self-contained HTML view of the prioritized menu
+  (markdown stays the tracked record); follow your project's HTML-vs-markdown convention when one
+  exists. Transcript text, video titles, and URLs are untrusted data: only the checked-in builder
+  writes the page. It escapes every field and stamps the generator marker the rendered-views
+  validator checks. Pass a JSON object on stdin:
+
+  ```bash
+  node "<skill-dir>/scripts/build-menu-view.mjs" <<'EOF'
+  {"title":"","video":"","url":"","items":[{"category":"","priority":"","item":"","why":""}],"takeaways":[""],"questions":[""]}
+  EOF
+  ```
+
+  `url` renders as text, never a link. Write stdout to an untracked path and do not stage it.
+  Do not hand-write the HTML, do not pre-escape values, and do not add script.
+  `node "<skill-dir>/scripts/build-menu-view.mjs" --check <file>` flags a page that bypassed the
+  builder. Node missing: the markdown menu stands and the view is not built
+- **No auto-implement:** `/planning:interview` → `/planning:plan` → `/implementation:implement`
+- **Ephemeral, target-bound deliverable:** `recommendations/**` is this skill's own terminal output
+  for the resolved target, not a corpus-wide durable record; it is written fresh per watch
+
+## Phase 8: interview handoff
+
+Write `recommendations/interview.md` with the menu + *"Should we go further?"*; suggest
+`/planning:interview` for POC/full-slice items.
+
+## Phase 9: outcome verification
+
+Mandatory host verify script, before closing the slice:
+
+```bash
+node "<skill-dir>/extraction/run.mjs" evals/check-watch-outcomes.js "<slice-dir>" --write-report
+```
+
+Writes `verification/<ISO-basic>Z-watch-outcomes.md`. Once it exits 0 and the blocking checklist
+items (8.1-8.4, 9.1, 9.2, 9.4) are ticked, close the slice:
+
+```bash
+node "<skill-dir>/extraction/run.mjs" watch/watch-state.js close "<slice-dir>"
+```
+
+`close` is the only writer of `status: complete`. It marks synthesis, re-runs the outcome checks
+with the blocking checklist enforced, and writes `complete` only on a pass; on a fail it exits 1
+and leaves status unchanged, so fix the failing check and re-run `close`. Long conferences
+(`conference-multi-session`, ≥4h) must meet the floors in `quality-gates.md`. Verify script `triage-agentic-required` fails `selection-signals` / missing
+model. Temp paths use `{tmp}` prefix (portable temp-session path serialization).
+
+**Queue completion:** when this watch was started from `QUEUE.md`, set that row `complete` (or
+`failed` if verify never passes), run `queue-claim.js release <n>`, and refresh the epic README
+breakdown. Protocol: `watch-queue.md`.
+
+## Frame selection pipeline (reference)
+
+Deterministic stages in `watching/orchestrate-watching.js`:
+
+1. ffprobe duration + `compute-coverage-plan.js` dynamic targets (no hard cap)
+2. Scene-detect + phash dedup + stratified interval + cue-anchor extractions
+   (`extract-anchor-frames.js`)
+3. Transcript densification windows (`watching/densification.js`)
+4. Contact-sheet batching for triage (`watching/timestamp-interleave.js`)
+
+Every frame carries `timestampSec` and a `timestampSource` naming where the time came from:
+
+- Measured. `scene-detection` and `interval` frames take the presentation time ffmpeg reports for
+  that frame; `anchor` frames are extracted at their requested time.
+- `estimated`. An interval frame ffmpeg gave no time for takes its position times the interval,
+  with `timestampMethod: "interval-index"` and `timestampErrorSec` (half the interval).
+- Untimed. A frame with no basis keeps `timestampSec: null`. It sorts after every timed frame,
+  counts as outside every densification window, and renders as `untimed`, never as 0:00.
+
+Rendered tables show an estimated time as `~5m, estimated`. Scene detection writes the times to
+`frame-times.json` in the frames directory; `recover-watch-bootstrap.js` reloads them from there,
+and a frames directory without that file recovers its scene and interval frames untimed.
+
+We take each frame's time from ffmpeg's per-frame report and use it unchanged, with no start-offset
+correction. A probe on ffmpeg 8.0.1 found the reported times already relative to the stream start
+(a stream starting at 12.8 s gave the same cut times as one starting at 0).
+
+- **Pointer**: for per-frame timing, see <https://ffmpeg.org/ffmpeg-filters.html#showinfo>; for
+  start-offset handling, see the `-copyts` entry at
+  <https://ffmpeg.org/ffmpeg.html#Advanced-options>.
+- **As of**: 2026-10-02
+- **Recheck trigger**: the ffmpeg floor under Prerequisites in `SKILL.md` changes, or a release note
+  for either entry mentions timestamps.
+
+Standalone pipeline (when video + VTT already acquired):
+
+```bash
+node "<skill-dir>/extraction/run.mjs" watching/run-watching-pipeline.js "<video-path>" "<vtt-path>"
+```
+
+Metadata-only link harvest:
+
+```bash
+node "<skill-dir>/extraction/run.mjs" harvesting/run-harvest.js "<info-json-path>" [--url "<source-url>"]
+```
+
+The owning source adapter is resolved from `--url` when given, else from the info JSON's
+`webpage_url`. Pass `--url` whenever the info JSON carries no `webpage_url`. Without either, the
+command fails closed with the supported-source list rather than guessing a source.

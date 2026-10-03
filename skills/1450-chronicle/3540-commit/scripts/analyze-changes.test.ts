@@ -1,0 +1,573 @@
+import { $ } from "bun";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  analyzeFile,
+  applyTotalDiffBudget,
+  capDiff,
+  isBinaryFile,
+  mustPairs,
+  parseNumstat,
+  parseStatus,
+  parseStatusRecords,
+  renderDigest,
+  renderRules,
+  shouldSkipDiff,
+  unquoteGitPath,
+  verifyPlanLanded,
+} from "./analyze-changes";
+
+// `-z` terminates every field, so a fixture must too.
+const z = (...fields: string[]) => `${fields.join("\0")}\0`;
+
+describe("parseStatus", () => {
+  test("parses untracked files as unstaged additions", () => {
+    expect(parseStatus(z("?? f"))).toEqual([
+      { path: "f", oldPath: undefined, staged: false, status: "added" },
+    ]);
+  });
+
+  test("parses staged additions", () => {
+    expect(parseStatus(z("A  f"))).toEqual([
+      { path: "f", oldPath: undefined, staged: true, status: "added" },
+    ]);
+  });
+
+  test("parses combined staged and unstaged modifications", () => {
+    expect(parseStatus(z("MM f"))).toEqual([
+      { path: "f", oldPath: undefined, staged: true, status: "modified" },
+      { path: "f", oldPath: undefined, staged: false, status: "modified" },
+    ]);
+  });
+
+  test("parses renames, whose source is its own field", () => {
+    expect(parseStatus(z("R  new", "old"))).toEqual([
+      { path: "new", oldPath: "old", staged: true, status: "renamed" },
+    ]);
+  });
+
+  test("parses deletions", () => {
+    expect(parseStatus(z(" D f"))).toEqual([
+      { path: "f", oldPath: undefined, staged: false, status: "deleted" },
+    ]);
+  });
+
+  test("parses an intent-to-add file as a brand-new unstaged addition", () => {
+    expect(parseStatus(z(" A f"))).toEqual([
+      { path: "f", oldPath: undefined, staged: false, status: "added" },
+    ]);
+  });
+
+  test("reports an unmerged AA conflict once", () => {
+    expect(parseStatus(z("AA f"))).toEqual([
+      { path: "f", oldPath: undefined, staged: true, status: "added" },
+    ]);
+  });
+
+  test("ignores a truncated record", () => {
+    expect(parseStatus(z("M"))).toEqual([]);
+  });
+
+  test("parses several records in one stream", () => {
+    expect(parseStatus(z("A  a", "R  new", "old", " M b"))).toHaveLength(3);
+  });
+});
+
+describe("parseStatusRecords", () => {
+  test("keeps a literal ' -> ' inside a filename", () => {
+    expect(parseStatusRecords(z("?? a -> b.txt"))).toEqual([
+      { index: "?", worktree: "?", path: "a -> b.txt" },
+    ]);
+  });
+
+  test("keeps a newline inside a filename as one record", () => {
+    expect(parseStatusRecords(z("?? two\nlines.txt"))).toEqual([
+      { index: "?", worktree: "?", path: "two\nlines.txt" },
+    ]);
+  });
+
+  test("keeps a non-ASCII path verbatim", () => {
+    expect(parseStatusRecords(z(" M 筆記.md"))).toEqual([
+      { index: " ", worktree: "M", path: "筆記.md" },
+    ]);
+  });
+
+  test("consumes a rename's source so the next record is not shifted", () => {
+    expect(parseStatusRecords(z("R  new", "old", "A  after"))).toEqual([
+      { index: "R", worktree: " ", path: "new", oldPath: "old" },
+      { index: "A", worktree: " ", path: "after" },
+    ]);
+  });
+
+  test("consumes the source of a worktree-side rename too", () => {
+    expect(parseStatusRecords(z(" R new", "old", "A  after"))).toEqual([
+      { index: " ", worktree: "R", path: "new", oldPath: "old" },
+      { index: "A", worktree: " ", path: "after" },
+    ]);
+  });
+
+  test("keeps an unmapped status code rather than dropping the path", () => {
+    expect(parseStatusRecords(z("T  typechange.txt"))).toEqual([
+      { index: "T", worktree: " ", path: "typechange.txt" },
+    ]);
+  });
+});
+
+describe("unquoteGitPath", () => {
+  test("leaves plain paths unchanged", () => {
+    expect(unquoteGitPath("src/a.ts")).toBe("src/a.ts");
+  });
+
+  test("unquotes JSON-compatible quoted paths", () => {
+    expect(unquoteGitPath('"path with spaces.txt"')).toBe(
+      "path with spaces.txt",
+    );
+  });
+
+  test("falls back to slicing malformed quoted paths", () => {
+    expect(unquoteGitPath('"bad\\xpath"')).toBe("bad\\xpath");
+  });
+});
+
+describe("shouldSkipDiff", () => {
+  test("skips lock files and node_modules", () => {
+    expect(shouldSkipDiff("bun.lockb")).toBe(true);
+    expect(shouldSkipDiff("package-lock.json")).toBe(true);
+    expect(shouldSkipDiff("node_modules/x")).toBe(true);
+  });
+
+  test("does not skip normal source files", () => {
+    expect(shouldSkipDiff("src/a.ts")).toBe(false);
+  });
+});
+
+describe("isBinaryFile", () => {
+  test("detects binary extensions", () => {
+    expect(isBinaryFile("image.png")).toBe(true);
+    expect(isBinaryFile("font.woff2")).toBe(true);
+  });
+
+  test("treats extensions case-insensitively", () => {
+    expect(isBinaryFile("IMAGE.PNG")).toBe(true);
+  });
+
+  test("does not flag TypeScript files", () => {
+    expect(isBinaryFile("src/a.ts")).toBe(false);
+  });
+});
+
+describe("capDiff", () => {
+  test("keeps short diffs unchanged", () => {
+    expect(capDiff("one\ntwo", { insertions: 1, deletions: 1 })).toBe(
+      "one\ntwo",
+    );
+  });
+
+  test("truncates long diffs with total stats", () => {
+    const diff = Array.from(
+      { length: 402 },
+      (_, index) => `line ${index + 1}`,
+    ).join("\n");
+
+    const capped = capDiff(diff, { insertions: 12, deletions: 3 });
+
+    expect(capped.split("\n")).toHaveLength(401);
+    expect(capped).toEndWith(
+      "[diff truncated: 400 of 402 lines shown; +12/-3 total]",
+    );
+  });
+});
+
+describe("parseNumstat", () => {
+  test("reads insertions and deletions", () => {
+    expect(parseNumstat("12\t3\tsrc/a.ts")).toEqual({
+      insertions: 12,
+      deletions: 3,
+    });
+  });
+
+  test("treats binary markers as zero", () => {
+    expect(parseNumstat("-\t-\timage.png")).toEqual({
+      insertions: 0,
+      deletions: 0,
+    });
+  });
+
+  test("treats empty output as zero", () => {
+    expect(parseNumstat("")).toEqual({ insertions: 0, deletions: 0 });
+  });
+});
+
+describe("renderDigest", () => {
+  function analyzed(path: string, diff: string) {
+    return {
+      path,
+      staged: false,
+      status: "modified" as const,
+      insertions: 1,
+      deletions: 0,
+      diff,
+    };
+  }
+
+  function analysisOf(...files: ReturnType<typeof analyzed>[]) {
+    return {
+      files,
+      summary: files.map(({ diff, ...rest }) => rest),
+      recentCommits: ["abc1234 🔧 chore: init"],
+      elidedFiles: 0,
+    };
+  }
+
+  const TEMPLATE = "# Commit template\n\n- keep it terse\n";
+
+  test("carries the template and every path without a second read", () => {
+    const digest = renderDigest(
+      analysisOf(analyzed("a.ts", "+a"), analyzed("b.ts", "+b")),
+      TEMPLATE,
+      "/tmp/chronicle/commit/analysis-1.json",
+    );
+
+    expect(digest).toContain("- keep it terse");
+    expect(digest).toContain("/tmp/chronicle/commit/analysis-1.json");
+    expect(digest).toContain("a.ts");
+    expect(digest).toContain("b.ts");
+    expect(digest).toContain("+a");
+    expect(digest).toContain("abc1234 🔧 chore: init");
+  });
+
+  test("holds back the largest diffs, naming them, to stay under budget", () => {
+    const digest = renderDigest(
+      analysisOf(
+        analyzed("small.ts", "+s"),
+        analyzed("huge.ts", "x".repeat(5000)),
+      ),
+      TEMPLATE,
+      "/tmp/payload.json",
+      1000,
+    );
+
+    expect(digest).not.toContain("x".repeat(5000));
+    expect(digest).toContain("1 diff(s) held back");
+    expect(digest).toContain("huge.ts");
+    // The parts every run needs survive the budget; only diff detail goes.
+    expect(digest).toContain("+s");
+    expect(digest).toContain("- keep it terse");
+  });
+
+  test("says nothing about a budget it never hit", () => {
+    const digest = renderDigest(
+      analysisOf(analyzed("a.ts", "+a")),
+      TEMPLATE,
+      "/tmp/payload.json",
+    );
+    expect(digest).not.toContain("held back");
+  });
+});
+
+describe("applyTotalDiffBudget", () => {
+  const file = (path: string, lines: number, stats = { i: 1, d: 1 }) => ({
+    path,
+    staged: false,
+    status: "modified" as const,
+    diff: Array.from({ length: lines }, (_, n) => `line ${n}`).join("\n"),
+    insertions: stats.i,
+    deletions: stats.d,
+  });
+
+  test("leaves a changeset under budget untouched", () => {
+    const files = [file("a.ts", 10), file("b.ts", 10)];
+
+    expect(applyTotalDiffBudget(files, 100)).toEqual(files);
+  });
+
+  test("drops the largest diffs first until under budget", () => {
+    const result = applyTotalDiffBudget(
+      [file("small.ts", 10), file("huge.ts", 500), file("mid.ts", 60)],
+      100,
+    );
+
+    expect(result[1].diff).toContain("[diff omitted:");
+    expect(result[1].diff).toContain("100-line aggregate budget");
+    expect(result[0].diff).not.toContain("[diff omitted:");
+    expect(result[2].diff).not.toContain("[diff omitted:");
+  });
+
+  test("preserves original file order and stats when trimming", () => {
+    const result = applyTotalDiffBudget(
+      [file("a.ts", 500, { i: 400, d: 100 }), file("b.ts", 5)],
+      50,
+    );
+
+    expect(result.map((f) => f.path)).toEqual(["a.ts", "b.ts"]);
+    expect(result[0].insertions).toBe(400);
+    expect(result[0].deletions).toBe(100);
+    expect(result[0].diff).toContain("+400/-100");
+  });
+
+  test("keeps trimming when every diff is oversized", () => {
+    const result = applyTotalDiffBudget(
+      [file("a.ts", 300), file("b.ts", 300)],
+      50,
+    );
+
+    expect(result.every((f) => f.diff.startsWith("[diff omitted:"))).toBe(true);
+  });
+});
+
+describe("analyzeFile", () => {
+  const originalCwd = process.cwd();
+  afterEach(() => process.chdir(originalCwd));
+
+  test("reports real diff stats for a tracked lock file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "chronicle-lock-"));
+    process.chdir(dir);
+    await $`git init -q .`.quiet();
+    await $`git config user.email t@t`.quiet();
+    await $`git config user.name t`.quiet();
+
+    // 100-line lock file, of which only 4 lines change
+    await writeFile(
+      join(dir, "bun.lock"),
+      `${Array.from({ length: 100 }, (_, n) => `"pkg-${n}": "1.0.0",`).join("\n")}\n`,
+    );
+    await $`git add -A`.quiet();
+    await $`git -c commit.gpgSign=false commit -qm init`.quiet();
+    await writeFile(
+      join(dir, "bun.lock"),
+      `${Array.from({ length: 100 }, (_, n) =>
+        n < 4 ? `"pkg-${n}": "2.0.0",` : `"pkg-${n}": "1.0.0",`,
+      ).join("\n")}\n`,
+    );
+
+    const result = await analyzeFile({
+      path: "bun.lock",
+      staged: false,
+      status: "modified",
+    });
+
+    expect(result.diff).toBe("[lock file - diff skipped]");
+    // the regression: this used to report the whole file (100) as insertions
+    expect(result.insertions).toBe(4);
+    expect(result.deletions).toBe(4);
+  });
+
+  test("falls back to file length for an untracked lock file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "chronicle-newlock-"));
+    process.chdir(dir);
+    await $`git init -q .`.quiet();
+    await writeFile(join(dir, "bun.lock"), "a\nb\nc\n");
+
+    const result = await analyzeFile({
+      path: "bun.lock",
+      staged: false,
+      status: "added",
+    });
+
+    expect(result.diff).toBe("[lock file - diff skipped]");
+    expect(result.insertions).toBe(3);
+    expect(result.deletions).toBe(0);
+  });
+
+  test("marks unreadable files without throwing", async () => {
+    const result = await analyzeFile({
+      path: "/tmp/chronicle-missing-file.txt",
+      staged: false,
+      status: "added",
+    });
+
+    expect(result.diff).toBe("[unreadable - skipped]");
+  });
+
+  test("skips inline content for large untracked files", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "chronicle-large-"));
+    const path = join(dir, "large.txt");
+    await writeFile(path, `${"line\n".repeat(70_000)}`);
+
+    const result = await analyzeFile({
+      path,
+      staged: false,
+      status: "added",
+    });
+
+    expect(result.diff).toContain("[large file - content skipped]");
+    expect(result.diff).not.toContain("line\nline\nline");
+    expect(result.insertions).toBe(70_000);
+  });
+
+  test("carries an intent-to-add file from real git status to a diff", async () => {
+    // End-to-end guard for the reported bug: `git add -N` files reached the
+    // commit flow as nothing at all, so they landed in no commit while the flow
+    // reported success. Parse git's own output rather than a hand-written line.
+    const dir = await mkdtemp(join(tmpdir(), "chronicle-intent-"));
+    process.chdir(dir);
+    await $`git init -q .`.quiet();
+    await $`git config user.email t@t`.quiet();
+    await $`git config user.name t`.quiet();
+    await writeFile(join(dir, "existing.ts"), "export const a = 1;\n");
+    await $`git add -A`.quiet();
+    await $`git -c commit.gpgSign=false commit -qm init`.quiet();
+    await writeFile(join(dir, "existing.ts"), "export const a = 2;\n");
+    await writeFile(join(dir, "newmod.ts"), "export const b = 3;\n");
+    await $`git add -N newmod.ts`.quiet();
+
+    const entries = parseStatus(
+      await $`git status --porcelain -uall -z`.text(),
+    );
+
+    expect(entries).toContainEqual({
+      path: "newmod.ts",
+      staged: false,
+      status: "added",
+    });
+
+    const result = await analyzeFile({
+      path: "newmod.ts",
+      staged: false,
+      status: "added",
+    });
+
+    expect(result.diff).toContain("export const b = 3;");
+    expect(result.insertions).toBe(1);
+  });
+});
+
+describe("verifyPlanLanded", () => {
+  test("passes when every planned file landed and nothing is left", () => {
+    expect(verifyPlanLanded(["a.ts", "b.ts"], ["a.ts", "b.ts"], [])).toEqual({
+      ok: true,
+      missing: [],
+      leftover: [],
+      excluded: [],
+    });
+  });
+
+  test("reports an excluded change as excluded, not leftover", () => {
+    const result = verifyPlanLanded(
+      ["a.ts"],
+      ["a.ts"],
+      ["unrelated.ts", "stray.ts"],
+      ["./unrelated.ts"],
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.leftover).toEqual(["stray.ts"]);
+    expect(result.excluded).toEqual(["unrelated.ts"]);
+  });
+
+  test("reports planned files that never landed", () => {
+    // The reported failure: the plan claimed the new files, the commit did not.
+    const result = verifyPlanLanded(
+      ["existing.ts", "feature.ts", "newmod.ts"],
+      ["existing.ts"],
+      ["feature.ts", "newmod.ts"],
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual(["feature.ts", "newmod.ts"]);
+  });
+
+  test("fails on a leftover change the plan never mentioned", () => {
+    const result = verifyPlanLanded(["a.ts"], ["a.ts"], ["untouched.ts"]);
+
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual([]);
+    expect(result.leftover).toEqual(["untouched.ts"]);
+  });
+
+  test("normalizes quoted and ./-prefixed paths on both sides", () => {
+    const result = verifyPlanLanded(
+      ["./a.ts", '"with space.ts"'],
+      ["a.ts", "with space.ts"],
+      [],
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("ignores duplicate paths in the plan", () => {
+    const result = verifyPlanLanded(["a.ts", "a.ts"], ["a.ts"], []);
+
+    expect(result).toEqual({
+      ok: true,
+      missing: [],
+      leftover: [],
+      excluded: [],
+    });
+  });
+
+  test("tolerates commits carrying more files than the plan named", () => {
+    const result = verifyPlanLanded(["a.ts"], ["a.ts", "b.ts"], []);
+
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("mustPairs", () => {
+  test("pairs a same-directory test with its implementation", () => {
+    expect(
+      mustPairs(["src/a.ts", "src/a.test.ts", "src/b.spec.js", "src/b.js", "src/c.ts"]),
+    ).toEqual([
+      { files: ["src/a.test.ts", "src/a.ts"], reason: "test with its implementation" },
+      { files: ["src/b.spec.js", "src/b.js"], reason: "test with its implementation" },
+    ]);
+  });
+
+  test("pairs Rails specs and tests with app/ and lib/ code", () => {
+    expect(
+      mustPairs([
+        "app/models/user.rb",
+        "spec/models/user_spec.rb",
+        "lib/tasks/sync.rb",
+        "test/tasks/sync_test.rb",
+      ]),
+    ).toEqual([
+      { files: ["spec/models/user_spec.rb", "app/models/user.rb"], reason: "test with its implementation" },
+      { files: ["test/tasks/sync_test.rb", "lib/tasks/sync.rb"], reason: "test with its implementation" },
+    ]);
+  });
+
+  test("pairs Go and Python test naming", () => {
+    expect(mustPairs(["pkg/x.go", "pkg/x_test.go", "m/test_y.py", "m/y.py"])).toEqual([
+      { files: ["pkg/x_test.go", "pkg/x.go"], reason: "test with its implementation" },
+      { files: ["m/test_y.py", "m/y.py"], reason: "test with its implementation" },
+    ]);
+  });
+
+  test("pairs a lock file with its manifest in the same directory", () => {
+    expect(
+      mustPairs(["package.json", "bun.lock", "web/Gemfile", "web/Gemfile.lock", "Cargo.lock"]),
+    ).toEqual([
+      { files: ["bun.lock", "package.json"], reason: "lock file with its manifest" },
+      { files: ["web/Gemfile.lock", "web/Gemfile"], reason: "lock file with its manifest" },
+    ]);
+  });
+
+  test("ignores a test whose implementation did not change", () => {
+    expect(mustPairs(["src/a.test.ts", "src/b.ts"])).toEqual([]);
+  });
+});
+
+describe("renderRules", () => {
+  test("says a split is final above five files", () => {
+    const text = renderRules(["a", "b", "c", "d", "e", "f"]);
+    expect(text).toContain("6 files");
+    expect(text).toContain("omit `simple`");
+  });
+
+  test("says nothing about the shape at five files or fewer", () => {
+    expect(renderRules(["a", "b"])).not.toContain("simple");
+  });
+
+  test("lists pairs that must share a commit", () => {
+    expect(renderRules(["x.ts", "x.test.ts"])).toContain(
+      "- x.test.ts + x.ts (test with its implementation)",
+    );
+  });
+
+  test("renders nothing when there is nothing to say", () => {
+    expect(renderRules(["a.ts"])).toBe("");
+  });
+});

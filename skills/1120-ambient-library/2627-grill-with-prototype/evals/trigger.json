@@ -1,0 +1,54 @@
+{
+ "skill_name": "grill-with-prototype",
+ "note": "router-choice evals: full catalog.yaml + request -> expected skill. 2026-10-02: haiku 24/24, opus 12/12, sonnet 23/24 (miss: the email-series 'grill me' case).",
+ "evals": [
+  {
+   "prompt": "i want to build a tool-lending app for my neighborhood — let's prototype it so i can click through the screens while we figure out what it does",
+   "route": "grill-with-prototype"
+  },
+  {
+   "prompt": "make me a clickable mockup of an invoicing dashboard and ask me what each screen needs",
+   "route": "grill-with-prototype"
+  },
+  {
+   "prompt": "wireframe the screens for a booking app with me, then write the spec",
+   "route": "grill-with-prototype"
+  },
+  {
+   "prompt": "spec out the UI for a mobile habit tracker — I want to see it as we go",
+   "route": "grill-with-prototype"
+  },
+  {
+   "prompt": "can we do a clickable demo of the admin panel before we write any code",
+   "route": "grill-with-prototype"
+  },
+  {
+   "prompt": "grill me on this pricing decision",
+   "route": "grill"
+  },
+  {
+   "prompt": "interview me one question at a time about whether to hire a COO",
+   "route": "grill"
+  },
+  {
+   "prompt": "i want an app that writes five-day email series. grill me on it, then build it",
+   "route": "grill"
+  },
+  {
+   "prompt": "ask me questions one by one about the critical gaps in this plan",
+   "route": "grill"
+  },
+  {
+   "prompt": "design an agent pipeline that triages support tickets",
+   "route": "harness-prd"
+  },
+  {
+   "prompt": "scaffold a new project the standard way for my tool-lending app",
+   "route": "init-dev-project"
+  },
+  {
+   "prompt": "summarize this project for me",
+   "route": "project-brief"
+  }
+ ]
+}

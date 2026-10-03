@@ -1,0 +1,244 @@
+---
+name: agent-prompt-standards
+user-invocable: false
+description: >-
+  Agent prompt writing conventions enforced across all creator and auditor skills. Loaded by other skills, not invoked directly.
+allowed-tools: Read
+---
+
+<objective>
+The agent-prompt writing conventions — voice, description style, constraint language, objective shape, and anti-patterns — for the text within SKILL.md files and custom agent developer instructions, enforced across every creator and auditor skill.
+</objective>
+
+<reference_note>
+This is a reference skill governing prompt *craft* (how to write the text); prompt *structure* (which XML tags, file organization) is governed by the creator skills themselves. Composing skills load these conventions explicitly before authoring or reviewing. It is not a standalone workflow.
+</reference_note>
+
+<voice>
+
+**How to refer to the executing Claude instance in prompt bodies.**
+
+Two-tier hierarchy:
+
+1. **Imperative mood (default)** — drop the subject when giving instructions:
+   - "Reflect deeply on what was learned before persisting anything"
+   - "Read the spec file before proposing changes"
+
+2. **"Claude" (for failure modes, tendencies, and behavioral claims)** — use when naming what Claude does, tends to do, or fails to do:
+   - "Without reflection, Claude will dump a narrative instead of making durable decisions"
+   - "Claude loses track of coverage state after 30+ turns"
+
+**Banned subjects:**
+
+| Subject     | Problem                                                                                                          |
+| ----------- | ---------------------------------------------------------------------------------------------------------------- |
+| "the agent" | Anthropic's own skills use "Claude" exclusively; "the agent" appears zero times across 18 shipped SKILL.md files |
+| "the model" | Too generic, distances Claude from its own identity                                                              |
+| "you"       | Ambiguous — could address Claude or the user                                                                     |
+
+**YAML frontmatter exception:** The `name` and `description` fields cannot contain the word "claude" per validation rules. Omit any subject in descriptions and apply the invocation-specific style in `<description_style>`.
+
+**Evidence:** Anthropic-authored skills use "Claude" as the named subject ~70 times. "The agent" appears zero times. Imperative mood is the most common voice for direct instructions.
+
+</voice>
+
+<objective_shape>
+
+**An `<objective>` states the skill's output, not an activity or an actor.** It describes the observable artifact or state the skill produces, in a definite shape — what is true when the skill has been applied correctly, such that "every rule followed exactly" is the visible proof. It never opens with an actor ("The skill produces…", "Claude produces…") or a bare activity verb ("Audit…", "Generate…", "Evaluate…"). It names the output and its required shape.
+
+**One sentence — it is the output target, not a summary of the skill.** Write one sentence; reach for a second only when the output has two distinct parts. A paragraph-length objective is the smell that activation, workflow, or constraints have leaked in. The litmus: every clause must name a property of the *output*. A clause that says *when* the skill runs belongs in `description`; *how* it runs (steps, gates, orchestration) belongs in `<workflow>`; *what it must not do* belongs in `<constraints>`. Delete such clauses from the objective — they are not new truth to relocate, they already live in those sections. `/manage-github-pr`'s output is "the changeset merged into the default branch on origin through a pull request," not the paragraph that narrates how it gets there.
+
+**Common shapes by skill family** — name the output, never the activity:
+
+- **Auditor** → "A verdict on X — &lt;the finding categories&gt;" (the canonical auditor shape; see `/skill-standards` `references/auditor-skeleton.md`).
+- **Coder / builder** → "The &lt;artifact&gt; that &lt;holds the property&gt;" — e.g. "Python implementation code that makes its node's tests pass."
+- **Reference / standards** → "The &lt;standards or vocabulary&gt; &lt;scope&gt;" — e.g. "The Python-specific test standards every Python skill enforces."
+- **Router** → "A &lt;request&gt; routed to its matching workflow" — the routing outcome, not the menu.
+- **Orchestrator** → the end-state its lifecycle produces — e.g. "the changeset merged to the default branch on origin," not the step sequence.
+
+**An objective is not a behavioral claim.** `<voice>` governs behavioral claims — what Claude does, tends to do, or fails to do. An objective is an output statement, a different category, so the imperative-vs-"Claude" subject choice never applies to it. Naming an actor as the subject of an objective is the error the output framing removes.
+
+This mirrors the methodology's output / outcome / impact distinction — assertions specify the **output**, and an objective names the skill's output the same way. `<success_criteria>` proves it: the objective names the output and its shape, `<success_criteria>` states the properties that make it sound, and the two never duplicate.
+
+</objective_shape>
+
+<description_style>
+
+**Match the description to the invocation path.** Apply `/skill-standards` `<descriptions>` to select directive or passive wording. The directive-writing guidance below applies to description-match entry points. An audit or protocol invoked by exact name keeps a passive description of its subject and criteria; its user visibility does not change that selection.
+
+**Directive descriptions for reliable activation.**
+
+Research (650 automated trials) shows description wording has a 20x impact on activation odds:
+
+| Style         | Activation | Example                                         |
+| ------------- | ---------- | ----------------------------------------------- |
+| Passive       | ~77%       | `Docker expert for containerization. Use when…` |
+| Expanded      | ~93%       | `…or any Docker-related task`                   |
+| **Directive** | **~100%**  | `ALWAYS invoke… NEVER X without this skill`     |
+
+**Base template:**
+
+```yaml
+description: >-
+  ALWAYS invoke this skill when <triggers>.
+```
+
+**NEVER constraint — add only when it disambiguates.** A NEVER line helps when:
+
+- The skill is the only one with that negative
+- Claude has a strong built-in alternative the negative prevents
+
+Omit NEVER when:
+
+- Multiple skills share the same negative
+- The ALWAYS trigger is already specific enough
+
+**Language-after-artifact** (matches user speech):
+
+```yaml
+# ✅ "audit ADRs for Python" — matches what users say
+ALWAYS invoke this skill when auditing ADRs for Python.
+
+# ❌ "audit Python ADRs" — unnatural phrasing
+ALWAYS invoke this skill when auditing Python ADRs.
+```
+
+**Match actual user speech:**
+
+- Abbreviations: "ADRs" not "Architecture Decision Records"
+- Natural terms: "test-python" not "python-unit-test-framework"
+- Plain language: "read all specs" not "hierarchical context ingestion protocol"
+
+**Reference skills** use `user-invocable: false` with a passive description:
+
+```yaml
+user-invocable: false
+description: >-
+  Python code standards enforced across all skills. Loaded by other skills, not invoked directly.
+```
+
+</description_style>
+
+<constraint_language>
+
+**Strong modal verbs for constraints:**
+
+- `MUST` — required behavior, no exceptions
+- `NEVER` — prohibited behavior, no exceptions
+- `ALWAYS` — required in every case
+
+**Weak modals to avoid in constraint blocks:**
+
+- "should" — implies optional
+- "try to" — invites half-measures
+- "consider" — without a specific condition, this is noise
+- "might want to" — means nothing actionable
+
+Weak modals are fine in non-constraint contexts — recommendations, trade-off discussions, conditional guidance. The rule applies to constraint blocks (`<constraints>`, hardened rules in workflows).
+
+**Pattern — constraint with rationale:**
+
+```text
+NEVER modify files during audit — audits are read-only by design.
+MUST read reference documentation before evaluating — prevents memory-based assessment.
+```
+
+The rationale after the dash prevents blind rule-following and helps Claude judge edge cases.
+
+</constraint_language>
+
+<anti_patterns>
+
+**Banned phrases in prompt text:**
+
+| Pattern             | Problem                    | Fix                                                        |
+| ------------------- | -------------------------- | ---------------------------------------------------------- |
+| "helpful assistant" | Generic, zero signal       | State the specific domain and expertise                    |
+| "helps with"        | Vague                      | Name the concrete action                                   |
+| "processes data"    | Could mean anything        | Name the specific data and operation                       |
+| "the agent"         | Not Anthropic convention   | Use imperative or "Claude" (see `<voice>`)                 |
+| "you should"        | Ambiguous addressee        | Use imperative                                             |
+| "please"            | Wastes tokens, no effect   | Direct instruction                                         |
+| "if possible"       | Hedges the instruction     | State the instruction; add a fallback if the hedge is real |
+| "try to"            | Invites partial compliance | State the requirement                                      |
+
+**Structural anti-patterns:**
+
+- **Explaining Claude to Claude** — "As an AI language model..." wastes context. Claude knows what it is.
+- **Motivational prose** — "This is a critical task that requires careful attention" adds nothing. State the constraints.
+- **Repeating the skill name** — "The create-skill skill is designed to..." — Claude has the name from frontmatter.
+- **Empty disclaimers** — "Results may vary" — if there are real failure modes, document them concretely; if not, cut the disclaimer.
+
+</anti_patterns>
+
+<conciseness>
+
+**The test for every sentence in a prompt:**
+
+"Does removing this reduce Claude's effectiveness at the task?"
+
+If no — cut it.
+
+**What Claude already knows (never include):**
+
+- General programming knowledge
+- Language syntax and standard library APIs
+- Common design patterns
+- How to use its own tools
+
+**What Claude needs (include):**
+
+- Product-specific conventions that contradict common patterns
+- Domain knowledge not in training data
+- Failure modes from actual usage (not hypotheticals)
+- Verification commands and thresholds
+
+**Concrete over abstract:**
+
+```text
+# ❌ Abstract
+"Ensure coverage is maintained"
+
+# ✅ Concrete
+"Coverage delta must be ≤0.5%. Run: pnpm test --coverage | grep target.ts"
+```
+
+</conciseness>
+
+<failure_mode_writing>
+
+Failure modes are among the most valuable content in a skill. Write them from actual experience, not speculation.
+
+**Structure each failure mode:**
+
+1. **What happened** — concrete scenario with specifics
+2. **Why it failed** — root cause, not symptom
+3. **How to avoid** — actionable prevention
+
+**Use "Claude" as the subject** (failure modes are the primary case for named-subject voice):
+
+```text
+✅ Claude compared coverage per-story instead of per-file. Multiple stories share one
+   legacy file; per-story coverage is meaningless.
+
+❌ "Compare coverage per-file, not per-story."
+   (States the rule but loses the WHY — the failure mode teaches the reason.)
+```
+
+Never invent failure modes. If a skill is new and hasn't failed yet, omit the section rather than fabricating scenarios. Add failure modes as they occur in real usage.
+
+</failure_mode_writing>
+
+<success_criteria>
+
+A prompt that follows these conventions:
+
+- Uses imperative mood for instructions, "Claude" for failure modes and tendencies
+- Never uses "the agent", "the model", or "you"
+- Uses the description style its invocation path requires under `/skill-standards` `<descriptions>`
+- Uses strong modal verbs (MUST/NEVER/ALWAYS) in constraint blocks
+- Contains no banned phrases or structural anti-patterns
+- Includes only information Claude doesn't already have
+- Documents failure modes from actual usage with concrete specifics
+
+</success_criteria>

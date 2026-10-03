@@ -1,0 +1,11 @@
+{
+  "name": "paradigm-collision-engine",
+  "description": "Generates non-obvious insight by colliding 400+ disciplinary paradigms via parallel sub-agents and an elimination tournament; use for \"fresh angle on X\", \"non-obvious take\", \"multiple lenses\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

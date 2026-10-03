@@ -1,0 +1,28 @@
+# ABOUTME: hub-side addon that logs, with a timestamp, each proxy client connection and each
+# ABOUTME: request host, so `capture.mjs check`/`stop` count a capture's traffic from the log.
+import time
+
+from mitmproxy import http
+
+
+def client_connected(client) -> None:
+    # Fires when anything points at the hub port, before any HTTP — the signal that the proxy
+    # (Zero Omega, a phone, a system proxy) is actually enabled and connecting.
+    print(f"PROXY_CLIENT_CONNECTED {time.time():.3f}", flush=True)
+
+
+def request(flow: http.HTTPFlow) -> None:
+    # One line per request, with the host, so a capture's window and hosts can be counted from
+    # the log alone — no need to re-parse the whole shared flow file.
+    print(f"PROXY_REQUEST {time.time():.3f} {flow.request.pretty_host}", flush=True)
+
+
+def tls_failed_client(data) -> None:
+    # The client rejected the mitmproxy certificate: the CA is not trusted on the client (the
+    # phone, or macOS) or the app pins its cert. Logged with the SNI so `check` can tell this
+    # from a plain host-filter miss — a connection arrives but no request ever completes.
+    conn = getattr(data, "conn", None)
+    sni = getattr(conn, "sni", None) or "?"
+    if isinstance(sni, bytes):
+        sni = sni.decode("idna", "replace")
+    print(f"PROXY_TLS_FAILED {time.time():.3f} {sni}", flush=True)

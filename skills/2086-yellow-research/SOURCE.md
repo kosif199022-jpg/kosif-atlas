@@ -1,0 +1,10 @@
+# yellow-research
+
+Deep research plugin with Ceramic, DeepWiki, Perplexity, Tavily, EXA, Parallel Task, and ast-grep MCP servers. Code research inline; deep research saved to docs/research/.
+
+- License: **MIT** (no license file shipped; see the source repository)
+- Source: https://github.com/kinginyellows/yellow-plugins/tree/a6d765ca19409715d966d77ae1d2f1f94d1f4374/plugins/yellow-research
+- Commit: `a6d765ca19409715d966d77ae1d2f1f94d1f4374`
+- KOSIF static inspection: **REVIEW_BEFORE_INSTALL** (hooks: 1, MCP servers: 7, scripts: 7). Read the scripts before running anything.
+
+Unofficial mirror of the skill text for reference. All rights remain with the original authors under the license above.

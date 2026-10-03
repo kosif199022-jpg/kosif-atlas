@@ -1,0 +1,240 @@
+{
+  "system_name": "vercel",
+  "source": "open-design",
+  "extracted_at": "2026-05-04T04:27:13.736009Z",
+  "dialect": "A",
+  "fingerprint_hash": "17d533f0ff2e1b5d9be3e69335ab7fc599d1ddf52bc9ac2f2dd36479676cbd3d",
+  "extraction_method": "programmatic_a1",
+  "tool_version": "1.1.0",
+  "color": {
+    "role_color_pairs": {
+      "vercel_black": "#171717",
+      "pure_white": "#ffffff",
+      "true_black": "#000000",
+      "ship_red": "#ff5b4f",
+      "preview_pink": "#de1d8d",
+      "develop_blue": "#0a72ef",
+      "console_blue": "#0070f3",
+      "console_purple": "#7928ca",
+      "console_pink": "#eb367f",
+      "link_blue": "#0072f5",
+      "focus_blue": "hsla(212, 100%, 48%, 1)",
+      "ring_blue": "rgba(147, 197, 253, 0.5)",
+      "gray_900": "#171717",
+      "gray_600": "#4d4d4d",
+      "gray_500": "#666666",
+      "gray_400": "#808080",
+      "gray_100": "#ebebeb",
+      "gray_50": "#fafafa",
+      "overlay_backdrop": "hsla(0, 0%, 98%, 1)",
+      "selection_text": "hsla(0, 0%, 95%, 1)",
+      "badge_blue_bg": "#ebf5ff",
+      "badge_blue_text": "#0068d6",
+      "border_shadow": "rgba(0, 0, 0, 0.08)",
+      "subtle_elevation": "rgba(0, 0, 0, 0.04)",
+      "card_stack": "rgba(0,0,0,0.08)",
+      "ring_border": "rgb(235, 235, 235)"
+    },
+    "all_hex_colors": [
+      "#171717",
+      "#ffffff",
+      "#000000",
+      "#ff5b4f",
+      "#de1d8d",
+      "#0a72ef",
+      "#0070f3",
+      "#7928ca",
+      "#eb367f",
+      "#0072f5",
+      "#4d4d4d",
+      "#666666",
+      "#808080",
+      "#ebebeb",
+      "#fafafa",
+      "#ebf5ff",
+      "#0068d6"
+    ],
+    "all_rgba_colors": [
+      "rgba(147, 197, 253, 0.5)",
+      "rgba(0, 0, 0, 0.08)",
+      "rgba(0, 0, 0, 0.04)",
+      "rgba(0,0,0,0.08)",
+      "rgba(0,0,0,0.04)",
+      "rgb(235, 235, 235)"
+    ],
+    "all_hsla_colors": [
+      "hsla(212, 100%, 48%, 1)",
+      "hsla(0, 0%, 98%, 1)",
+      "hsla(0, 0%, 95%, 1)"
+    ],
+    "hex_count": 17,
+    "_extraction_method": "regex_role_pairs + hex_enum",
+    "_confidence": "high"
+  },
+  "typography": {
+    "families": [
+      {
+        "role": "primary",
+        "family": "Geist"
+      },
+      {
+        "role": "mono",
+        "family": "Geist Mono"
+      }
+    ],
+    "all_px_values": [
+      12.0,
+      13.0,
+      14.0,
+      16.0,
+      18.0,
+      20.0,
+      24.0,
+      32.0,
+      40.0,
+      48.0
+    ],
+    "declared_scale_px": null,
+    "weights_seen": [],
+    "_extraction_method": "regex_family_role_pairs + px_enum + weight_enum",
+    "_confidence": "high"
+  },
+  "spacing": {
+    "base_unit_px": 8.0,
+    "declared_scale": null,
+    "all_px_values": [
+      1.0,
+      2.0,
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      8.0,
+      10.0,
+      12.0,
+      14.0,
+      16.0,
+      20.0,
+      24.0,
+      32.0,
+      36.0,
+      40.0,
+      64.0,
+      80.0,
+      100.0,
+      120.0
+    ],
+    "_extraction_method": "regex_base_unit + scale_enum",
+    "_confidence": "medium"
+  },
+  "layout": {
+    "_extraction_method": "kept_section_text_for_a3",
+    "_confidence": "low",
+    "_section_size": 1511
+  },
+  "radius": {
+    "role_radius_pairs": {
+      "micro": 2.0,
+      "standard": 6.0,
+      "comfortable": 8.0,
+      "image": 12.0,
+      "large": 64.0,
+      "xl": 100.0,
+      "full pill": 9999.0
+    },
+    "all_px_values": [
+      2.0,
+      4.0,
+      6.0,
+      8.0,
+      12.0,
+      100.0,
+      9999.0
+    ],
+    "_extraction_method": "regex_role_radius (patterns A and B), v1.7.1 subsection-scoped",
+    "_confidence": "high"
+  },
+  "depth_elevation": {
+    "rgba_shadows": [
+      "rgba(0,0,0,0.08)",
+      "rgb(235,235,235)",
+      "rgba(0,0,0,0.04)"
+    ],
+    "inset_shadows": [],
+    "_extraction_method": "regex_rgba_inset",
+    "_confidence": "medium"
+  },
+  "responsive": {
+    "breakpoints_named": {
+      "mobile": {
+        "min": 400,
+        "max": 600
+      },
+      "tablet_small": {
+        "min": 600,
+        "max": 768
+      },
+      "tablet": {
+        "min": 768,
+        "max": 1024
+      },
+      "desktop_small": {
+        "min": 1024,
+        "max": 1200
+      },
+      "desktop": {
+        "min": 1200,
+        "max": 1400
+      }
+    },
+    "_extraction_method": "regex_breakpoint_table",
+    "_confidence": "high"
+  },
+  "dos_donts": {
+    "dos": [
+      "Use Geist Sans with aggressive negative letter-spacing at display sizes (-2.4px to -2.88px at 48px)",
+      "Use shadow-as-border (`0px 0px 0px 1px rgba(0,0,0,0.08)`) instead of traditional CSS borders",
+      "Enable `\"liga\"` on all Geist text — ligatures are structural, not optional",
+      "Use the three-weight system: 400 (body), 500 (UI), 600 (headings)",
+      "Apply workflow accent colors (Red/Pink/Blue) only in their workflow context",
+      "Use multi-layer shadow stacks for cards (border + elevation + ambient + inner highlight)",
+      "Keep the color palette achromatic — grays from `#171717` to `#ffffff` are the system",
+      "Use `#171717` instead of `#000000` for primary text — the micro-warmth matters"
+    ],
+    "donts": [
+      "Don't use positive letter-spacing on Geist Sans — it's always negative or zero",
+      "Don't use weight 700 (bold) on body text — 600 is the maximum, used only for headings",
+      "Don't use traditional CSS `border` on cards — use the shadow-border technique",
+      "Don't introduce warm colors (oranges, yellows, greens) into the UI chrome",
+      "Don't apply the workflow accent colors (Ship Red, Preview Pink, Develop Blue) decoratively",
+      "Don't use heavy shadows (> 0.1 opacity) — the shadow system is whisper-level",
+      "Don't increase body text letter-spacing — Geist is designed to run tight",
+      "Don't use pill radius (9999px) on primary action buttons — pills are for badges/tags only",
+      "Don't skip the inner `#fafafa` ring in card shadows — it's the glow that makes the system work"
+    ],
+    "_extraction_method": "subsection_bullet_parse",
+    "_confidence": "high"
+  },
+  "sections_present": [
+    "visual_theme",
+    "color",
+    "typography",
+    "components",
+    "layout",
+    "depth_elevation",
+    "dos_donts",
+    "responsive",
+    "agent_guide"
+  ],
+  "sections_unhandled": [
+    "components",
+    "agent_guide"
+  ],
+  "sections_meta_for_llm": [
+    "visual_theme",
+    "agent_guide"
+  ],
+  "llm_followup_hints": [
+    "layout extraction has low confidence — recommend LLM review"
+  ]
+}

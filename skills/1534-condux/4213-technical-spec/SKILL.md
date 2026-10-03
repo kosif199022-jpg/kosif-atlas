@@ -1,0 +1,218 @@
+---
+name: technical-spec
+description: Persists feature requirements, decisions, API contracts, implementation details, and quirks into a structured, queryable spec tree — one folder per feature, one file per concern.
+when_to_use: Invoke-only — discovery runs it at design sign-off and preflight's drift check reads its output; the user runs it via /technical-spec when they say "save spec", "document this", "write up what we decided", "record the decision rationale", "spec this out", "save this PRD", or "write up the requirements" — recording decisions for the future is spec work even when phrased as remembering. Not for turning a rough idea into a design first — that's discovery.
+disable-model-invocation: true
+---
+
+# Save Tech Spec
+
+## Overview
+
+Persists feature requirements, decisions, API contracts, implementation details, and quirks into a structured, queryable spec tree. One folder per feature, one file per concern — future sessions load only what they need. Specs are living contracts: `/preflight`'s Drift Check compares the implementation against them at end-of-task.
+
+## Spec Folder Layout
+
+All specs live under one `specs/` tree at the **git root**, mirroring the
+repo structure. The scaffold script detects the nearest package root (walking
+up from CWD to the git root, finding the first `package.json`, `Cargo.toml`,
+`go.mod`, or `pyproject.toml`) and uses its path *relative to the git root*
+to place the spec.
+
+```
+<git-root>/specs/
+  {feature-slug}/           # cross-cutting, or scaffolded from the repo root
+  apps/web/
+    {feature-slug}/         # scaffolded while working in apps/web
+      index.md              # purpose, TOC, last updated, PR stamp, changelog  ← scaffold creates this
+      prd.md                # Requirements: problem, users, goals/non-goals, metrics, scope
+      decisions.md          # Design decisions with context + rationale
+      api.md                # Endpoints, types, external APIs consumed
+      fields.md             # Field mappings: BE/3rd-party → UI, or forwarding chains
+      implementation.md     # Key files, patterns, how it hangs together
+      quirks.md             # Edge cases, gotchas, known issues
+```
+
+Slugs are kebab-case and acronym-aware: `WanConfig` → `wan-config`,
+`UIFormControls` → `ui-form-controls`.
+
+In a single-package repo the package root is the git root, so specs land at
+`specs/<slug>/`. In a monorepo working on `apps/web`, they land at
+`specs/apps/web/<slug>/` — one browsable tree, with a natural home for
+cross-cutting features at `specs/<slug>/`.
+
+Existing specs co-located inside packages (`apps/web/specs/…`) are not
+auto-migrated — `git mv` them into the root tree if you want them unified.
+
+Only create files that have actual content. Don't create empty files.
+
+## Workflow
+
+Infer the feature name (ask if unclear) → confirm with the user before
+writing → run the scaffold script → write or update the concern files and
+`index.md` → offer the live HTML preview. Each step is specified in the
+sections below.
+
+**When `discovery` calls this at sign-off**, the design document already
+exists and has since the design's first section — discovery creates it at §1
+and appends to it as each section is agreed. So the input here is a finished
+file on disk, not a summary reconstructed from the conversation: read
+`.condux/designs/YYYY-MM-DD-<feature>.md` and map its sections into the
+concern files. Its `§0 · requirements` part uses `prd.md`'s six headings
+verbatim, so that mapping is a copy, heading for heading. Discovery's own
+preview server is already running against that file, so the live-preview
+offer below applies to the *spec directory* only — never start a second
+server for the design.
+
+## Required Notifications
+
+Always announce and confirm before writing or editing. Never silently modify files.
+
+New spec:
+```
+About to save tech spec for `wan-config` → specs/wan-config/
+Proceed? [y/n]
+```
+
+Updating existing spec:
+```
+Updating spec for `wan-config` (last saved: 2026-06-20, commit abc1234)
+Files to update: decisions.md, quirks.md
+Proceed? [y/n]
+```
+
+## Running the Scaffold Script
+
+The script lives next to this skill file. Find it relative to where this SKILL.md was loaded from:
+
+```bash
+bash path/to/skill/references/scaffold.sh "WanConfig"
+```
+
+The script outputs one line:
+- `created:/abs/path/to/specs/wan-config date:2026-06-24 commit:PR #pending` — new spec, `index.md` written
+- `exists:/abs/path/to/specs/wan-config date:2026-06-24 commit:PR #pending` — spec already exists
+
+Parse `date` and the **absolute spec path** from the output — use the absolute path when writing content files and launching the preview server.
+
+The `**Commit:**` stamp names the PR that carries the change (`PR #153`), never
+a commit hash: a hash written on a feature branch is orphaned by the
+squash-merge that lands it, so it resolves only in clones that had the branch.
+The scaffold writes `PR #pending`; replace it with the number once the PR is
+open, and use the same form in changelog lines.
+
+## After Scaffold: Writing Content Files
+
+Read [references/templates.md](references/templates.md) for the structure of each file.
+
+**The layering rule.** Every concern file opens with its summary table; the
+reasoning sits underneath; prose appears only where it earns its keep — the
+reasoning a future reader must be able to follow. Fill the table layer first:
+it is what a scanning human, `preflight`'s drift check, and an agent loading
+the spec all read, so write each row as a claim someone could check.
+
+**The two-homes rule.** A type in `api.md` says what each field *means* —
+trailing `//` per field, JSDoc only when a line won't do. `fields.md` says
+what *happens to it* — mapping and transformation only. One fact never lives
+in both places: a fact with two homes goes missing from the one being read.
+The same split holds one level up: `prd.md` says *why the feature exists and
+for whom*; `decisions.md` says *how it was chosen*. A decision never restates
+the problem, and the PRD never records an alternative.
+
+**`prd.md` is the requirements file, and the one file written before the
+design.** `discovery` authors it from its requirements card and writes it
+here at sign-off; run standalone ("save this PRD", "write up the
+requirements") you write it directly from what the user gives you. Six fixed
+sections — see the template. A section nobody has answered becomes an open
+question; never invent users or metrics to complete the table.
+
+**Quirk headings are `## Q<n> — Title`.** The `Q<n>` anchors are a citation
+contract (`durable-citations.test.mjs` resolves them), so numbers are unique,
+ascending, and never renumbered.
+
+- Write only files that have real content
+- After writing, update the `## Contents` table in `index.md` — one row per
+  file created, the `Answers` cell saying what a reader comes to it for
+- Replace the HTML comment the scaffold left below the title with a one-line
+  `> …` note saying what the spec is for. That note is what `spec-browser`'s
+  catalog shows for the spec; leave it and the spec is listed with nothing to
+  identify it
+
+**Cite committed paths only.** The spec is durable; the design and plan it came
+from live in `.condux/`, which is gitignored — a citation into it is dead on
+every machine but this one. When the changelog or a content file needs to point
+at a design or a verification report, copy that file into the spec directory
+first (`design.md`, `verification.md`) and cite that path. If the artifact is
+already gone, say so and name what survives — a PR, a commit — instead of a
+path that resolves nowhere.
+
+## Updating an Existing Spec
+
+When scaffold output is `exists:`:
+1. Read `index.md` to see current state and which files exist
+2. Update only files with new or changed content
+3. Bump `Last updated` in `index.md` from scaffold output; set `Commit` to the PR carrying this change (`PR #pending` until it is open)
+4. Append to the `## Changelog` in `index.md`
+
+## Live HTML Preview & Review (Optional)
+
+Spec preview is served by the **plan-review** skill's annotate server in
+directory mode — the same annotation UI used for plan review, so the user can
+not only read the spec live but select text, attach notes per file, and submit
+a decision.
+
+After writing spec files, ask:
+
+```
+Spec saved. Want a live HTML preview? It renders all spec files, updates as you edit, and lets you annotate. [y/n]
+```
+
+If yes, locate the plan-review server script:
+
+```bash
+find ~/.claude ~/.codex ~/.agents -name "annotate-server.js" -path "*plan-review*" 2>/dev/null | head -1
+```
+
+Run it in the background, pointing at the spec folder:
+
+```bash
+node /path/to/plan-review/references/annotate-server.js specs/wan-config
+```
+
+It opens the browser automatically, lists every top-level `.md` in the folder
+(Contents tab), watches for file changes, and re-renders live. If the user
+submits a decision, it lands in `specs/<slug>/review.feedback.md` with notes
+grouped by file — read it and action it:
+
+- **Approve** — the spec is accurate; nothing to do.
+- **Request Revisions** — fix the spec files per the notes.
+
+Spec review is accept-or-fix, so the bar shows only these two verdicts (the
+plan-only "Reject / don't build it" verdict is hidden in directory mode). If
+the spec's whole premise is wrong, the user leaves a note saying so and stops
+the server — treat that as a cue to discuss before rewriting, not a routine
+revision.
+
+Tell the user:
+
+```
+Preview running. Edit your spec files and the browser updates live.
+Annotate and submit a decision, or just press Ctrl+C in the terminal when done.
+```
+
+The server is in-memory only — no HTML files are written to disk (only the
+feedback file, if a decision is submitted).
+
+## Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| Skipping the notification/confirmation | Always announce before writing, wait for approval |
+| Not using scaffold output for the date | Parse it from the script — don't run git separately |
+| Stamping a commit hash | The stamp is `PR #N` — a branch hash is orphaned by squash-merge; `PR #pending` until the PR is open |
+| Rewriting all files on update | Read `index.md` first, only touch files with new content |
+| Vague decisions | Each decision needs context + rationale + consequences |
+| Creating empty placeholder files | Only create a file when it has real content |
+| Forgetting to update index.md Contents | Always link to files you create |
+| Prose blob where the template has a table | Fill the table layer first; prose only for reasoning the table can't carry |
+| Bare interface with the field meanings in fields.md | Meaning goes on the type (`//` per field); fields.md carries only the journey |

@@ -1,0 +1,11 @@
+{
+  "name": "voice-crm-pipeline",
+  "description": "Builds a hands-free voice-to-database capture chain (Siri to Shortcut to GPT to Sheets); use for \"I never update my CRM\", \"talk to my database\", \"voice-to-sheet workflow\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

@@ -1,0 +1,111 @@
+---
+name: gopher-guides
+description: "Authoritative Gopher Guides Go training materials accessed via REST API/cache wrapper. Use when reviewing Go code and the user explicitly asks 'what would Gopher Guides recommend?', 'how do professionals do this?', or wants training-material-backed practices/examples/audit. SKIP for general Go idiom questions handled by the `go` skill."
+---
+
+# Gopher Guides Professional Training
+
+## Plugin Resource Resolution
+
+`<PLUGIN_ROOT>` is notation. Replace it with a concrete absolute plugin root before every resource read or command:
+
+- **Codex:** Start from the directory containing the absolute selected `SKILL.md` path, then ascend two directories (`skills/<name>` -> plugin root).
+- **Claude Code:** Bind it to the injected `${CLAUDE_PLUGIN_ROOT}` value.
+
+Access official Gopher Guides training materials via API for authoritative Go best practices.
+
+## Important: Always Use `--variable`/`--expand-header` Syntax
+
+**Do NOT use `$VAR` or `${VAR}` shell expansion in curl commands.** Environment variable expansion is unreliable in AI coding assistant shell/bash tools (Claude Code, Codex, etc.). Always use curl's built-in `--variable %` and `--expand-header` syntax instead.
+
+> **Requires curl 8.3+.** If you get `unknown option: --variable`, see the fallback note at the bottom.
+
+## Step 1: Verify API Key
+
+```bash
+curl -s --variable %GOPHER_GUIDES_API_KEY \
+  --expand-header "Authorization: Bearer {{GOPHER_GUIDES_API_KEY}}" \
+  https://gopherguides.com/api/gopher-ai/me
+```
+
+**On success**: Display a brief confirmation to the user, then proceed to Step 2:
+- "✓ Gopher Guides API: Authenticated as {email} ({tier_category} tier)"
+
+**On error or missing key**: Help the user configure:
+1. Get API key at [gopherguides.com](https://gopherguides.com)
+2. Add to shell profile (`~/.zshrc` or `~/.bashrc`): `export GOPHER_GUIDES_API_KEY="your-key"`
+3. Restart your terminal/IDE to pick up the new environment variable
+
+**Do NOT provide Go advice without a valid, verified API key.**
+
+## Step 2: Query the API
+
+Use the cache wrapper script for all API calls. It automatically caches responses
+(24h for practices/examples, 1h for audit/review) to avoid redundant API calls.
+
+The cache wrapper is at `<PLUGIN_ROOT>/scripts/cache-api.sh`.
+
+### For "what's the best way to..." questions
+
+```bash
+/bin/bash "<PLUGIN_ROOT>/scripts/cache-api.sh" practices '{"topic": "error handling"}'
+```
+
+### For code review/audit
+
+```bash
+/bin/bash "<PLUGIN_ROOT>/scripts/cache-api.sh" audit '{"code": "<user code here>", "focus": "error-handling"}'
+```
+
+### For "show me an example of..."
+
+```bash
+/bin/bash "<PLUGIN_ROOT>/scripts/cache-api.sh" examples '{"topic": "table driven tests"}'
+```
+
+### For PR/diff review
+
+```bash
+/bin/bash "<PLUGIN_ROOT>/scripts/cache-api.sh" review '{"diff": "<diff output>"}'
+```
+
+### Direct API calls (bypassing cache)
+
+If you need to bypass the cache, use curl directly:
+
+```bash
+curl -s -X POST --variable %GOPHER_GUIDES_API_KEY \
+  --expand-header "Authorization: Bearer {{GOPHER_GUIDES_API_KEY}}" \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "error handling"}' \
+  https://gopherguides.com/api/gopher-ai/practices
+```
+
+### Cache Management
+
+- Cache location: `${GOPHER_GUIDES_CACHE_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/gopher-ai/gopher-guides-cache.json}`
+- Existing `.claude/gopher-guides-cache.json` data remains usable without importing project-controlled responses into the shared user cache: set `GOPHER_GUIDES_CACHE_FILE="$PWD/.claude/gopher-guides-cache.json"` while working in that project.
+- Claude Code: Clear cache with `/gopher-guides:clear-cache`.
+- Codex: Clear cache with `$gopher-guides:clear-cache`.
+
+## Response Handling
+
+The API returns JSON with:
+- `content`: Formatted guidance from training materials
+- `sources`: Module references with similarity scores
+
+Present the content to the user with proper attribution to Gopher Guides.
+
+## Fallback for curl < 8.3
+
+If `--variable` is not supported (curl versions before 8.3), use `printf` to avoid shell expansion issues:
+
+```sh
+KEY=$(printenv GOPHER_GUIDES_API_KEY) && curl -s -H "Authorization: Bearer $KEY" https://gopherguides.com/api/gopher-ai/me
+```
+
+Check your curl version with `curl --version`.
+
+---
+
+*Powered by [Gopher Guides](https://gopherguides.com) - the official Go training partner.*

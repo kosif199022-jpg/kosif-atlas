@@ -1,0 +1,11 @@
+{
+  "name": "polyglot-language-coach",
+  "description": "Gently coaches when the user writes in a non-English language mid-conversation \u2014 corrects, teaches, logs, returns to task; applies whenever the user code-switches as practice.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

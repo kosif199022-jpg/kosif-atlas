@@ -1,0 +1,490 @@
+#!/usr/bin/env node
+
+/*
+ * visual-docs-lint — check a visual doc against the authoring guidelines.
+ *
+ *   node visual-docs-lint.js <file.md | dir> [more...]
+ *
+ * Reports errors (exit 1) and warnings (exit 0 unless --strict). Zero deps.
+ * Rules mirror extras/visual-docs/shared/authoring-guide.md and document-quality.md:
+ *   - exactly one H1, at the top
+ *   - every structured fence has a one-sentence intent line directly above it
+ *   - structured fences are non-empty and parse for their type
+ *   - admonition markers are a known type
+ *   - fences are balanced; obvious secrets are redacted
+ *   - hardcoded diagram colors are flagged for a both-themes check (the
+ *     viewer themes diagrams for light AND dark mode; a color tuned for
+ *     one background breaks the other — deliberate mid-tones may stay)
+ *   - plain-language sections (preamble, Summary/Outcome, What changed,
+ *     Architecture) name no code symbols — the reader is a non-developer
+ *
+ * It always closes with a short reminder of the rules only a human read can
+ * check (timeless prose, the CEO test). That block is not a finding and never
+ * affects the exit code; it exists because the lint step is the one thing
+ * guaranteed to run right before every serve and every revision.
+ */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+/** The viewer parses openapi fences with the vendored js-yaml (a browser UMD
+    bundle), so the linter parses with the very same file: what fails here
+    fails on screen, and vice versa. Loaded in a sandbox because the bundle is
+    not an ES module. */
+let yamlLoader;
+function loadYaml(text) {
+  if (!yamlLoader) {
+    const src = fs.readFileSync(path.join(HERE, '..', 'assets', 'vendor', 'js-yaml.min.js'), 'utf8');
+    const sandbox = {};
+    sandbox.window = sandbox; sandbox.self = sandbox; sandbox.globalThis = sandbox;
+    vm.runInNewContext(src, sandbox);
+    yamlLoader = sandbox.jsyaml;
+  }
+  return yamlLoader.load(text);
+}
+
+/** Parse an openapi fence the way the viewer does: JSON when it opens with
+    `{`, YAML otherwise. Returns `{ spec }` or `{ error, line }` (line is
+    0-based within the fence body when known). */
+function parseOpenApi(text) {
+  const t = text.trim();
+  if (t.startsWith('{')) {
+    try { return { spec: JSON.parse(t) }; } catch (err) { return { error: `invalid JSON — ${err.message}` }; }
+  }
+  try {
+    return { spec: loadYaml(t) };
+  } catch (err) {
+    const line = err.mark && Number.isInteger(err.mark.line) ? err.mark.line : undefined;
+    return { error: `invalid YAML — ${err.reason || err.message}`, line };
+  }
+}
+
+/** Keys with whitespace are what an unquoted comma inside `{ … }` leaves
+    behind: `{ description: unknown request, or not ours }` parses as the
+    description "unknown request" plus a key "or not ours". Nothing in an
+    OpenAPI document legitimately has such a key, so each one is a value that
+    got split — and the rest of the sentence is silently dropped on screen. */
+function splitFlowValues(node, out = []) {
+  if (!node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) { node.forEach((v) => splitFlowValues(v, out)); return out; }
+  for (const [k, v] of Object.entries(node)) {
+    if (/\s/.test(k.trim())) out.push(k);
+    splitFlowValues(v, out);
+  }
+  return out;
+}
+
+// Keep in sync with the fence dispatch in assets/app.js (renderCodeFence): a new
+// structured fence there needs adding here (and to NEEDS_INTENT if it wants an
+// intent line) or the linter won't validate it.
+const STRUCTURED = new Set([
+  'diff', 'patch', 'migration', 'sql-migration', 'db-migration',
+  'api', 'http', 'openapi', 'swagger', 'filetree', 'files', 'file-tree',
+  'mermaid', 'nomnoml', 'question', 'ask', 'tldr', 'tl;dr', 'summary',
+  'decisions', 'attention',
+]);
+const ADMONITIONS = new Set(['NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION']);
+const SECRET_RE = /\b(sk-[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,})\b/;
+// Fences that should be introduced by a one-sentence intent line. Questions are
+// self-describing (the prompt is the intent), so they're excluded.
+const NEEDS_INTENT = new Set([
+  'diff', 'patch', 'migration', 'sql-migration', 'db-migration',
+  'api', 'http', 'openapi', 'swagger', 'filetree', 'files', 'file-tree',
+  'mermaid', 'nomnoml',
+]);
+
+// Sections whose prose must read plainly for a non-developer (document-quality
+// §0–1): the preamble before the first H2, and these H2s. Everything under any
+// other H2 (Key changes, Key changes made, API, Database changes, …) may name symbols.
+const PLAIN_H2_RE = /^(summary|outcome|overview|goals?|context|background|what changed)\b|^architecture\b/i;
+
+// A plan's `## Key changes` (a recap uses `## Key changes made`) must say what
+// we will do, not only what is wrong (document-quality §2b). Heuristic: a
+// subsection's prose needs at least one sentence with a remedy verb.
+const PLAN_KEY_CHANGES_RE = /^key changes\s*$/i;
+const REMEDY_RE = /\b(we(?:'ll| will| now| then| also)? [a-z]+|the (?:fix|plan|change|remedy) (?:is|:)|fix(?:ed|es)? (?:this|that|it) by|will (?:no longer|now|also|then|only|re-)?[a-z]+)\b/i;
+
+/** Code-symbol tokens that give away implementation detail in prose meant for a
+    non-developer: identifiers (camelCase, snake_case, calls), paths with file
+    extensions, CLI flags. Plain-word inline code (`dismissed`, `main`) is fine. */
+function audienceSymbols(line) {
+  const hits = [];
+  const symbolish = (t) =>
+    /[a-z][a-z0-9]*[A-Z]/.test(t) ||          // camelCase
+    /[A-Za-z0-9]_[A-Za-z0-9]/.test(t) ||      // snake_case
+    /\(\)/.test(t) ||                          // someCall()
+    /::|->/.test(t) ||                         // C++/Rust-style paths
+    /^--?[a-z]/.test(t) ||                     // CLI flags
+    /[\w-]\/[\w-]/.test(t) ||                  // paths
+    /\.[a-z]{1,4}$/i.test(t);                  // file extensions
+  // inline code spans: symbol-looking content only
+  const rest = line.replace(/`([^`]+)`/g, (_, span) => {
+    if (symbolish(span.trim())) hits.push(span.trim());
+    return ' ';
+  });
+  // bare identifiers outside backticks: calls, snake_case, paths-with-extension
+  for (const m of rest.matchAll(/\b[A-Za-z_][A-Za-z0-9_]*\(\)|\b[a-z0-9]+(?:_[a-z0-9]+)+\b|\b[\w.-]+\/[\w./-]*\.[A-Za-z0-9]{1,4}\b/g)) {
+    hits.push(m[0]);
+  }
+  return hits;
+}
+
+function lintText(text, file) {
+  const findings = [];
+  const add = (line, sev, msg) => findings.push({ file, line, sev, msg });
+  const lines = text.split('\n');
+
+  // --- one H1, at the top ---
+  const h1s = [];
+  let inFence = false;
+  lines.forEach((l, i) => {
+    if (/^```/.test(l)) inFence = !inFence;
+    if (!inFence && /^#\s+\S/.test(l)) h1s.push(i + 1);
+  });
+  if (h1s.length === 0) {
+    add(1, 'error', 'No H1 title — start the doc with a single "# Title".');
+  } else if (h1s.length > 1) {
+    add(h1s[1], 'error', `Multiple H1 headings (lines ${h1s.join(', ')}) — use one H1 as the title, H2/H3 for sections.`);
+  } else {
+    const firstContent = lines.findIndex((l) => l.trim());
+    if (firstContent !== -1 && !/^#\s+/.test(lines[firstContent])) {
+      add(firstContent + 1, 'warn', 'Content appears before the H1 title — the H1 should come first.');
+    }
+  }
+
+  // --- walk the document, fence by fence ---
+  let i = 0;
+  // Preamble (before any H2) is part of the plain-language zone.
+  let plainZone = true;
+  // The decisions card must lead the document (right below the tldr, or
+  // first) — one that appears after body sections has lost its purpose.
+  let sawH2 = false;
+  // Plan Key changes: collect each H3's prose and check it states the fix.
+  let inPlanKeyChanges = false;
+  let h3 = null; // { line, prose: [] }
+  const closeH3 = () => {
+    if (h3 && !REMEDY_RE.test(h3.prose.join(' '))) {
+      add(h3.line, 'warn', `Key changes subsection describes the problem but never says what we will do about it — add one plain-language sentence with the fix ("We fix this by …") and what is true afterwards (document-quality §2b).`);
+    }
+    h3 = null;
+  };
+  while (i < lines.length) {
+    const open = lines[i].match(/^```(\S*)/);
+    if (open) {
+      const lang = (open[1] || '').toLowerCase();
+      const start = i;
+      const body = [];
+      i++;
+      while (i < lines.length && !/^```\s*$/.test(lines[i])) {
+        // Secrets pasted inside a fence (curl examples, env vars) are the most
+        // likely place — scan body lines too, not just prose.
+        const s = lines[i].match(SECRET_RE);
+        if (s) add(i + 1, 'warn', `Possible unredacted secret ("${s[0].slice(0, 10)}…") — redact as <redacted> or sk-•••.`);
+        body.push(lines[i]);
+        i++;
+      }
+      if (i >= lines.length) { add(start + 1, 'error', 'Unclosed code fence.'); break; }
+
+      if (STRUCTURED.has(lang)) {
+        // one-sentence intent directly above (not required for self-describing
+        // question fences)
+        if (NEEDS_INTENT.has(lang)) {
+          let p = start - 1;
+          while (p >= 0 && !lines[p].trim()) p--;
+          const prev = p >= 0 ? lines[p] : '';
+          if (!prev.trim() || /^#{1,6}\s/.test(prev) || /^```/.test(prev) || /^>/.test(prev)) {
+            add(start + 1, 'warn', `\`${lang}\` fence has no one-sentence intent line directly above it (document-quality §4).`);
+          }
+        }
+        if ((lang === 'decisions' || lang === 'attention') && sawH2) {
+          add(start + 1, 'warn', '`decisions` card appears after body sections — put it at the top of the document, right below the tldr card (or first if there is none), so open decisions are the first thing the reader sees.');
+        }
+        if (!body.join('').trim()) add(start + 1, 'error', `Empty \`${lang}\` fence.`);
+        else lintFence(lang, body, start, add);
+      }
+      i++; // move past closing ```
+      continue;
+    }
+
+    // admonition marker
+    const am = lines[i].match(/^>\s*\[!(\w+)\]/);
+    if (am && !ADMONITIONS.has(am[1].toUpperCase())) {
+      add(i + 1, 'warn', `Unknown admonition [!${am[1]}] — use NOTE, TIP, IMPORTANT, WARNING, or CAUTION.`);
+    }
+    // bold-keyword blockquote idiom (`> **Risk:** …`) instead of a real
+    // admonition — only flag the first line of a blockquote run, not
+    // continuation lines mid-quote.
+    const bk = lines[i].match(/^>\s*\*\*([^*]+)\*\*/);
+    const prevLine = i > 0 ? lines[i - 1] : '';
+    if (bk && !am && !/^>/.test(prevLine)) {
+      const label = bk[1].replace(/:\s*$/, '');
+      const keyword = label.toLowerCase();
+      let suggestion;
+      if (/risk|warning|caution|danger/.test(keyword)) suggestion = '`[!WARNING]` or `[!CAUTION]`';
+      else if (/decision|important/.test(keyword)) suggestion = '`[!IMPORTANT]`';
+      else if (/tip/.test(keyword)) suggestion = '`[!TIP]`';
+      else if (/note|info/.test(keyword)) suggestion = '`[!NOTE]`';
+      else suggestion = 'a GitHub admonition (`[!NOTE]`/`[!TIP]`/`[!IMPORTANT]`/`[!WARNING]`/`[!CAUTION]`)';
+      add(i + 1, 'warn', `Bold-keyword blockquote ("**${label}:**") instead of a real admonition — use ${suggestion} on its own \`>\` line (authoring-guide.md).`);
+    }
+    // obvious unredacted secrets
+    const sec = lines[i].match(SECRET_RE);
+    if (sec) add(i + 1, 'warn', `Possible unredacted secret ("${sec[0].slice(0, 10)}…") — redact as <redacted> or sk-•••.`);
+
+    // audience: prose in the plain-language zone must not name code symbols
+    const h2 = lines[i].match(/^##\s+(.+)/);
+    const h3m = lines[i].match(/^###\s+(.+)/);
+    if (h2) {
+      sawH2 = true;
+      plainZone = PLAIN_H2_RE.test(h2[1].trim());
+      closeH3();
+      inPlanKeyChanges = PLAN_KEY_CHANGES_RE.test(h2[1].trim());
+    } else if (h3m) {
+      closeH3();
+      if (inPlanKeyChanges) h3 = { line: i + 1, prose: [] };
+    } else if (h3 && lines[i].trim() && !/^#/.test(lines[i])) {
+      h3.prose.push(lines[i]);
+    }
+    if (h2) { /* handled above */ }
+    else if (plainZone && !/^#/.test(lines[i])) {
+      const syms = audienceSymbols(lines[i]);
+      if (syms.length) {
+        add(i + 1, 'warn', `Plain-language section names code symbols (${syms.slice(0, 3).map((s) => `\`${s}\``).join(', ')}${syms.length > 3 ? ', …' : ''}) — the reader is a non-developer; describe the behavior instead, and keep symbols to Key changes and fences (document-quality §0–1).`);
+      }
+    }
+
+    i++;
+  }
+  closeH3();
+  return findings;
+}
+
+function lintFence(lang, body, start, add) {
+  const text = body.join('\n');
+  const at = start + 1;
+  if (lang === 'question' || lang === 'ask') {
+    // Resolve the prompt line (skipping a leading `multiple` directive) with
+    // its real line number, so title findings point at the right line.
+    const idxs = [];
+    body.forEach((l, k) => { if (l.trim()) idxs.push(k); });
+    // Key/value form (`id:` / `type:` / `prompt:` / `options:`). The viewer
+    // tolerates it, but it is not the syntax and reads worse in plain-text
+    // exports, so steer back to plain lines and skip the title checks (the
+    // prompt is on a `prompt:` line, not line one).
+    const keyed = body.findIndex((l) => /^(id|type|prompt|question|options|multiple)\s*:/i.test(l.trim()));
+    if (keyed >= 0) {
+      add(start + 2 + keyed, 'warn', 'question fence is written as `key: value` lines (`id:`, `type:`, `prompt:`, `options:`) — the fence is not YAML. Write it as plain lines: an optional `multiple` line, the question sentence, optional description lines, then `- ` options. No `id:` (the block gets a stable id automatically) and no `type:`.');
+      return;
+    }
+    let p = 0;
+    if (idxs.length && /^(multiple|multi|select all( that apply)?)$/i.test(body[idxs[0]].trim())) p = 1;
+    if (p >= idxs.length) {
+      add(at, 'error', 'question fence has no question text (the first non-directive line is the prompt).');
+    } else {
+      const tk = idxs[p];
+      const title = body[tk].trim();
+      if (/^#{1,6}\s/.test(title)) {
+        add(start + 2 + tk, 'warn', 'question title is a markdown heading — headings do not render inside the card (the `#` shows as literal text); write the prompt as one plain question sentence.');
+      } else if (title.length > 120) {
+        add(start + 2 + tk, 'warn', `question title is ${title.length} chars — keep it to one short question sentence; move the background into description lines below the prompt (non-option lines render as the card's description).`);
+      }
+      // Headings anywhere else in the fence render as literal text too.
+      body.forEach((l, k) => {
+        if (k !== tk && /^#{1,6}\s/.test(l.trim())) {
+          add(start + 2 + k, 'warn', 'heading inside a question fence — it renders as literal text; use plain description lines and `- ` options instead.');
+        }
+      });
+    }
+  } else if (lang === 'openapi' || lang === 'swagger') {
+    const quoteHint = 'In YAML, quote any value that contains `,` `[` `]` `{` `}` `:` or `#` (or write it on its own indented line instead of inside `{ … }`).';
+    const { spec, error, line } = parseOpenApi(text);
+    if (error) {
+      add(line === undefined ? at : start + 2 + line, 'error', `openapi fence does not parse (${error}) — the viewer shows the raw text with this error instead of the endpoint explorer. ${quoteHint}`);
+    } else if (!spec || typeof spec !== 'object' || !spec.paths || typeof spec.paths !== 'object') {
+      add(at, 'warn', 'openapi fence has no `paths:` object — include at least one path, or it falls back to a raw code block.');
+    } else {
+      for (const key of splitFlowValues(spec)) {
+        const k = body.findIndex((l) => l.includes(key));
+        add(k >= 0 ? start + 2 + k : at, 'warn', `openapi value was cut at an unquoted comma — \`${key.slice(0, 50)}\` became a key of its own and the text before the comma is all that renders. ${quoteHint}`);
+      }
+    }
+  } else if (lang === 'migration' || lang === 'sql-migration' || lang === 'db-migration') {
+    const hasUp = /--\s*(\+migrate\s+up|migrate:up|up)\b/i.test(text);
+    const hasDown = /--\s*(\+migrate\s+down|migrate:down|down)\b/i.test(text);
+    if (!hasUp && !hasDown) add(at, 'warn', 'migration fence has no -- up / -- down markers; add them for apply/rollback panes.');
+    else if (hasUp && !hasDown) add(at, 'warn', 'migration has -- up but no -- down — it will be badged irreversible (fine if intended).');
+  } else if (lang === 'diff' || lang === 'patch') {
+    if (!/^[+-]/m.test(text)) add(at, 'warn', 'diff fence has no +/- lines — is it really a diff?');
+    // A `@@` line must be a real hunk header (`@@ -a,b +c,d @@`); a bare label
+    // like `@@ someFunction` is passed to diff2html verbatim and renders wrong.
+    // Omitting the `@@` line entirely is fine — the renderer synthesizes one.
+    body.forEach((line, k) => {
+      if (/^@@/.test(line) && !/^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/.test(line)) {
+        add(start + 2 + k, 'warn', `malformed hunk header \`${line.trim().slice(0, 30)}\` — use \`@@ -old,count +new,count @@\`, or drop the \`@@\` line and the renderer will synthesize one.`);
+      }
+    });
+  } else if (lang === 'decisions' || lang === 'attention') {
+    if (!body.some((l) => /^\s*([-*+]|\d+\.)\s+/.test(l))) {
+      add(at, 'warn', '`decisions` fence has no list items — write one bullet per open decision, each stating the choice, the options, and your recommendation.');
+    }
+  } else if (lang === 'api' || lang === 'http') {
+    if (!/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/i.test(text)) add(at, 'warn', 'api fence has no request line (e.g. `POST /path`).');
+  } else if (lang === 'mermaid' || lang === 'nomnoml') {
+    lintDiagramColors(lang, body, start, add);
+  } else if (lang === 'filetree' || lang === 'files' || lang === 'file-tree') {
+    const entryLines = [];
+    body.forEach((l, k) => { if (l.trim() && !l.trim().startsWith('#')) entryLines.push(k); });
+    if (!entryLines.length) add(at, 'warn', 'filetree fence has no file entries.');
+    for (const k of entryLines) lintFiletreeEntry(body[k], start + 2 + k, add);
+  }
+  // tldr/tl;dr/summary need no extra shape check — the generic empty-fence guard
+  // above already requires prose content.
+}
+
+/** The viewer renders diagrams in the reader's light OR dark theme and
+    re-themes them on toggle; a hardcoded color overrides both, and one tuned
+    for a single background breaks the other. Advisory, not a ban: a
+    deliberate, both-themes-legible color may stay (authoring-guide.md). */
+function lintDiagramColors(lang, body, start, add) {
+  const suffix = 'the viewer themes diagrams for both light and dark mode, and a color tuned for one background breaks the other — remove it, or if the color is deliberate, make it a mid-tone that reads on both themes (authoring-guide.md).';
+  body.forEach((line, k) => {
+    const at = start + 2 + k;
+    if (lang === 'mermaid') {
+      if (/%%\{\s*init/i.test(line) && /theme/i.test(line)) {
+        add(at, 'warn', `mermaid \`%%{init}%%\` theme override — ${suffix}`);
+      } else if (/^\s*(style|classDef|linkStyle)\b/.test(line) && /\b(fill|stroke|color|background-color)\s*:\s*(#|rgba?\(|hsla?\(|[a-z]{3,})/i.test(line)) {
+        add(at, 'warn', `mermaid \`${line.trim().split(/\s+/, 1)[0]}\` sets hardcoded colors — ${suffix}`);
+      } else if (/^\s*rect\s+rgba?\(/i.test(line)) {
+        add(at, 'warn', `mermaid \`rect rgb(…)\` background — ${suffix}`);
+      }
+    } else {
+      if (/^\s*#(fill|stroke|background|lineColor|arrowColor):/i.test(line)) {
+        add(at, 'warn', `nomnoml \`${line.trim().split(':', 1)[0]}\` color directive — ${suffix}`);
+      } else if (/^\s*#\.\w+\s*:.*\b(fill|stroke)\s*=/i.test(line)) {
+        add(at, 'warn', `nomnoml custom classifier sets \`fill=\`/\`stroke=\` — ${suffix}`);
+      }
+    }
+  });
+}
+
+// Keep in sync with FILE_FLAGS in assets/app.js.
+const FILETREE_FLAGS = new Set([
+  'a', 'm', 'd', 'r', 'added', 'modified', 'changed', 'deleted', 'removed', 'renamed', 'moved',
+]);
+
+// Mirrors renderFileTreeFence's split rules in assets/app.js: resolve
+// flag/path/note the same way the renderer will, then warn about shapes that
+// only resolved thanks to the forgiving single-space fallback, or a
+// non-rename path that still contains whitespace after that fallback — both
+// are signs the separator was ambiguous.
+function lintFiletreeEntry(line, lineNo, add) {
+  let rest = line.trim();
+  const fm = rest.match(/^([A-Za-z]+)\s+(\S.*)$/);
+  if (fm && FILETREE_FLAGS.has(fm[1].toLowerCase())) rest = fm[2];
+
+  const isRenameShape = /\s(?:->|→)\s/.test(rest);
+  // A deliberate 2+-space/tab separator is unambiguous — trust it, as the
+  // renderer does, even when the path itself contains single spaces.
+  if (/^(.*?)(?:\s{2,}|\t)(.+)$/.test(rest)) return;
+  // " — " is also trusted unless it appears to sit *inside the note* of a
+  // single-space-separated entry (path capture has internal spaces and the
+  // line starts with a path-looking token containing '.' or '/').
+  const dash = rest.match(/^(.*?)\s+—\s+(.+)$/);
+  if (dash && (isRenameShape || !/\s/.test(dash[1].trim()) || !/^\S*[./]/.test(rest))) return;
+
+  // From here the renderer either takes the forgiving single-space fallback
+  // (warn: the author almost certainly meant a real separator) or leaves the
+  // whole line as the path (fine when it's a bare no-note entry; warn when
+  // whitespace remains in a non-rename path).
+  const renameNote = rest.match(/^(\S+\s*(?:->|→)\s*\S+)\s+(\S.*)$/);
+  const one = !isRenameShape && rest.match(/^(\S+)\s+(\S.*)$/);
+  if (renameNote || (one && /[./]/.test(one[1]))) {
+    add(lineNo, 'warn', `filetree entry's path/note split relied on the single-space fallback ("${line.trim().slice(0, 60)}") — separate the note with 2+ spaces, a tab, or " — " (canonical shape: \`<flag> <path>  <note>\`).`);
+  } else if (!isRenameShape && /\s/.test(rest)) {
+    add(lineNo, 'warn', `filetree entry's resolved path still contains whitespace ("${rest.slice(0, 60)}") — separate the note with 2+ spaces, a tab, or " — " (canonical shape: \`<flag> <path>  <note>\`).`);
+  }
+}
+
+// ---- CLI ----
+
+function collectFiles(target) {
+  const st = fs.statSync(target);
+  if (st.isDirectory()) {
+    return fs.readdirSync(target)
+      .filter((n) => /\.(md|markdown)$/i.test(n))
+      .map((n) => path.join(target, n));
+  }
+  return [target];
+}
+
+// The rules below cannot be checked mechanically, so they are printed every
+// run as a closing reminder — "clean" must not be the last word the author
+// sees. Keep it short: a long checklist gets skimmed exactly like the quality
+// guide it points at.
+function selfReviewReminder() {
+  const shared = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'shared');
+  const quality = path.join(shared, 'document-quality.md');
+  return [
+    '',
+    'Before you serve — review these yourself; the linter cannot check them:',
+    '  · Timeless. Every sentence must read the same to someone opening the',
+    '    document for the first time. Delete any word that only makes sense',
+    '    against an earlier draft: "corrected", "now", "previously", "no longer",',
+    '    "updated to", "as clarified", "instead of the earlier…". The reader has',
+    '    no earlier version, so "corrected" reads as "a rule existed and was',
+    '    wrong". The viewer already shows every edit on hover. The code\'s own',
+    '    history ("the old endpoint returned 500") is the subject and stays.',
+    '  · CEO test. Everything through Architecture reads to a non-developer.',
+    '    No file, function, or symbol names there.',
+    '  · So what? In a plan, every Key changes subsection says what we will do',
+    '    about the problem, not only what is wrong. In a recap (Key changes',
+    '    made), it says what changed and why it matters.',
+    '  · Revising after comments? Change-log prose creeps in here. First re-read',
+    `    ${quality}`,
+    '    (sections 7–8).',
+  ].join('\n');
+}
+
+function main() {
+  const args = process.argv.slice(2);
+  const strict = args.includes('--strict');
+  const targets = args.filter((a) => !a.startsWith('--'));
+  if (!targets.length) {
+    console.error('usage: visual-docs-lint <file.md | dir> [more...] [--strict]');
+    process.exit(2);
+  }
+
+  let files = [];
+  for (const t of targets) {
+    try { files = files.concat(collectFiles(t)); }
+    catch { console.error(`cannot read ${t}`); process.exitCode = 2; }
+  }
+
+  let errors = 0;
+  let warnings = 0;
+  for (const f of files) {
+    let findings;
+    try { findings = lintText(fs.readFileSync(f, 'utf8'), f); }
+    catch (e) { console.error(`${f}: cannot read (${e.message})`); process.exitCode = 2; continue; }
+    findings.sort((a, b) => a.line - b.line);
+    for (const x of findings) {
+      if (x.sev === 'error') errors++; else warnings++;
+      console.log(`${x.file}:${x.line}: ${x.sev === 'error' ? 'error' : 'warn '} ${x.msg}`);
+    }
+  }
+
+  const total = errors + warnings;
+  if (!total) {
+    console.log(`✓ ${files.length} doc(s) clean.`);
+  } else {
+    console.log(`\n${total} problem(s): ${errors} error(s), ${warnings} warning(s).`);
+  }
+  console.log(selfReviewReminder());
+  if (errors > 0 || (strict && warnings > 0)) process.exit(1);
+}
+
+main();

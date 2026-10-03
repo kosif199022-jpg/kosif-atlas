@@ -1,0 +1,79 @@
+{
+  "pipeline_id": "deep-research-8-stage",
+  "name": "Deep Research Pipeline",
+  "description": "For evidence-heavy pieces. Adds a second Researcher pass after outlining to fill gaps the Outliner identified. Also includes Analogist and Emotional Architect.",
+  "best_for": ["thought-leadership-article"],
+  "stages": [
+    {
+      "stage": 1,
+      "name": "Strategy",
+      "roles": ["strategist"],
+      "parallel": false,
+      "gate": { "min_score": 7, "action": "send_back" }
+    },
+    {
+      "stage": 2,
+      "name": "Research + Reaction + Frame",
+      "roles": ["researcher", "avatar-reviewer:pass-1", "analogist"],
+      "parallel": true,
+      "gate": {
+        "researcher": { "source_verification_min": 9, "action": "block" },
+        "avatar-reviewer": { "verdict_fail": "surface_to_user" },
+        "analogist": { "min_score": 6, "action": "drop_if_below" }
+      }
+    },
+    {
+      "stage": 3,
+      "name": "Structure",
+      "roles": ["outliner"],
+      "parallel": false,
+      "gate": { "min_score": 7, "action": "send_back" }
+    },
+    {
+      "stage": 3.5,
+      "name": "Gap-Fill Research",
+      "roles": ["researcher:pass-2"],
+      "parallel": false,
+      "note": "Researcher receives the outline and fills evidence gaps the Outliner identified. Only researches items the Outliner flagged as missing.",
+      "gate": { "min_score": 7, "action": "surface_to_user" }
+    },
+    {
+      "stage": 4,
+      "name": "Emotional Design",
+      "roles": ["emotional-architect"],
+      "parallel": false,
+      "gate": { "min_score": 7, "action": "surface_to_user" }
+    },
+    {
+      "stage": 5,
+      "name": "Draft",
+      "roles": ["drafter"],
+      "parallel": false,
+      "gate": { "min_score": 7, "action": "send_back" }
+    },
+    {
+      "stage": 6,
+      "name": "Attack + Reaction",
+      "roles": ["skeptic", "avatar-reviewer:pass-2"],
+      "parallel": true,
+      "gate": null
+    },
+    {
+      "stage": 7,
+      "name": "Polish",
+      "roles": ["line-editor"],
+      "parallel": false,
+      "gate": { "min_score": 9, "action": "surface_to_user" }
+    },
+    {
+      "stage": 8,
+      "name": "Compression Test",
+      "roles": ["compression-agent"],
+      "parallel": false,
+      "gate": { "compression_pass": true, "action": "surface_to_user" }
+    }
+  ],
+  "total_roles": 11,
+  "avg_min_score": null,
+  "runs": 0
+}

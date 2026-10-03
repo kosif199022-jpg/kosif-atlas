@@ -1,0 +1,6 @@
+{
+  "variant_scores": {},
+  "combination_scores": {},
+  "best_combos_by_content_type": {},
+  "notes": "Populated automatically after each run. variant_scores tracks per-variant average min_score. combination_scores tracks full genome combinations. best_combos_by_content_type maps content types to their highest-scoring genomes."
+}

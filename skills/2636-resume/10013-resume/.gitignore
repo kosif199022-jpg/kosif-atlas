@@ -1,0 +1,39 @@
+# dependencies
+/node_modules
+
+# build / TS incremental
+*.tsbuildinfo
+
+# test + eval run artifacts
+/coverage
+/scripts/test-results
+/runs
+
+# eval outputs may contain raw resume content — never track
+/eval-out/
+
+# local dev convenience dir (tailored PDFs + JSON — user data); the real
+# default output dir is ~/resume-out, outside the repo entirely
+/resume-out/
+/onetap-out/
+
+# local PDF render scratch
+/pdf-snapshots/
+
+# env files
+.env*
+!.env.example
+
+# claude code session runtime
+.claude/
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+
+# benchmark résumé fixture — personal data, never track
+/scripts/fixtures/benchmark/resume.pdf
+
+# benchmark run artifacts (tailored JSON/PDFs — user data)
+/benchmark-out/

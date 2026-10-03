@@ -1,0 +1,273 @@
+<!doctype html>
+<!-- chat-n-build renderer. Polls state.json and draws it. Changed only when the user says "build it" (platform change). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1f; --mute:#6e6e73; --line:#e3e1dc; --accent:#c2410c; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --hi:#fde68a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141414; --card:#1e1e1e; --ink:#ececec; --mute:#9a9a9a; --line:#2e2e2e; --accent:#fb923c; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --hi:#78350f; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
+  header { padding:20px 16px 0; max-width:1100px; margin:auto; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  header a { color:var(--mute); text-decoration:none; font-size:13px; }
+  h1 { margin:0; font-size:22px; overflow-wrap:anywhere; }
+  #stale { color:var(--warn); font-size:12px; display:none; }
+  nav { max-width:1100px; margin:12px auto 0; padding:0 16px; display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+  nav button { background:none; border:0; padding:8px 12px; font:inherit; color:var(--mute); cursor:pointer; border-bottom:2px solid transparent; }
+  nav button.on { color:var(--ink); border-color:var(--accent); }
+  main { max-width:1100px; margin:auto; padding:16px; display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap:12px; }
+  .w { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; overflow:auto; transition:box-shadow .3s; min-width:0; }
+  .w.s2 { grid-column:span 2; } .w.s3 { grid-column:1 / -1; }
+  @media (max-width:700px) { .w.s2 { grid-column:1 / -1; } }
+  .w.hi { box-shadow:0 0 0 3px var(--accent); animation:pulse 1.2s 3; }
+  @keyframes pulse { 50% { box-shadow:0 0 0 6px var(--hi); } }
+  .lbl { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--mute); margin-bottom:6px; }
+  .val { font-size:32px; font-weight:600; overflow-wrap:anywhere; } .delta { color:var(--ok); margin-left:6px; font-size:16px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); } th { color:var(--mute); font-weight:500; }
+  ul.items { list-style:none; margin:0; padding:0; } ul.items li { padding:4px 0; display:flex; gap:8px; }
+  .st-done { color:var(--ok); } .st-active { color:var(--accent); } .st-blocked { color:var(--warn); } .st-todo { color:var(--mute); }
+  .md h1, .md h2, .md h3 { margin:.6em 0 .3em; font-size:1.1em; } .md p { margin:.4em 0; } .md code { background:var(--line); padding:0 4px; border-radius:4px; }
+  .md a { color:var(--accent); }
+  details.w > summary { cursor:pointer; list-style:none; } details.w > summary::before { content:'▸ '; } details.w[open] > summary::before { content:'▾ '; }
+  details.w .sub { display:grid; gap:12px; margin-top:10px; }
+  svg text { fill:var(--mute); font-size:11px; }
+  .acts { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .act { font:inherit; font-size:14px; padding:6px 12px; border-radius:8px; border:1px solid var(--accent); background:none; color:var(--accent); cursor:pointer; }
+  .act:hover { background:var(--accent); color:var(--card); }
+  .act.queued { border-color:var(--line); color:var(--mute); cursor:default; background:none; }
+  .act.failed { border-color:var(--bad); color:var(--bad); }
+  .mute { color:var(--mute); }
+  .cw iframe { border:0; width:100%; display:block; } .werr { color:var(--bad); font-size:13px; }
+  #log { max-width:1100px; margin:0 auto 24px; padding:0 16px; font-size:13px; color:var(--mute); overflow-wrap:anywhere; }
+  #toast { position:fixed; bottom:16px; right:16px; left:auto; background:var(--ink); color:var(--bg); padding:10px 14px; border-radius:8px; opacity:0; transition:opacity .3s; max-width:min(calc(100vw - 32px), 420px); pointer-events:none; overflow-wrap:anywhere; }
+  #toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<header><a href="/">◂ all</a><h1 id="title">Dashboard</h1><span id="stale"></span></header>
+<nav id="tabs"></nav>
+<main id="grid"></main>
+<div id="log"></div>
+<div id="toast" role="status"></div>
+<script>
+const TOKEN = "__DASH_TOKEN__"; // the server swaps in its token; it never goes into the DOM
+const FRAME = "__DASH_FRAME__"; // the server swaps in widget-frame.html
+
+// <pure> string builders only: tests/test_dash.py runs this block under node.
+// Every string from state.json goes through esc() (text) or attr() (attribute values).
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const attr = s => esc(s).replace(/[`\n\r\t]/g, c => `&#${c.charCodeAt(0)};`);
+
+// Links: http, https, mailto and relative only. Browsers drop tabs/newlines/controls inside
+// a scheme ("java\tscript:"), so strip those before looking at it.
+function safeHref(url) {
+  const u = String(url).replace(/[\u0000- \u007f-\u009f]/g, '');
+  const scheme = u.match(/^([a-z][a-z0-9+.-]*):/i);
+  return !scheme || /^(https?|mailto)$/i.test(scheme[1]) ? u : null;
+}
+
+// ponytail: tiny markdown (headings, lists, bold/em/code, links, paragraphs). Swap for a real parser if notes get richer.
+function inline(raw) {
+  const src = String(raw), fmt = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*([^*]+)\*/g, '<i>$1</i>');
+  let out = '', last = 0;
+  for (const m of src.matchAll(/\[([^\]\n]+)\]\(([^)\s]+)\)/g)) {
+    const href = safeHref(m[2]);
+    out += fmt(src.slice(last, m.index));
+    out += href === null ? fmt(m[0]) : `<a href="${attr(href)}" rel="noopener noreferrer" target="_blank">${fmt(m[1])}</a>`;
+    last = m.index + m[0].length;
+  }
+  return out + fmt(src.slice(last));
+}
+function md(src) {
+  let out = '', list = false;
+  for (const line of String(src ?? '').split('\n')) {
+    const h = line.match(/^(#{1,3})\s+(.*)/), li = line.match(/^\s*[-*]\s+(.*)/);
+    if (li) { if (!list) { out += '<ul>'; list = true; } out += `<li>${inline(li[1])}</li>`; continue; }
+    if (list) { out += '</ul>'; list = false; }
+    if (h) out += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`;
+    else if (line.trim()) out += `<p>${inline(line)}</p>`;
+  }
+  return out + (list ? '</ul>' : '');
+}
+
+const ICON = { done: '✓', active: '●', blocked: '!', todo: '○' };
+function chart(w) {
+  const s = w.series || [], W = 300, H = 150, TOP = 24, BOTTOM = 20; // TOP keeps the tallest value label inside the box
+  const max = Math.max(1, ...s.map(p => +p.value || 0)), bw = W / Math.max(1, s.length);
+  const y = v => H - BOTTOM - ((+v || 0) / max) * (H - BOTTOM - TOP);
+  const body = w.kind === 'line'
+    ? `<polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${s.map((p, i) => `${i * bw + bw / 2},${y(p.value)}`).join(' ')}"/>`
+    : s.map((p, i) => `<rect x="${i * bw + 4}" y="${y(p.value)}" width="${Math.max(1, bw - 8)}" height="${H - BOTTOM - y(p.value)}" fill="var(--accent)" rx="3"/>`).join('');
+  const labels = s.map((p, i) => `<text x="${i * bw + bw / 2}" y="${H - 5}" text-anchor="middle">${esc(p.label)}</text><text x="${i * bw + bw / 2}" y="${y(p.value) - 5}" text-anchor="middle">${esc(p.value)}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(w.label || 'chart')}">${body}${labels}</svg>`;
+}
+
+const RENDER = {
+  metric: w => `<div class="val">${esc(w.value)}${w.delta !== undefined && w.delta !== '' ? `<span class="delta">${esc(w.delta)}</span>` : ''}</div>`,
+  table: w => `<table><tr>${(w.columns || []).map(c => `<th>${esc(c)}</th>`).join('')}</tr>${(w.rows || []).map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table>`,
+  list: w => `<ul class="items">${(w.items || []).map(it => { const o = typeof it === 'string' ? { text: it } : it, st = o.status || 'todo'; return `<li><span class="st-${attr(st)}">${ICON[st] || '•'}</span><span>${esc(o.text)}</span></li>`; }).join('')}</ul>`,
+  note: w => `<div class="md">${md(w.md)}</div>`,
+  chart,
+};
+// custom types: an empty slot; mountCustom() puts a sandboxed frame in it after the draw
+const custom = w => `<div class="cw" data-cw="${attr(w.id)}"></div>`;
+
+// btn(wid, aid) -> '' | 'queued' | 'failed'
+function actions(w, btn) {
+  const a = w.actions || [];
+  if (!a.length) return '';
+  return `<div class="acts">${a.map(x => {
+    const st = btn(w.id, x.id), label = st === 'queued' ? `${x.label} · queued ✓` : st === 'failed' ? `${x.label} · failed` : x.label;
+    return `<button class="act ${st}" data-w="${attr(w.id)}" data-a="${attr(x.id)}" title="${attr(x.say)}" ${st === 'queued' ? 'disabled' : ''}>${esc(label)}</button>`;
+  }).join('')}</div>`;
+}
+
+// ctx: { hi:Set, byId:Map, open:(group)=>bool, btn }
+function card(w, ctx) {
+  const cls = `w ${w.span === 3 ? 's3' : w.span === 2 ? 's2' : ''} ${ctx.hi.has(w.id) ? 'hi' : ''}`;
+  if (w.type === 'group') {
+    const kids = (w.children || []).map(id => ctx.byId.get(id)).filter(Boolean).map(k => card(k, ctx)).join('');
+    return `<details class="${cls}" id="w-${attr(w.id)}" data-g="${attr(w.id)}" ${ctx.open(w) ? 'open' : ''}><summary class="lbl">${esc(w.label || 'Group')}</summary>${actions(w, ctx.btn)}<div class="sub">${kids}</div></details>`;
+  }
+  return `<section class="${cls}" id="w-${attr(w.id)}">${w.label ? `<div class="lbl">${esc(w.label)}</div>` : ''}${(RENDER[w.type] || custom)(w)}${actions(w, ctx.btn)}</section>`;
+}
+// </pure>
+
+let state = null, lastText = '', lastView = '', tab = null, logLen = null;
+const opened = new Map(); // group id -> open, read back from the page before each redraw so user clicks survive
+const clicks = new Map(); // "widget\u0000action" -> { id, st: 'queued' | 'failed' }
+const $ = id => document.getElementById(id);
+
+function draw() {
+  if (!state) return;
+  document.title = $('title').textContent = state.title || 'Dashboard';
+  const widgets = state.widgets || [], tabs = [...new Set(widgets.map(w => w.tab || 'main'))];
+  if (!tabs.includes(tab)) tab = tabs[0];
+  $('tabs').innerHTML = tabs.length > 1 ? tabs.map(t => `<button class="${t === tab ? 'on' : ''}" data-t="${attr(t)}">${esc(t)}</button>`).join('') : '';
+  // ponytail: once drawn, a group keeps the user's open/closed; changing `collapsed` later only affects new groups
+  document.querySelectorAll('details[data-g]').forEach(d => opened.set(d.dataset.g, d.open));
+  const ctx = {
+    hi: new Set(state.view?.highlight || []),
+    byId: new Map(widgets.map(w => [w.id, w])),
+    open: g => opened.get(g.id) ?? !g.collapsed,
+    btn: (w, a) => clicks.get(w + '\u0000' + a)?.st || '',
+  };
+  const inGroup = new Set(widgets.filter(w => w.type === 'group').flatMap(w => w.children || []));
+  $('grid').innerHTML = widgets.filter(w => (w.tab || 'main') === tab && !inGroup.has(w.id)).map(w => card(w, ctx)).join('');
+  $('log').innerHTML = (state.log || []).slice(-5).reverse().map(l => `<div>${esc(l.at || '')} <b>${esc(l.by || '')}</b> ${esc(l.msg)}</div>`).join('');
+  mountCustom();
+}
+
+// Custom widgets: one sandboxed frame per widget. Only messages from a frame this page made count,
+// and they act for the widget that frame was made for.
+// ponytail: frames are rebuilt on every draw (draws only follow a real change), so widgets are stateless;
+// keep frames across draws if the reload ever shows.
+const frames = new Map();   // frame window -> { w, f, timer }
+const heights = new Map();  // widget id -> last px, so a redraw doesn't jump
+const jsCache = new Map();  // type -> Promise<source>; cleared when state.json changes
+const reported = new Set(); // errors already POSTed this page load
+
+function widgetJs(type) {
+  if (!jsCache.has(type)) jsCache.set(type, fetch(`widgets/${encodeURIComponent(type)}.js`, { cache: 'no-store' })
+    .then(r => { if (!r.ok) throw new Error(`widgets/${type}.js: ${r.status}`); return r.text(); }));
+  return jsCache.get(type);
+}
+
+async function mountCustom() {
+  for (const [, fr] of frames) clearTimeout(fr.timer);
+  frames.clear(); // their frames left with the old DOM
+  for (const el of document.querySelectorAll('[data-cw]')) {
+    const w = (state.widgets || []).find(x => x.id === el.dataset.cw);
+    if (!w) continue;
+    let js;
+    try { js = await widgetJs(w.type); } catch (e) { widgetError(w, 'load', e.message); continue; }
+    if (!el.isConnected) return; // a newer draw owns the page now
+    const f = document.createElement('iframe');
+    f.setAttribute('sandbox', 'allow-scripts');
+    f.title = w.label || w.id;
+    f.style.height = (heights.get(w.id) || 60) + 'px';
+    f.srcdoc = FRAME.replace('/*__WIDGET_JS__*/', () => js.replace(/<\/script/gi, '<\\/script'));
+    el.replaceChildren(f);
+    const fr = { w, f, timer: setTimeout(() => widgetError(w, 'timeout', 'no render within 1 s'), 1000) };
+    frames.set(f.contentWindow, fr);
+  }
+}
+
+addEventListener('message', e => {
+  const fr = frames.get(e.source);
+  if (!fr) return;
+  const m = e.data || {}, w = fr.w;
+  if (m.kind === 'ready') fr.f.contentWindow.postMessage({ kind: 'data', widget: w }, '*');
+  else if (m.kind === 'rendered') clearTimeout(fr.timer);
+  else if (m.kind === 'height' && Number(m.px) > 0) { const px = Math.min(Math.max(Number(m.px) || 0, 20), 2000); heights.set(w.id, px); fr.f.style.height = px + 'px'; } // 0 = not laid out yet (hidden tab); keep the last height
+  else if (m.kind === 'act') act(w.id, String(m.action));
+  else if (m.kind === 'error') { clearTimeout(fr.timer); widgetError(w, String(m.type), String(m.message)); }
+});
+
+function widgetError(w, type, message) {
+  const el = document.querySelector(`[data-cw="${CSS.escape(w.id)}"]`);
+  if (el) {
+    const n = el.querySelector('.werr') || el.appendChild(document.createElement('div'));
+    n.className = 'werr'; n.textContent = `widget error: ${type}`;
+  }
+  const key = [w.id, type, message].join('\u0000');
+  if (reported.has(key)) return;
+  reported.add(key);
+  fetch('errors', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dash-Token': TOKEN },
+    body: JSON.stringify({ kind: 'widget', type, widget: w.id, message }) }).catch(() => {});
+}
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 3500); }
+function stale(msg) { $('stale').textContent = msg; $('stale').style.display = msg ? 'inline' : 'none'; }
+
+async function poll() {
+  try {
+    const text = await (await fetch('state.json?' + Date.now(), { cache: 'no-store' })).text();
+    if (text === lastText) return stale('');
+    const next = JSON.parse(text); // throws on a bad file: keep the last good state
+    lastText = text; state = next; jsCache.clear();
+    stale('');
+    const v = JSON.stringify(state.view || {});
+    if (v !== lastView) { lastView = v; if (state.view?.tab) tab = state.view.tab; } // the agent's view only wins when it changes
+    const log = state.log || [];
+    if (logLen !== null && log.length && JSON.stringify(log.at(-1)) !== logLen && log.at(-1).by !== 'user') toast(log.at(-1).msg);
+    logLen = JSON.stringify(log.at(-1)); // the log is capped, so compare the last entry, not the length
+    draw();
+    const first = document.querySelector('.w.hi'); if (first) first.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch { if (state) stale('state unreadable or server not answering; showing the last good state'); }
+}
+
+// Button states come from the server's summary: pending/started -> queued, failed -> failed, gone -> acked.
+async function pollEvents() {
+  if (!clicks.size) return;
+  try {
+    const s = await (await fetch('events?' + Date.now(), { cache: 'no-store' })).json();
+    const pending = new Set(s.pending || []), failed = new Set(s.failed || []);
+    let changed = false;
+    for (const [k, c] of clicks) {
+      const st = pending.has(c.id) ? 'queued' : failed.has(c.id) ? 'failed' : null;
+      if (st !== c.st) { changed = true; st ? (c.st = st) : clicks.delete(k); }
+    }
+    if (changed) draw();
+  } catch { /* the state poll reports a dead server */ }
+}
+
+async function act(w, a) {
+  const spec = (state.widgets || []).find(x => x.id === w)?.actions?.find(x => x.id === a);
+  if (!spec || (spec.confirm && !confirm(`${spec.label}?`))) return;
+  try {
+    const r = await fetch('events', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dash-Token': TOKEN }, body: JSON.stringify({ widget: w, action: a }) });
+    if (r.status !== 201) throw new Error(`server said ${r.status}`);
+    clicks.set(w + '\u0000' + a, { id: (await r.json()).id, st: 'queued' });
+    draw();
+  } catch (e) { toast(`Click not sent (${e.message}). Tell the agent instead.`); }
+}
+
+$('tabs').onclick = e => { if (e.target.dataset.t) { tab = e.target.dataset.t; draw(); } };
+$('grid').onclick = e => { const b = e.target.closest('button.act'); if (b && !b.disabled) act(b.dataset.w, b.dataset.a); };
+poll(); setInterval(() => { poll(); pollEvents(); }, 1000);
+</script>
+</body>
+</html>

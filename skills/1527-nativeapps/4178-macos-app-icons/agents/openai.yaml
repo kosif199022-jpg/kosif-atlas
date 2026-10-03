@@ -1,0 +1,9 @@
+interface:
+  display_name: "macOS App Icons"
+  short_description: "Draw Liquid Glass Mac app icons in code"
+  default_prompt:
+    "Use $macos-app-icons to design and build this Mac app's icon as code-drawn layers in an Icon Composer .icon,
+    compiled with actool and checked beside system icons."
+
+policy:
+  allow_implicit_invocation: true

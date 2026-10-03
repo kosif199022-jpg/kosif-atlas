@@ -1,0 +1,7 @@
+{
+  "type": "REVIEW_PACKET",
+  "spec_path": ".spec/features/sign-in.md",
+  "slug": "sign-in",
+  "branch": "feature/sign-in",
+  "review_path": ".spec/features/sign-in.context/feature-orchestrator-12.md"
+}

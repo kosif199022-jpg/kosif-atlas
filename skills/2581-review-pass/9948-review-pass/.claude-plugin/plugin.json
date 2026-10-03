@@ -1,0 +1,20 @@
+{
+  "name": "review-pass",
+  "version": "0.4.0",
+  "description": "Single review-only entry point for an existing diff \u2014 runs verify \u2192 code-review \u2192 implementation-review (and security-audit only when the change touches a trust boundary), then consolidates every finding into one go/no-go verdict.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/review-pass",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "code-review",
+    "diff-review",
+    "quality-gate",
+    "pre-commit",
+    "orchestrator",
+    "engineering-workflow"
+  ]
+}

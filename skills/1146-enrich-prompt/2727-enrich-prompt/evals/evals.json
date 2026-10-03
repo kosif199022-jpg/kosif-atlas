@@ -1,0 +1,49 @@
+{
+  "skill_name": "prompt-enrichment",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to wash my car. The car wash is 50 meters away. Should I walk or drive?",
+      "expected_output": "Skill should surface the implicit physical constraint (car must be at car wash), skip the source check (universal constraint, user data won't help), and recommend driving.",
+      "expectations": [
+        "Recommends driving (not walking)",
+        "Surfaces implicit constraint that the car must physically be at the car wash",
+        "Shows enriched prompt before answering (default mode)",
+        "Skips or minimally handles the source check since this is a universal physical constraint"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "What's the best way to learn Python?",
+      "expected_output": "Skill should identify underspecification, ask the user for real data (existing experience, goals, time constraints), and present an enriched version with fill-in dimensions.",
+      "expectations": [
+        "Identifies the prompt as underspecified with multiple missing dimensions",
+        "Asks the user for specific real data or context (not vague 'do you have more context')",
+        "Names concrete artifacts or specifics to provide (e.g. current skill level, project goals, time available)",
+        "Provides tailored paths rather than a generic listicle"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "How do I center a div in CSS?",
+      "expected_output": "Skill should recognize this is genuinely simple and skip enrichment entirely. Answer directly.",
+      "expectations": [
+        "Correctly skips enrichment for this simple prompt",
+        "Provides a direct, useful answer without scaffolding",
+        "Does not ask for additional data or context (not needed)",
+        "Answer quality is not worse than baseline"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Help me write a proposal for a new coaching engagement with a mid-market SaaS company.",
+      "expected_output": "Skill should identify multiple missing dimensions (client context, engagement scope, pricing, stakeholders) and specifically ask the user for real documents like intake forms, discovery call notes, past proposals, or CRM data before inferring.",
+      "expectations": [
+        "Identifies significant context gaps (client details, engagement scope, pricing, stakeholders)",
+        "Asks the user for specific real documents or artifacts (e.g. intake form, discovery call notes, past proposals, CRM records)",
+        "Frames data requests around concrete artifacts not abstract categories",
+        "Shows enriched prompt that integrates the identified gaps"
+      ]
+    }
+  ]
+}

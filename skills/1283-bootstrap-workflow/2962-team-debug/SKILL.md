@@ -1,0 +1,33 @@
+---
+name: team-debug
+description: Diagnose failures and verify a bounded root-cause fix.
+---
+
+# /team-debug — Reproduce, explain, fix
+
+Read `../shared/workflow-contract.md` first.
+
+## Process
+
+1. Read the exact symptom, error, inputs, and relevant logs in full. Establish a minimal reliable
+   reproduction before editing code.
+2. Trace backward to the earliest divergence between expected and actual behavior. State one
+   falsifiable root-cause hypothesis and the evidence supporting it.
+3. Test the hypothesis. A focused regression test is preferred when practical; confirm it fails
+   for the predicted reason. If it fails differently, revise the hypothesis instead of patching.
+4. Search the affected pattern to determine whether this is one instance or a systematic defect.
+5. Implement the smallest root-cause fix. Do not bundle unrelated cleanup.
+6. Re-run the reproduction, affected tests, and proportional regression checks. Inspect the diff
+   and verify error paths or alternate inputs.
+7. For an incident (production/fleet breakage, not a routine red test): the fix is not closed
+   until a permanent check exists that would catch a recurrence — a regression test, a startup
+   tripwire, or a deterministic gate. If none is practical, record a dated reason in the report;
+   never skip silently.
+8. Report root cause, evidence, files changed, fresh commands/results, pattern scope, the
+   permanent check (or the dated reason there is none), and remaining risk. When inside a planned
+   workflow, append this evidence to `run.md`.
+
+Keep diagnosis and repair in the retained sub-agent session. Use the shared maximum of 3
+corrective rounds across the task. On a repeated failure signature, reconsider the hypothesis or
+test premise once. Stop on no progress, exhausted budget or repeated workflow-created obstruction;
+a second productive failure alone is not a stop. Complexity needs an external failure boundary.

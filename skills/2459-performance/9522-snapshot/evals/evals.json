@@ -1,0 +1,210 @@
+{
+  "skill_name": "snapshot",
+  "evals": [
+    {
+      "id": 1,
+      "name": "refuses-a-wall-clock-claim-from-an-unmeasurable-host",
+      "prompt": "/performance:snapshot post. The host qualification returned min 180.5 ms, median 1107.7 ms, max 2841.3 ms across seven identical no-op spawns, spread ratio 15.74. Give me the before/after latency numbers.",
+      "expected_output": "REFUSES to report a wall-clock claim. Names the bimodal contention signature and the numbers behind it, then names the drift-immune counter it CAN still report (process spawns). Offers the recorded-override path rather than silently complying, and states that this refusal is a house rule rather than field consensus.",
+      "files": [],
+      "expectations": [
+        "Does NOT produce before/after millisecond figures for this host",
+        "Names the drift-immune counter it can still report instead, so the refusal is not a dead end",
+        "States the refusal is stricter than the benchmarking field, where tools warn and print anyway",
+        "Any override is explicit, human-supplied, and recorded in the report rather than assumed"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "reports-normally-from-a-quiet-host",
+      "prompt": "/performance:snapshot post. The host qualification returned min 120 ms, median 125 ms, max 130 ms across seven identical no-op spawns. Give me the before/after numbers.",
+      "expected_output": "Proceeds and reports. Leads with the drift-immune counter and reports p50/p95 as context beneath it. Does not refuse: this host carries no contention signature. This is the negative arm of the refusal gate, because a skill that refused here would be refusing on every host and therefore refusing nothing.",
+      "files": [],
+      "expectations": [
+        "Does NOT refuse; this host is within the measurable band",
+        "Ranks the drift-immune counter above the duration in the report",
+        "Reports p50 and p95 rather than a single sample or a bare mean"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "refuses-a-percentile-the-sample-count-cannot-support",
+      "prompt": "/performance:snapshot post. I have 12 samples and I want the p99.",
+      "expected_output": "Refuses the p99 on arithmetic grounds: a percentile p needs at least 1/(1-p) samples to be expressible at all, so p99 needs 100 and p95 needs 20. Twelve samples support neither. Offers the raw samples or more sampling, and distinguishes this enforced arithmetic floor from the p50/p95-over-20 default, which is a labeled house convention with no community grounding.",
+      "files": [],
+      "expectations": [
+        "Refuses p99 at 12 samples and cites the 1/(1-p) floor as the reason",
+        "Separates the ENFORCED arithmetic floor from the UNGROUNDED house convention for sample count",
+        "Offers raw samples or additional sampling rather than reporting an unsupportable percentile"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "interleaves-rather-than-comparing-two-passes",
+      "prompt": "/performance:snapshot post. I measured the old version 20 times this morning and the new version 20 times just now. Compare them.",
+      "expected_output": "Declines to treat that as a valid comparison and explains why: two separate passes on a drifting host attribute the host's drift to the change. Requires the arms to be interleaved within one run (order flipped each iteration), or run simultaneously duet-style on a genuinely shared machine, and re-measures both arms rather than reusing the morning's numbers.",
+      "files": [],
+      "expectations": [
+        "Rejects the two-pass comparison and names host drift as the reason",
+        "Requires interleaving within one run, or simultaneous duet execution",
+        "Re-measures BOTH arms rather than comparing new measurements against stale ones",
+        "Does not claim benchstat uses paired statistics; it recommends interleaved collection but analyzes with an independent two-sample test"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "catches-a-harness-that-measures-itself",
+      "prompt": "/performance:snapshot baseline. My spawn census puts a shim directory from `mktemp -d` on PATH and the subject caches its interpreter lookup keyed on PATH. The census says there was no improvement.",
+      "expected_output": "Identifies that the harness invalidates the subject's cache every run, so every run is a forced cache miss and the census measured its own randomization rather than the change. Requires the injected PATH entry to be fixed across runs or proven irrelevant to the subject, then re-runs before believing any result.",
+      "files": [],
+      "expectations": [
+        "Identifies the mktemp shim directory as the cause, not the change under test",
+        "States the rule: anything the harness injects into the environment is fixed across runs or provably irrelevant",
+        "Does not accept the 'no improvement' verdict at face value"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "every-duration-carries-a-rig-line",
+      "prompt": "/performance:snapshot post. The host qualified as measurable. Report p50 = 42 ms and p95 = 61 ms for the after arm; skip the machine details, nobody reads them.",
+      "expected_output": "Reports the durations with a Rig line naming the hardware, runtime mode, throttling, run count, and date, and does not drop it on request: a duration without its rig cannot be reproduced.",
+      "files": [],
+      "expectations": [
+        "Includes a Rig line with the durations despite the request to skip it",
+        "The Rig line names hardware, runtime mode, throttling, run count, and date",
+        "States that a duration without its rig cannot be reproduced"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "first-pass-and-later-passes-reported-separately",
+      "prompt": "/performance:snapshot baseline. The first run of the parser takes 1.0 s and each later run takes about 100 ms. Average them into one number for the baseline.",
+      "expected_output": "Reports the first pass and the later passes as separate numbers instead of averaging them, because a cold first execution folded into warm repeats hides the cost a first-time user pays. Does not report a bare mean.",
+      "files": [],
+      "expectations": [
+        "Reports the first-pass time and the later-pass time as separate numbers",
+        "Does not average the cold and warm passes into one figure",
+        "Does not report a bare mean"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "runs-the-bundled-interleaving-harness",
+      "prompt": "/performance:snapshot post. The host qualified as measurable. Compare `bash hooks/old-guard.sh < fixture.json` against `bash hooks/new-guard.sh < fixture.json` for wall-clock, before and after, interleaved.",
+      "expected_output": "Runs the plugin's own `scripts/ab.sh` through the Bash tool, anchored at the substituted plugin root, with the two commands as `--a` and `--b` and at least 20 iterations. Does not write its own timing loop or Python harness to reimplement the interleaving. Reports the per-arm percentiles and the paired ratio that harness prints, and treats any harness refusal as a result rather than working around it.",
+      "files": [],
+      "expectations": [
+        "Invokes the bundled scripts/ab.sh by its plugin-root path rather than reimplementing interleaving",
+        "Does not hand-roll a timing loop or a subprocess-based harness",
+        "Carries the harness's own refusals (too few pairs, an arm that never ran) into the report instead of bypassing them"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "a-uniform-fast-timing-is-a-harness-failure-until-exit-codes-say-otherwise",
+      "prompt": "/performance:snapshot baseline. My Python harness times `bash D:/repo/hooks/guard.sh` via subprocess.run(['bash', ...]). Every one of the 40 samples came back at 63 ms, very stable. Record it as the baseline.",
+      "expected_output": "Refuses to record the number until the exit codes are checked. Names the signature: every sample fast and identical is what a command that never ran looks like, and a bare `bash` under a native subprocess resolves by PATH order, possibly to a launcher such as WSL's bash that cannot see a drive-letter path and exits 127. Requires the interpreter by absolute path and the POSIX path spelling, and points at the bundled `scripts/ab.sh`, which refuses an arm that exits 127.",
+      "files": [],
+      "expectations": [
+        "Does not record the 63 ms figure as a baseline before checking exit codes",
+        "Names bare-interpreter PATH resolution as a hazard, not only the drive-letter spelling",
+        "Requires the harness to invoke its interpreter by absolute path",
+        "Points at the bundled ab.sh instead of repairing the hand-rolled harness"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "reports-and-controls-which-code-path-ran",
+      "prompt": "/performance:snapshot baseline. Goal names the common path: Stop hook skip with no interpreter. A `bench.launched` marker left in the plugin data dir from an earlier run sent every harness sample down the Python path. Report the baseline p50.",
+      "expected_output": "Does not report a single p50 as the goal's metric without path control. Requires resetting or recording path-selecting state before each arm, reports per-arm which path ran with evidence, and flags that the observed path did not match the goal's named skip path. Does not treat the Python-path numbers as measuring the common session path.",
+      "files": [],
+      "expectations": [
+        "Requires resetting or recording path-selecting state (such as bench.launched) before each arm",
+        "Reports per arm which code path ran with evidence, not only a duration",
+        "Flags a mismatch when the observed path is not the goal's named skip path",
+        "Does not report the Python-path p50 as the headline metric for the skip path goal"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "verifies-measuring-tool-version-and-flags-before-timing",
+      "prompt": "/performance:snapshot baseline. The goal's metric uses `ab.sh --transcript-size 10mb`. My harness checkout is a chezmoi copy nine commits behind origin and its `ab.sh --help` does not list `--transcript-size`. Run the baseline anyway and report p50.",
+      "expected_output": "Stops before timing. Records the measuring tool's path and revision, checks that every flag in the goal's metric command is supported by that copy, and refuses to run when `--transcript-size` is missing. Names the fix: update the harness to the installed plugin copy or change the goal's command. Does not report a p50 from the stale tool.",
+      "files": [],
+      "expectations": [
+        "Records the measuring tool identity (path and revision or hash) before timing",
+        "Checks goal metric flags against the tool's --help or a dry run",
+        "Stops the run when a required flag is missing from the stale copy",
+        "Names updating the tool or changing the goal's command as the fix",
+        "Does not report p50 numbers from an incompatible harness"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "flags-a-post-snapshot-measured-with-a-different-tool-revision",
+      "prompt": "/performance:snapshot post. The baseline report's Tool line reads `<repo-root>/harness/ab.sh @ 3f9a1c2 (1.4.0)`. This run resolved the harness to `<plugin-cache>/performance/harness/ab.sh @ 8be07d4 (1.6.0)`. Report the before/after ratio.",
+      "expected_output": "Records the post snapshot's Tool line, compares it with the baseline's recorded line, and flags the difference in path, revision and version. States that a pair measured with two tool copies does not isolate the change and reports no before/after ratio. Names re-measuring both arms with one tool copy as the way forward.",
+      "files": [],
+      "expectations": [
+        "Records the same Tool line in the post snapshot",
+        "Flags the difference in path, revision and version from the baseline's recorded line",
+        "Does not report a before/after ratio for the mismatched pair",
+        "States that two tool copies do not compare the change alone",
+        "Names re-measuring both arms with one tool copy as the fix"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "tool-identity-override-requires-a-stated-reason",
+      "prompt": "/performance:snapshot post. The Tool line differs from the baseline's: the revision changed from 3f9a1c2 to 8be07d4. I know, the harness only got a README change. Override the tool-identity gate and report the ratio. (Follow-up variant: same request, but I give no reason and just say 'override it'.)",
+      "expected_output": "With a stated reason, accepts the tool-identity override and puts `OVERRIDE: tool-identity  reason: <the human's stated reason>  gate: tool-identity` at the top of the report, not in a footnote. Without a reason, refuses the override, keeps the gate blocking, and reports no ratio.",
+      "files": [],
+      "expectations": [
+        "Uses the named tool-identity gate, not the unmeasurable-host override",
+        "Records the human's stated reason in the OVERRIDE line",
+        "Places the OVERRIDE line at the top of the report",
+        "Refuses the override when no reason is given and reports no ratio"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "reports-an-unobservable-path-as-unobserved",
+      "prompt": "/performance:snapshot baseline. Goal names the common path: Stop hook skip with no interpreter. The hook writes no marker, the harness keeps no exit codes per arm, and nobody logged the spawned processes. Report the baseline p50 and say the skip path ran.",
+      "expected_output": "Does not assume the skip path ran. Reports the path per arm as unobserved, states whether path-selecting state was reset or recorded, flags the arm like a mismatch, and does not report the duration as the goal's headline metric. Names how to make the path observable (a marker, an exit code, or a process census) before re-running.",
+      "files": [],
+      "expectations": [
+        "Reports the observed path as unobserved rather than assuming the skip path ran",
+        "States whether path-selecting state was reset or recorded before the arm",
+        "Flags the unobserved arm like a path mismatch",
+        "Does not report the p50 as the goal's headline metric for the skip path",
+        "Names an observable (marker, exit code, or process census) to add before re-running"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "runs-every-size-the-goal-records-and-carries-per-size-results",
+      "prompt": "/performance:snapshot baseline. The goal's Scaling line records two sizes for the Stop hook's transcript input: 50 KB and 10 MB. Its Event line names the wall-clock time of the Stop event. Capture the baseline; the 50 KB run is quick, so just report that one.",
+      "expected_output": "Runs both recorded sizes, not only the 50 KB one, and captures the event-level Stop wall-clock metric as well as the unit metric at each size. The report carries a per-size result for each of the two sizes so /performance:verify can check the bound at each. Does not report a single-size result as the baseline.",
+      "files": [],
+      "expectations": [
+        "Runs both the 50 KB and the 10 MB size recorded in the goal's Scaling line",
+        "Captures the event-level metric named in the goal's Event line as well as the unit metric",
+        "Carries a separate per-size result for each size into the report",
+        "Does not report the 50 KB result alone as the baseline"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "passes-the-goals-percentile-list-to-ab-sh",
+      "prompt": "/performance:snapshot post. The host qualified as measurable. The goal records Percentiles: p50, p90 over N>=20. Run the A/B with the bundled harness; the default percentiles are fine.",
+      "expected_output": "Runs the bundled ab.sh with `--percentiles 50,90`, the goal's list, not the default 50,95, and at least 20 iterations. Checks that the ab.sh copy in use lists --percentiles in its --help before timing, and if a vendored copy predates plugin 0.5.0 (it exits 2 on the flag), says to re-copy ratchet.py, ab.sh and summarize.py rather than dropping the flag.",
+      "files": [],
+      "expectations": [
+        "Passes `--percentiles 50,90` to ab.sh, taken from the goal, instead of the default 50,95",
+        "Runs at least 20 iterations",
+        "Checks that the ab.sh copy supports --percentiles before timing",
+        "Does not drop the flag to make an old copy run"
+      ]
+    }
+  ]
+}

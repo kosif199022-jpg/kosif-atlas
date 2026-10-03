@@ -1,0 +1,52 @@
+# /cockpit restart
+
+Bounce the cockpit dashboard daemon onto **this install's code**. Use it
+after a plugin update, a `/monitor:install`, or a working-tree edit to the
+Rust crate. The running daemon keeps serving the code it booted with. A
+plain re-run of `cockpit server` from the same install reuses the running
+daemon and changes nothing.
+
+## Step 1 — Restart
+
+```bash
+<plugin-root>/skills/cockpit/bin/cockpit restart
+```
+
+Optional flags: `--port <n>` sets the port, for when the daemon runs off
+5858. `--no-open` skips the browser, for when the user only wants the daemon
+refreshed.
+
+Run it in the **foreground**. Do not background it. It kills the live
+daemon and rebinds from the install you invoked it from. It verifies that
+our root won the port before it returns.
+
+A Claude session's monitor mod respawns the daemon with
+`cockpit ensure-daemon` whenever it finds the daemon gone. `restart`
+supersedes that respawn and retries past the race. It does not lose the port to a stale install.
+
+## Step 2 — Report
+
+- Exit `0`: tell the user the daemon now runs this install's code. Give the
+  URL it printed, default `http://localhost:5858`.
+- Exit non-zero: it could not confirm a fresh daemon from this install.
+  Another install is contending for the port. Retry once. If it still fails,
+  tell the user to restart the Claude session so its mod loads the
+  updated plugin.
+
+## Caveat — the mod is loaded once per session
+
+`restart` refreshes the **daemon**: the dashboard, the transcript stream,
+and the wait/send broker. It does **not** refresh the monitor **mod** of an
+already running Claude session. That mod was loaded from whatever plugin
+cache the session started with.
+
+If the fix the user is chasing lives in the mod (`hooks/register.ts`), the
+daemon restart is not enough. The user needs to restart the session itself. Say so
+plainly. Do not imply that the update fully landed.
+
+## Notes
+
+- `<plugin-root>` is an **absolute filesystem path** resolved per your provider
+  reference (Step 0). Never type `${CLAUDE_PLUGIN_ROOT}` into a Bash command.
+- Restart from the install whose code you want to serve. The repo's
+  shim serves the repo with `COCKPIT_BIN` set to its release build. The updated plugin cache's shim serves that cache.

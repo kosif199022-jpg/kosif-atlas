@@ -1,0 +1,203 @@
+{
+  "_comment": "Tier-1 skill-contract manifest. Each prose invariant is a regex asserted (case-insensitive, DOTALL) against the named file by tests/test_skill_contract.py. These guardrails live ONLY in SKILL.md prose with no other automated guard; deleting one would otherwise pass CI green. Adding a new guardrail to the skill = add an entry here. The `rationale` is surfaced on failure so a breakage is self-explaining.",
+  "prose": [
+    {
+      "id": "approval-required",
+      "file": "SKILL.md",
+      "pattern": "never\\s+(auto-?publish|publish[^.\\n]*without[^.\\n]*approval)",
+      "rationale": "typefully_post.py has NO approval check in code; approval-before-publish lives only in this prose. Deleting it lets the agent post to the user's real X account without consent."
+    },
+    {
+      "id": "source-gate-step",
+      "file": "SKILL.md",
+      "pattern": "verify_sources\\.py",
+      "rationale": "SKILL.md must reference the source gate at all (the literal appears in the Generate research step, the Publish gate note, and Guardrails). The HARD enforcement that publishing runs the gate is code-tested in tests/test_typefully_post.py (enforce_source_gate) \u2014 not this regex."
+    },
+    {
+      "id": "no-unattended-posting",
+      "file": "SKILL.md",
+      "pattern": "(never add|no) (fully autonomous|unattended|scheduled)[^.\\n]*posting|decline and explain",
+      "rationale": "X permits API posting, but unattended/scheduled/bulk posting is this skill's hard product line (and drifts into X's automation-labeling and spam rules). This is the only instruction telling the agent to decline it."
+    },
+    {
+      "id": "sources-not-in-body",
+      "file": "SKILL.md",
+      "pattern": "(never put sources[\\s\\S]{0,60}?post\\s+body|sources stay in the sidecar)",
+      "rationale": "verify_sources never inspects the post body; keeping sources out of the body is prose-only (and links in tweet 1 also crush reach)."
+    },
+    {
+      "id": "allow-unverified-human-only",
+      "file": "SKILL.md",
+      "pattern": "(allow-unverified[^.\\n]*human-only|agent must never (set|self-apply) it)",
+      "rationale": "--allow-unverified is the single bypass of the source gate; it is enforced only by this human-only convention."
+    },
+    {
+      "id": "never-fabricate",
+      "file": "SKILL.md",
+      "pattern": "never fabricate",
+      "rationale": "Anti-fabrication for first-person content has no mechanical check; this is the skill's core authenticity rule."
+    },
+    {
+      "id": "research-after-save-before-show",
+      "file": "SKILL.md",
+      "pattern": "after .{0,40}save.{0,200}before .{0,40}show",
+      "rationale": "Generate flow ordering is load-bearing: research must run AFTER Save (the slug/sidecar path exists) and BEFORE Show (the shown draft is already source-backed)."
+    },
+    {
+      "id": "voice-feedback-persists-same-turn",
+      "file": "SKILL.md",
+      "pattern": "voice-notes\\.md[^.]{0,80}same turn,?\\s*before redrafting",
+      "rationale": "In-session voice corrections were lost twice in one real ghostwriter session (the user had to repeat the no-AI-closings rule). Persist-before-redraft lives only in this prose; deleting it regresses to corrections evaporating at session end."
+    },
+    {
+      "id": "outcome-checkin-loop",
+      "file": "SKILL.md",
+      "pattern": "post_outcome\\.py",
+      "rationale": "The publish log + self-reported outcomes are the ONLY compliant performance signal (free-tier read access is nil; scraping banned). Dropping the check-in reference severs the skill's feedback loop and reverts topic/format choice to blind priors."
+    },
+    {
+      "id": "ending-self-check",
+      "file": "SKILL.md",
+      "pattern": "stops? on the\\s+last real point",
+      "rationale": "AI-sounding endings are the user's #1, most-repeated content complaint across sessions. The pre-show ending check is prose-only; the voice_judge eval samples it but nothing else forces it at draft time."
+    },
+    {
+      "id": "visual-pick-before-build",
+      "file": "SKILL.md",
+      "pattern": "never render a form\\s+the user\\s+didn.t\\s+choose",
+      "rationale": "Rendering a visual before asking wasted a full card build in a real ghostwriter session (user wanted a different form). One form question before any authoring is prose-only."
+    },
+    {
+      "id": "one-dialog-start",
+      "file": "SKILL.md",
+      "pattern": "check-in and the menu ride in the same single",
+      "rationale": "Session-start round trips are the UX tax paid every single run: the outcome check-in and the idea menu ride in ONE AskUserQuestion dialog. This rule is prose-only; deleting it regresses to two sequential question dialogs before any work starts."
+    },
+    {
+      "id": "hook-tweet-preview",
+      "file": "SKILL.md",
+      "pattern": "first tweet[^.\\n]*(stand alone|hook)[\\s\\S]{0,2500}?\\[\\s*n\\s*/\\s*N\\s*\u00b7",
+      "rationale": "X has no fold: tweet 1 IS the hook, and the numbered per-tweet preview with live weighted counts is the only place the user SEES each tweet's length and the hook standing alone before approving. Prose-only; deleting it regresses to showing drafts as one blob."
+    },
+    {
+      "id": "per-tweet-280",
+      "file": "SKILL.md",
+      "pattern": "280\\s+weighted|weighted[^.\\n]{0,40}280",
+      "rationale": "The weighted 280/tweet limit is enforced by x_len.py at publish, but drafting to fit (URLs=23, emoji/CJK=2) lives in prose; deleting it regresses to trimming at the gate instead of writing to fit."
+    },
+    {
+      "id": "real-output-transcription",
+      "file": "SKILL.md",
+      "pattern": "transcription of a real session,\\s*not an\\s*invention",
+      "rationale": "A real ghostwriter session (2026-07-18) burned ~9 review rounds because the terminal card was invented instead of transcribed from the agent's actual output. Capture-before-author lives only in this prose; the term-misaligned lint checks alignment, not provenance."
+    },
+    {
+      "id": "complete-review-before-display",
+      "file": "SKILL.md",
+      "pattern": "Only exit 0 permits display",
+      "rationale": "No failed or incomplete review can reach the user as draft copy."
+    },
+    {
+      "id": "review-bound-and-repeated",
+      "file": "references/post-review.md",
+      "pattern": "re-run the gate after every edit",
+      "rationale": "Every revision must pass the full editorial rubric again."
+    },
+    {
+      "id": "review-failure-withholds-text",
+      "file": "references/post-review.md",
+      "pattern": "report the missing[\\s\\S]{0,150}without exposing the failed text",
+      "rationale": "Exhausted revisions report a blocker, not the rejected draft."
+    },
+    {
+      "id": "codex-visual-gate-routing",
+      "file": "SKILL.md",
+      "pattern": "references/visual-review\\.md",
+      "rationale": "Codex imagegen visuals require pixel review before presentation; native and legacy paths stay separate."
+    },
+    {
+      "id": "codex-visual-actual-inspection",
+      "file": "references/visual-review.md",
+      "pattern": "actual pixels at full resolution[\\s\\S]{0,80}360 CSS pixels",
+      "rationale": "Prompt inspection cannot establish the correctness, craft or mobile readability of a generated raster."
+    },
+    {
+      "id": "codex-visual-before-show",
+      "file": "references/visual-review.md",
+      "pattern": "Only exit 0 permits showing/opening that exact image",
+      "rationale": "A passing current review must precede any approval preview, not merely the final upload."
+    },
+    {
+      "id": "codex-visual-stop-condition",
+      "file": "references/visual-review.md",
+      "pattern": "two failed internal candidates[\\s\\S]{0,140}without showing failed art",
+      "rationale": "Repeated failures must not lower the quality threshold or expose rejected candidates."
+    },
+    {
+      "id": "codex-visual-private-host-capability",
+      "file": "references/visual-review.md",
+      "pattern": "cannot withhold those[\\s\\S]{0,140}stop this workflow",
+      "rationale": "A host that automatically displays unreviewed images cannot truthfully promise private review."
+    },
+    {
+      "id": "review-comparison-quality",
+      "file": "references/post-review.md",
+      "pattern": "Do not use a deliberately\\s+bad alternative",
+      "rationale": "Comparison records must challenge the draft with plausible alternatives; schema validation alone cannot judge that."
+    },
+    {
+      "id": "review-positive-voice",
+      "file": "references/post-review.md",
+      "pattern": "first-person pronouns and short paragraphs alone do not establish warmth",
+      "rationale": "A previous passing draft was a neutral feature explanation despite first person and short paragraphs; the editor must compare positive voice evidence."
+    },
+    {
+      "id": "review-question-context",
+      "file": "references/post-review.md",
+      "pattern": "warning does not ban questions",
+      "rationale": "Question findings require contextual judgment, preserving useful and genuine questions rather than flattening the author voice."
+    },
+    {
+      "id": "review-preserve-conditions",
+      "file": "references/post-review.md",
+      "pattern": "Check conditions, thresholds and fallback/error behavior",
+      "rationale": "The real forward test exposed a missing minimum-history condition in an otherwise source-backed first-person capability claim."
+    }
+  ],
+  "_baseline_comment": "Baseline eval sets: deterministic, offline, $0 checks pinned against artifacts from real local runs. These gate `ci / ghostwriter-x` alongside the unit tests. Every entry names the test that enforces it so tools/lint_baseline.py can verify the declaration is not aspirational.",
+  "baseline": [
+    {
+      "id": "voice-corpus-stays-clean",
+      "kind": "corpus",
+      "test": "tests/test_baseline_voice.py",
+      "corpus_glob": "evals/baseline/drafts/*.md",
+      "exclude_suffixes": [
+        ".STAGED.md"
+      ],
+      "min_corpus": 5,
+      "rationale": "The drafts the user approved and published are the only ground truth for 'this is my voice'. Six are frozen into evals/baseline/drafts/ as a committed corpus: drafts/ itself is gitignored as a working directory, so globbing it would find zero files in CI and red-line every PR. Pinning the corpus clean catches a voice-lint rule that grows too broad and blocks real work; pinning bad-draft.md's exact flag set catches a rule that gets weakened and stops catching real AI tells. The min_corpus floor stops the glob silently matching nothing and passing vacuously. `.STAGED.md` stays excluded because its human-written 'not published' banner contains an editorial em-dash that is not tweet body \u2014 verified that the staged file's published counterpart is clean, so the exclusion hides no real violation.",
+      "fixtures": []
+    },
+    {
+      "id": "published-threads-fit-280",
+      "kind": "corpus",
+      "test": "tests/test_baseline_voice.py",
+      "corpus_glob": "evals/baseline/drafts/*.md",
+      "exclude_suffixes": [
+        ".STAGED.md"
+      ],
+      "min_corpus": 5,
+      "rationale": "X's 280 limit is weighted, not len(): URLs are charged a flat weight and CJK/emoji are charged 2. Threads that published successfully are known-good input, so if scripts/x_len.py ever measures them as over-limit the weighting regressed and would start rejecting valid posts. The paired over-limit and URL-weighting assertions cover the other direction \u2014 a weighting that under-charges would let a too-long tweet reach X, where it is truncated or rejected.",
+      "fixtures": []
+    },
+    {
+      "id": "post-review-published-corpus",
+      "kind": "corpus",
+      "test": "tests/test_post_review.py",
+      "corpus_glob": "evals/baseline/drafts/*.md",
+      "min_corpus": 6,
+      "rationale": "Previously published real drafts retain zero hard failures; mutation tests reject edited text, missing editorial evidence, unresolved warnings and stale context before display or writes.",
+      "update_command": "Add a newly published, user-approved draft to evals/baseline/drafts/ and run pytest tests/test_post_review.py. Never edit an approved artifact merely to appease a rule."
+    }
+  ]
+}

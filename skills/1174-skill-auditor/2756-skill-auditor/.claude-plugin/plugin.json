@@ -1,0 +1,11 @@
+{
+  "name": "skill-auditor",
+  "description": "Audits a skill's SKILL.md frontmatter, catalog.yaml projection, references, and evals shape against the library schema, reporting ordered actionable findings; use for \"audit this skill\", \"does X follow the schema\", \"lint X against the catalog\", \"check X before I publish it\".",
+  "version": "1.0.1",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

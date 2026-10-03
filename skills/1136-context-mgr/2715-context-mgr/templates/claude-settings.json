@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f .context/STATE.md ]; then echo '=== .context/ continuity protocol is active in this project ==='; echo 'Before doing anything else, invoke the \"session\" skill to check in. The store below is the truth; your private conversation history is not enough.'; echo ''; echo '=== .context/STATE.md ==='; cat .context/STATE.md; echo ''; echo '=== .context/LOG.md (top 80 lines) ==='; head -80 .context/LOG.md; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f .context/STATE.md ]; then echo 'REMINDER (.context/ protocol): Before this session truly ends, invoke the \"session\" skill to check out. Update STATE, append a LOG entry, and commit .context/. Without this, the next agent picks up blind.'; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

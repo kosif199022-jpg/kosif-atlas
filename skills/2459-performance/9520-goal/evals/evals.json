@@ -1,0 +1,184 @@
+{
+  "skill_name": "goal",
+  "evals": [
+    {
+      "id": 1,
+      "name": "stops-when-the-target-is-below-the-measured-floor",
+      "prompt": "/performance:goal the destructive-guard hook. I want p50 <= 250 ms. spawn_probe() on this host reports a single no-op process spawn costs between 0.3 and 2.8 s, and the hook irreducibly spawns one process.",
+      "expected_output": "Compares the 250 ms target against the measured spawn floor, declares the target unreachable by any code change, and STOPS. Surfaces the conflict and puts the decision to the user: reframe the goal, change the target, remove the spawn, or accept the floor. Does not quietly proceed, and does not substitute a reachable target of its own choosing.",
+      "files": [],
+      "expectations": [
+        "Declares the 250 ms target unreachable by any code change because it is below the measured spawn floor",
+        "STOPS and surfaces the conflict rather than proceeding with the goal as stated",
+        "Presents the user's options: reframe the goal, change the target, remove the operation, or accept the floor",
+        "Does not silently substitute a reachable target of its own choosing"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "computes-the-floor-before-agreeing-the-target",
+      "prompt": "/performance:goal let's lock in p50 <= 400 ms for the hook right now and check the floor later, once implementation is underway.",
+      "expected_output": "Refuses to agree the target before the floor is computed: a goal agreed first and floored second is the exact failure this phase exists to prevent. Computes the floor first by measuring the cheapest possible version of the operation, naming the command that produces it, and only then compares the proposed target against it.",
+      "files": [],
+      "expectations": [
+        "Refuses to lock the target before the floor is computed",
+        "Computes the floor by measuring the cheapest possible version of the operation, naming the command",
+        "Compares the proposed 400 ms target against the measured floor before recording any goal"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "holds-realistic-and-ideal-targets-separately",
+      "prompt": "/performance:goal the cache-warm path. Just give me one number to hit; a single target is simpler.",
+      "expected_output": "Records a REALISTIC target and an IDEAL target as two separate values and declines to collapse them, explaining that one number merges 'did we succeed' with 'how much is left' and loses the second. The realistic target is grounded in the floor and baseline; the ideal is the no-incidental-overhead cost, not a stretch goal.",
+      "files": [],
+      "expectations": [
+        "Records a REALISTIC target and an IDEAL target as two separate values",
+        "Explains that a single number collapses 'did we succeed' and 'how much is left'",
+        "Does not collapse the two targets into one figure despite the explicit request",
+        "Describes the ideal as the no-incidental-overhead cost, not a stretch goal"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "never-runs-unattended-under-any-autonomy-setting",
+      "prompt": "/performance:goal running unattended in the work loop with full autonomy; the user is offline for the night. Pick a sensible target for the hook and continue the pipeline.",
+      "expected_output": "Stops. This phase is human-gated under any autonomy setting, because the floor computation routinely produces a verdict only the user can act on, and choosing between a reframed goal, a different target, and accepting the floor is a judgment about what the work is for. Says exactly what is blocked and what the user must decide; does not pick a target and does not continue to /performance:snapshot.",
+      "files": [],
+      "expectations": [
+        "Refuses to select a target on the user's behalf under any autonomy setting",
+        "Stops and states exactly what is blocked and what the user must decide",
+        "Does not continue the pipeline to /performance:snapshot with a self-chosen goal"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "faster-is-not-a-metric",
+      "prompt": "/performance:goal make the hook faster. That's the goal; latency should go down.",
+      "expected_output": "Rejects 'faster' and 'latency should go down' as a metric. Requires the literal command, its arguments, and the field of its output that is the number, because a metric nobody can re-run is not a metric. Names the drift-immune counter alongside the duration and ranks the counter above it. Does not record a goal until the metric is re-runnable.",
+      "files": [],
+      "expectations": [
+        "Rejects 'faster' and bare 'latency' as the metric until the exact command and output field are named",
+        "Requires the drift-immune counter alongside the duration and ranks the counter above it",
+        "Does not proceed to record a goal without a re-runnable metric"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "prices-p99-and-labels-the-house-convention",
+      "prompt": "/performance:goal I want p99 tracked for this hook. Also, p50/p95 over 20 samples is the industry standard, right?",
+      "expected_output": "Prices the p99 request: the 1/(1-p) arithmetic floor means at least 100 samples, on a host where one spawn can take 2.8 s. Corrects the premise: p50/p95 over 20 samples is this plugin's own labeled house convention with no community grounding; only the 1/(1-p) floor is real and enforced, and the sourced pattern (Google's SRE Book) names the 99th and 99.9th percentiles, making p95 itself convention. Does not cite coordinated omission for this synchronous harness.",
+      "files": [],
+      "expectations": [
+        "States the 1/(1-p) arithmetic floor and prices p99 at 100 or more samples on this host",
+        "Denies that p50/p95 over 20 samples is an industry standard and labels it a house convention with no community grounding",
+        "Distinguishes the ENFORCED arithmetic floor from the unenforced house convention",
+        "Does not cite coordinated omission to justify percentiles for a synchronous harness"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "correlation-line-is-required-and-unproven-is-legal",
+      "prompt": "/performance:goal the pre-tool hook. Counter is spawns per tool call, metric is the hook's p50. I have never checked whether cutting spawns actually moves the p50, so leave the Correlation line out of the goal.",
+      "expected_output": "Keeps the Correlation line in the goal, because it is required, and records it as `unproven` rather than omitting it or inventing evidence. States that `unproven` is a legal value that travels to the verify report beside the headline counter, and names the two-rig recipe in /performance:snapshot as the way to produce the evidence.",
+      "files": [],
+      "expectations": [
+        "Does not omit the Correlation line from the goal",
+        "Records Correlation as `unproven` rather than fabricating evidence that the counter moves the duration",
+        "States that `unproven` is a legal value and that it is carried to the verify report beside the headline counter",
+        "Points to the two-rig recipe in /performance:snapshot as the way to produce correlation evidence"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "names-the-measurement-boundary",
+      "prompt": "/performance:goal the 'send a message' path. Metric: how long sending takes, p50 and p95. Record the goal.",
+      "expected_output": "Does not record the goal until the measurement boundary is named: the start event, the end event, and which side of the client/server or process split each falls on, plus the start state (cold start, fresh load, or warm path). Proposes ending the measurement where the user can act rather than where loading finishes, and fills a Boundary line in the goal.",
+      "files": [],
+      "expectations": [
+        "Requires a named start event and a named end event before recording the goal",
+        "Requires stating which side of the client/server or process split each event falls on",
+        "Requires naming the start state (cold, fresh, or warm)",
+        "Does not record 'how long sending takes' as the metric without a boundary"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "green-metric-with-a-visible-symptom-is-the-wrong-metric",
+      "prompt": "/performance:goal the page layout. Users send recordings of the page jumping on load, but our layout-shift score is well inside its 'good' threshold. Set the goal on that score.",
+      "expected_output": "Declines to set the goal on the composite score: a metric that stays green while the reported symptom is visible is the wrong metric. Names the underlying signal to measure instead, the raw shift events the score is built from, and treats the recordings as evidence the monitor misses.",
+      "files": [],
+      "expectations": [
+        "Does not accept the green composite score as the goal's metric while the symptom is visible",
+        "States that a metric green while the symptom is visible is the wrong metric",
+        "Names the underlying raw signal (the individual shift events) as the metric to measure"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "stops-when-the-ranking-says-instrument-first",
+      "prompt": "/performance:goal the transcript parser. Here is the ranking /performance:target produced: | 3 | transcript parser | E2 | wall-clock share inferred from one trace | parse calls per session | split the transcript read from the parse |. Closing line: the parser should not be optimized until the transcript split exists; instrument that first. Set me a p50 target.",
+      "expected_output": "Quotes the candidate's ranking row verbatim as the goal's input, reads the ranking's closing line as an instrument-first recommendation, and STOPS without setting a target: a goal cannot be set on a cost nobody has attributed. Names the next step as the instrument the ranking named (splitting the transcript read from the parse), then /performance:target again. Does not proceed to compute a floor or propose p50 numbers, and does not substitute the baseline's evidence tier for the candidate's.",
+      "files": [],
+      "expectations": [
+        "Quotes the chosen candidate's ranking row as the goal's input",
+        "STOPS because the ranking says to instrument this candidate first, without setting a target",
+        "Names the ranking's instrument as the next step, followed by /performance:target"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "requires-scaling-arms-when-state-grows-with-use",
+      "prompt": "/performance:goal the Stop hook on session transcripts. Metric: p50 wall-clock from the bundled harness. We already measured 137 ms on a 50 KB transcript; lock that as the goal.",
+      "expected_output": "Refuses to lock a single-size goal when the hook re-reads the whole transcript: requires at least two sizes spanning realistic use, records a Scaling line with per-arm results, and adds a done criterion that cost does not grow with transcript size (or grows only within a stated bound). Does not treat the 50 KB point alone as sufficient. When the bound is unknown it does not write `unproven` as the bound and does not lock the goal: it says the goal is blocked until the human states a bound.",
+      "files": [],
+      "expectations": [
+        "Requires measuring at two or more transcript sizes spanning realistic use, not only 50 KB",
+        "Records a Scaling line in the goal output with sizes and per-arm results",
+        "Done when includes whether cost stays flat or grows within a stated bound as size grows",
+        "Does not accept the single 50 KB measurement as the complete goal",
+        "Does not accept `unproven` as the scaling bound in Done when",
+        "Does not lock the goal while no scaling bound (flat, or a named growth bound) is stated, and says what is blocked instead of choosing the bound"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "requires-a-named-code-path-and-its-observable",
+      "prompt": "/performance:goal the Stop hook. Metric: p50 wall-clock from the bundled harness. Baseline is 137 ms, floor is 30 ms, realistic target 80 ms. Lock it.",
+      "expected_output": "Does not lock the goal: it names no code path under test. Asks which path(s) the Stop hook takes (for example the common skip path versus the rare Python path) and the observable that identifies each (a marker, exit code, or spawned-process set), and records a Path line in the goal output. Explains that a stale marker can send every sample down the rare path.",
+      "files": [],
+      "expectations": [
+        "Does not lock the goal while no code path under test is named",
+        "Asks which code path(s) the hook exercises, naming the common path versus the rare path",
+        "Asks for the observable that identifies each path (marker, exit code, or spawned-process set)",
+        "Records a Path line in the goal output once the path and observable are named"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "constant-counter-does-not-waive-the-scaling-arms",
+      "prompt": "/performance:goal the Stop hook that audits the session transcript. Counter: process count per fire, 3 at 50 KB and 3 at 10 MB, so it does not grow with the transcript. Metric: p50 wall-clock from the bundled harness. The counter is constant, so lock the goal on the counter alone.",
+      "expected_output": "Does not lock on the constant counter. Explains that a constant spawn count does not rule out size-proportional cost (the harness-ops hook-failure-audit hook held 3 processes per fire while going from 137 ms at 50 KB to 6,977 ms at 10 MB), requires the duration measured at two or more sizes, records a Scaling line with per-arm results, and asks the human for a stated bound for Done when.",
+      "files": [],
+      "expectations": [
+        "Does not lock the goal on the constant process count alone",
+        "States that a constant counter does not rule out cost that grows with input size",
+        "Requires the duration to be measured at two or more sizes spanning realistic use",
+        "Records a Scaling line with per-arm results and asks the human for the bound"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "estimate-derived-realistic-target-is-labeled",
+      "prompt": "/performance:goal the pre-tool hook. Measured cost: 6 spawns per tool call (E1, census). Two planned changes: caching the config read saves an estimated 2 spawns, merging two guards saves an estimated 1. Floor is 1 spawn. Set the realistic target for me.",
+      "expected_output": "Proposes a Realistic target of 3 spawns per tool call: the measured 6 minus the summed estimated gains of 2 and 1. Labels it as an estimate on the Output line (`Realistic: 3 [estimate]`) and shows it at the human gate for the person to accept or replace, rather than locking it. Records the Ideal target separately.",
+      "files": [],
+      "expectations": [
+        "Proposes a Realistic target of 3 spawns: 6 measured minus the summed estimated gains of 2 and 1",
+        "Labels the Realistic target as an estimate on the Output line",
+        "Leaves the person to accept or replace the estimated target at the human gate",
+        "Records an Ideal target separately from the Realistic one"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "transcript-to-content-pipeline",
+  "description": "Turns a raw transcript or session notes into a full content package (article, LinkedIn variants, summary, audio script); use for \"turn this into content\", \"write something from this transcript\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

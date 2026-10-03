@@ -1,0 +1,11 @@
+{
+  "name": "ireport",
+  "description": "Generates styled, interactive HTML research reports from a topic or notes; use for \"interactive report\", \"HTML report on X\", \"deep research document\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

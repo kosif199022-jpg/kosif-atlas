@@ -1,0 +1,1197 @@
+#!/usr/bin/env python3
+"""Operate herdr through a checked, versioned environment contract."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Final, Mapping, Protocol, TextIO, cast
+
+SCHEMA_VERSION = 1
+COMMAND_TIMEOUT_SECONDS = 30
+# Every wait-bearing command gets its own bound plus this margin for the
+# subprocess, so the adapter's bound always exceeds the request's.
+WAIT_MARGIN_SECONDS = 5
+
+# Public command grammar of herdr.
+HERDR_COMMAND = "herdr"
+AGENT_COMMAND = "agent"
+WORKTREE_COMMAND = "worktree"
+LIST_COMMAND = "list"
+READ_COMMAND = "read"
+WAIT_COMMAND = "wait"
+PROMPT_COMMAND = "prompt"
+SEND_KEYS_COMMAND = "send-keys"
+START_COMMAND = "start"
+GET_COMMAND = "get"
+OPEN_COMMAND = "open"
+CREATE_COMMAND = "create"
+SOURCE_OPTION = "--source"
+LINES_OPTION = "--lines"
+UNTIL_OPTION = "--until"
+TIMEOUT_OPTION = "--timeout"
+WAIT_OPTION = "--wait"
+KIND_OPTION = "--kind"
+PANE_OPTION = "--pane"
+PATH_OPTION = "--path"
+WORKSPACE_OPTION = "--workspace"
+BRANCH_OPTION = "--branch"
+BASE_OPTION = "--base"
+NO_FOCUS_OPTION = "--no-focus"
+AGENT_ARGUMENTS_SEPARATOR = "--"
+# Herdr reads a token that begins with this prefix as one of its options, and
+# offers no separator or attached form for a text that does, so no text
+# argument may begin with it.
+LONG_OPTION_PREFIX = "--"
+# The command Claude Code and Codex, the agents start launches, each end their
+# session on; submitted as a prompt, it returns the pane to its shell.
+AGENT_EXIT_TEXT = "/exit"
+# Every command either agent start launches ends its session on: stop's own
+# command and the alias both agents accept for it. A prompt whose text, stripped
+# of surrounding whitespace, is one of these ends the session as stop does.
+AGENT_SESSION_ENDING_TEXTS = frozenset({AGENT_EXIT_TEXT, "/quit"})
+
+# Fields of herdr's public JSON envelope.
+RESULT_FIELD = "result"
+ERROR_FIELD = "error"
+CODE_FIELD = "code"
+MESSAGE_FIELD = "message"
+AGENTS_FIELD = "agents"
+# The one hosted agent session a start, wait, or prompt result carries.
+SESSION_FIELD = "agent"
+# Fields of one hosted agent session in that envelope.
+NAME_FIELD = "name"
+AGENT_KIND_FIELD = "agent"
+AGENT_STATUS_FIELD = "agent_status"
+PANE_ID_FIELD = "pane_id"
+TAB_ID_FIELD = "tab_id"
+WORKSPACE_ID_FIELD = "workspace_id"
+CWD_FIELD = "cwd"
+INTERACTIVE_READY_FIELD = "interactive_ready"
+# Fields of the worktree create and open envelope: the worktree herdr created or
+# opened, the workspace herdr opened it in, and that workspace's root pane.
+WORKTREE_RESPONSE_FIELD = "worktree"
+WORKSPACE_RESPONSE_FIELD = "workspace"
+ROOT_PANE_RESPONSE_FIELD = "root_pane"
+WORKTREE_PATH_RESPONSE_FIELD = "path"
+PARTICIPANT_FIELDS = (
+    NAME_FIELD,
+    AGENT_KIND_FIELD,
+    AGENT_STATUS_FIELD,
+    PANE_ID_FIELD,
+    TAB_ID_FIELD,
+    WORKSPACE_ID_FIELD,
+    CWD_FIELD,
+    INTERACTIVE_READY_FIELD,
+)
+
+# Fields of the capability's requests and results.
+SCHEMA_VERSION_FIELD = "schemaVersion"
+OPERATION_FIELD = "operation"
+ARGUMENTS_FIELD = "arguments"
+STATUS_FIELD = "status"
+DETAIL_FIELD = "detail"
+COMMAND_EXIT_CODE_FIELD = "commandExitCode"
+RESPONSE_FIELD = "response"
+ERROR_CODE_FIELD = "errorCode"
+AGENT_FIELD = "agent"
+PANE_FIELD = "pane"
+TEXT_FIELD = "text"
+KEYS_FIELD = "keys"
+SOURCE_FIELD = "source"
+LINES_FIELD = "lines"
+UNTIL_FIELD = "until"
+TIMEOUT_FIELD = "timeout"
+WAIT_FIELD = "wait"
+KIND_FIELD = "kind"
+PATH_FIELD = "path"
+WORKSPACE_FIELD = "workspace"
+BRANCH_FIELD = "branch"
+BASE_FIELD = "base"
+AGENT_ARGUMENTS_FIELD = "agentArguments"
+MUTATION_AUTHORIZED_FIELD = "mutationAuthorized"
+# The verbatim terminal text a read returns; herdr writes it as text, not JSON.
+OUTPUT_FIELD = "output"
+# The projection of the one hosted agent session a start, relaunch, wait, read,
+# or prompt result acted on: the complete projection, or the incomplete item.
+SESSION_RESULT_FIELD = "session"
+# The projection of every hosted agent session an inventory result lists.
+AGENTS_RESULT_FIELD = "agents"
+# The worktree a create-worktree or open-worktree result carries: its path, the
+# workspace herdr opened it in, and that workspace's root pane, which start takes.
+WORKTREE_RESULT_FIELD = "worktree"
+ROOT_PANE_RESULT_FIELD = "rootPane"
+# An incomplete item names the projected fields its agent evidence lacks under
+# this field; a complete projection never carries it.
+MISSING_FIELDS_FIELD = "missingFields"
+
+REQUEST_FIELDS = frozenset({SCHEMA_VERSION_FIELD, OPERATION_FIELD, ARGUMENTS_FIELD})
+SUCCESS_RESULT_FIELDS = frozenset(
+    {
+        SCHEMA_VERSION_FIELD,
+        OPERATION_FIELD,
+        STATUS_FIELD,
+        COMMAND_EXIT_CODE_FIELD,
+        RESPONSE_FIELD,
+    }
+)
+FAILURE_RESULT_REQUIRED_FIELDS = frozenset(
+    {SCHEMA_VERSION_FIELD, OPERATION_FIELD, STATUS_FIELD, DETAIL_FIELD}
+)
+SUCCESS_RESULT_OPTIONAL_FIELDS = frozenset(
+    {SESSION_RESULT_FIELD, AGENTS_RESULT_FIELD, WORKTREE_RESULT_FIELD}
+)
+FAILURE_RESULT_OPTIONAL_FIELDS = frozenset(
+    {COMMAND_EXIT_CODE_FIELD, ERROR_CODE_FIELD, SESSION_RESULT_FIELD}
+)
+SELECTOR_FIELDS = (AGENT_FIELD, PANE_FIELD)
+
+
+class Operation(StrEnum):
+    INVENTORY = "inventory"
+    READ = "read"
+    WAIT = "wait"
+    PROMPT = "prompt"
+    KEY = "key"
+    START = "start"
+    RELAUNCH = "relaunch"
+    STOP = "stop"
+    OPEN_WORKTREE = "open-worktree"
+    CREATE_WORKTREE = "create-worktree"
+
+
+MUTATING_OPERATIONS = frozenset(
+    {
+        Operation.KEY,
+        Operation.START,
+        Operation.RELAUNCH,
+        Operation.STOP,
+        Operation.OPEN_WORKTREE,
+        Operation.CREATE_WORKTREE,
+    }
+)
+# Operations whose command waits on the agent — prompt only when the request
+# sets `wait` — and therefore carry an explicit timeout.
+WAIT_BEARING_OPERATIONS = frozenset(
+    {Operation.WAIT, Operation.START, Operation.RELAUNCH, Operation.PROMPT}
+)
+# Operations whose public response is terminal text rather than a JSON envelope.
+TEXT_OPERATIONS = frozenset({Operation.READ})
+# Operations whose public result carries the one hosted agent session it acted on.
+SESSION_OPERATIONS = frozenset(
+    {
+        Operation.START,
+        Operation.RELAUNCH,
+        Operation.WAIT,
+        Operation.READ,
+        Operation.PROMPT,
+    }
+)
+# Operations whose result carries the worktree herdr created or opened.
+WORKTREE_OPERATIONS = frozenset({Operation.CREATE_WORKTREE, Operation.OPEN_WORKTREE})
+# Operations that address a pane through no selector.
+SELECTORLESS_OPERATIONS = frozenset(
+    {Operation.INVENTORY, Operation.OPEN_WORKTREE, Operation.CREATE_WORKTREE}
+)
+# The projected fields each readiness judgment reads: start and relaunch judge
+# the launched session ready for input, and the wait judges the state reached.
+# Read and prompt deliver text and judge no readiness.
+READINESS_FIELDS: Final[Mapping[Operation, frozenset[str]]] = {
+    Operation.START: frozenset({INTERACTIVE_READY_FIELD}),
+    Operation.RELAUNCH: frozenset({INTERACTIVE_READY_FIELD}),
+    Operation.WAIT: frozenset({AGENT_STATUS_FIELD}),
+}
+
+
+class AgentState(StrEnum):
+    IDLE = "idle"
+    WORKING = "working"
+    BLOCKED = "blocked"
+    DONE = "done"
+    UNKNOWN = "unknown"
+
+
+class ReadSource(StrEnum):
+    VISIBLE = "visible"
+    RECENT = "recent"
+    RECENT_UNWRAPPED = "recent-unwrapped"
+    DETECTION = "detection"
+
+
+class ExecutionStatus(StrEnum):
+    SUCCEEDED = "succeeded"
+    COMMAND_FAILED = "command-failed"
+    INVALID_SCHEMA = "invalid-schema"
+    SERVER_NOT_RUNNING = "server-not-running"
+    IDENTITY_UNAVAILABLE = "identity-unavailable"
+    IDENTITY_AMBIGUOUS = "identity-ambiguous"
+    AGENT_NOT_READY = "agent-not-ready"
+    AGENT_BLOCKED = "agent-blocked"
+    PROMPT_STALLED = "prompt-stalled"
+    WAIT_TIMEOUT = "wait-timeout"
+    MUTATION_UNAUTHORIZED = "mutation-unauthorized"
+    OPERATION_UNAVAILABLE = "operation-unavailable"
+    # A start, relaunch, or wait whose readiness judgment needs a field the
+    # agent's evidence lacks: no readiness verdict, the incomplete item instead.
+    AGENT_EVIDENCE_INCOMPLETE = "agent-evidence-incomplete"
+
+
+# The herdr error codes the operating workflows branch on, projected to a
+# named status; every other code stays verbatim under command-failed.
+HERDR_ERROR_STATUSES: Final[Mapping[str, ExecutionStatus]] = {
+    "server_not_running": ExecutionStatus.SERVER_NOT_RUNNING,
+    "agent_not_found": ExecutionStatus.IDENTITY_UNAVAILABLE,
+    "agent_not_ready": ExecutionStatus.AGENT_NOT_READY,
+    "agent_blocked": ExecutionStatus.AGENT_BLOCKED,
+    "agent_prompt_stalled": ExecutionStatus.PROMPT_STALLED,
+    "timeout": ExecutionStatus.WAIT_TIMEOUT,
+}
+
+
+class CliOperation(StrEnum):
+    RUN = "run"
+
+
+@dataclass(frozen=True)
+class RequestShape:
+    required_fields: frozenset[str] = frozenset()
+    optional_fields: frozenset[str] = frozenset()
+
+    def accepts(self, fields: frozenset[str]) -> bool:
+        return (
+            self.required_fields
+            <= fields
+            <= (self.required_fields | self.optional_fields)
+        )
+
+
+@dataclass(frozen=True)
+class OperationContract:
+    request_shapes: tuple[RequestShape, ...]
+
+    @property
+    def allowed_fields(self) -> frozenset[str]:
+        return frozenset(
+            field
+            for shape in self.request_shapes
+            for field in shape.required_fields | shape.optional_fields
+        )
+
+
+def _selector_shapes(
+    required_fields: frozenset[str], optional_fields: frozenset[str] = frozenset()
+) -> tuple[RequestShape, ...]:
+    return tuple(
+        RequestShape(required_fields | {selector}, optional_fields)
+        for selector in SELECTOR_FIELDS
+    )
+
+
+def _prompt_shapes() -> tuple[RequestShape, ...]:
+    # A prompt may carry mutation authorization: it needs it exactly when its
+    # text is the exit command stop submits, which ends the agent session.
+    shapes: list[RequestShape] = []
+    for selector in SELECTOR_FIELDS:
+        base = frozenset({selector, TEXT_FIELD})
+        shapes.append(RequestShape(base, frozenset({MUTATION_AUTHORIZED_FIELD})))
+        shapes.append(
+            RequestShape(
+                base | {WAIT_FIELD, TIMEOUT_FIELD},
+                frozenset({UNTIL_FIELD, MUTATION_AUTHORIZED_FIELD}),
+            )
+        )
+    return tuple(shapes)
+
+
+START_SHAPE = RequestShape(
+    frozenset(
+        {NAME_FIELD, KIND_FIELD, PANE_FIELD, TIMEOUT_FIELD, MUTATION_AUTHORIZED_FIELD}
+    ),
+    frozenset({AGENT_ARGUMENTS_FIELD}),
+)
+OPERATION_CONTRACTS: Final[Mapping[Operation, OperationContract]] = {
+    Operation.INVENTORY: OperationContract((RequestShape(),)),
+    Operation.READ: OperationContract(
+        _selector_shapes(frozenset(), frozenset({SOURCE_FIELD, LINES_FIELD}))
+    ),
+    Operation.WAIT: OperationContract(
+        _selector_shapes(frozenset({TIMEOUT_FIELD}), frozenset({UNTIL_FIELD}))
+    ),
+    Operation.PROMPT: OperationContract(_prompt_shapes()),
+    Operation.KEY: OperationContract(
+        _selector_shapes(frozenset({KEYS_FIELD, MUTATION_AUTHORIZED_FIELD}))
+    ),
+    Operation.START: OperationContract((START_SHAPE,)),
+    Operation.RELAUNCH: OperationContract((START_SHAPE,)),
+    Operation.STOP: OperationContract(
+        (RequestShape(frozenset({PANE_FIELD, MUTATION_AUTHORIZED_FIELD})),)
+    ),
+    # A worktree request names its workspace. One without it matches no shape
+    # and returns invalid-schema, the source-owned invalid-request result,
+    # before any command runs.
+    Operation.OPEN_WORKTREE: OperationContract(
+        (
+            RequestShape(
+                frozenset({WORKSPACE_FIELD, PATH_FIELD, MUTATION_AUTHORIZED_FIELD})
+            ),
+        )
+    ),
+    Operation.CREATE_WORKTREE: OperationContract(
+        (
+            RequestShape(
+                frozenset({WORKSPACE_FIELD, MUTATION_AUTHORIZED_FIELD}),
+                frozenset({BRANCH_FIELD, BASE_FIELD, PATH_FIELD}),
+            ),
+        )
+    ),
+}
+PUBLIC_HERDR_COMMAND_PREFIXES: Final[Mapping[Operation, tuple[str, ...]]] = {
+    Operation.INVENTORY: (HERDR_COMMAND, AGENT_COMMAND, LIST_COMMAND),
+    Operation.READ: (HERDR_COMMAND, AGENT_COMMAND, READ_COMMAND),
+    Operation.WAIT: (HERDR_COMMAND, AGENT_COMMAND, WAIT_COMMAND),
+    Operation.PROMPT: (HERDR_COMMAND, AGENT_COMMAND, PROMPT_COMMAND),
+    Operation.KEY: (HERDR_COMMAND, AGENT_COMMAND, SEND_KEYS_COMMAND),
+    Operation.START: (HERDR_COMMAND, AGENT_COMMAND, START_COMMAND),
+    Operation.RELAUNCH: (HERDR_COMMAND, AGENT_COMMAND, START_COMMAND),
+    # Herdr offers no command that ends an agent session and keeps its pane, so
+    # stop submits the agent's own exit command through the prompt vector.
+    Operation.STOP: (HERDR_COMMAND, AGENT_COMMAND, PROMPT_COMMAND),
+    Operation.OPEN_WORKTREE: (HERDR_COMMAND, WORKTREE_COMMAND, OPEN_COMMAND),
+    Operation.CREATE_WORKTREE: (HERDR_COMMAND, WORKTREE_COMMAND, CREATE_COMMAND),
+}
+# Commands an operation runs after its own to read the agent evidence its result
+# carries: herdr writes a read as terminal text, which carries no session.
+EVIDENCE_COMMAND_PREFIXES: Final[Mapping[Operation, tuple[str, ...]]] = {
+    Operation.READ: (HERDR_COMMAND, AGENT_COMMAND, GET_COMMAND),
+}
+PUBLIC_HERDR_ARGUMENT_OPTIONS: Final[Mapping[str, str]] = {
+    SOURCE_FIELD: SOURCE_OPTION,
+    LINES_FIELD: LINES_OPTION,
+    UNTIL_FIELD: UNTIL_OPTION,
+    TIMEOUT_FIELD: TIMEOUT_OPTION,
+    WAIT_FIELD: WAIT_OPTION,
+    KIND_FIELD: KIND_OPTION,
+    PANE_FIELD: PANE_OPTION,
+    PATH_FIELD: PATH_OPTION,
+    WORKSPACE_FIELD: WORKSPACE_OPTION,
+    BRANCH_FIELD: BRANCH_OPTION,
+    BASE_FIELD: BASE_OPTION,
+}
+INTEGER_BOUNDS: Final[Mapping[str, tuple[int, int]]] = {
+    LINES_FIELD: (1, 100_000),
+    TIMEOUT_FIELD: (1, 300_000),
+}
+BOOLEAN_ARGUMENT_FIELDS = frozenset({WAIT_FIELD, MUTATION_AUTHORIZED_FIELD})
+TEXT_ARGUMENT_FIELDS = frozenset(
+    {
+        AGENT_FIELD,
+        PANE_FIELD,
+        TEXT_FIELD,
+        NAME_FIELD,
+        KIND_FIELD,
+        PATH_FIELD,
+        WORKSPACE_FIELD,
+        BRANCH_FIELD,
+        BASE_FIELD,
+    }
+)
+TEXT_LIST_ARGUMENT_FIELDS = frozenset({KEYS_FIELD, UNTIL_FIELD, AGENT_ARGUMENTS_FIELD})
+ARGUMENT_NAMES: Final[Mapping[str, str]] = {
+    "agent": AGENT_FIELD,
+    "pane": PANE_FIELD,
+    "text": TEXT_FIELD,
+    "keys": KEYS_FIELD,
+    "source": SOURCE_FIELD,
+    "lines": LINES_FIELD,
+    "until": UNTIL_FIELD,
+    "timeout": TIMEOUT_FIELD,
+    "wait": WAIT_FIELD,
+    "name": NAME_FIELD,
+    "kind": KIND_FIELD,
+    "path": PATH_FIELD,
+    "workspace": WORKSPACE_FIELD,
+    "branch": BRANCH_FIELD,
+    "base": BASE_FIELD,
+    "agent_arguments": AGENT_ARGUMENTS_FIELD,
+    "mutation_authorized": MUTATION_AUTHORIZED_FIELD,
+}
+RAW_HERDR_COMMAND_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"\bHERDR_COMMAND\b|[\[(]['\"]herdr['\"]"),
+)
+HERDR_HELP_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"herdr[^\n]*['\"](?:--help|--skill)['\"]"),
+    re.compile(r"\bHERDR_COMMAND\b[^\n]*\bHELP_OPTION\b"),
+)
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+class CommandRunner(Protocol):
+    def run(
+        self,
+        argv: tuple[str, ...],
+        stdin: str | None = None,
+        *,
+        timeout_seconds: int = COMMAND_TIMEOUT_SECONDS,
+    ) -> CommandResult: ...
+
+
+class HerdrEnvironmentError(RuntimeError):
+    def __init__(self, status: ExecutionStatus, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+@dataclass(frozen=True)
+class SubprocessRunner:
+    """Run one bounded, reaped command; absence and timeouts propagate as raised."""
+
+    def run(
+        self,
+        argv: tuple[str, ...],
+        stdin: str | None = None,
+        *,
+        timeout_seconds: int = COMMAND_TIMEOUT_SECONDS,
+    ) -> CommandResult:
+        completed = subprocess.run(
+            argv,
+            input=stdin,
+            stdin=subprocess.DEVNULL if stdin is None else None,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+        return CommandResult(completed.returncode, completed.stdout, completed.stderr)
+
+
+def _object(value: object, location: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA, f"Expected an object at {location}."
+        )
+    return cast(dict[str, object], value)
+
+
+def _array(value: object, location: str) -> list[object]:
+    if not isinstance(value, list):
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA, f"Expected an array at {location}."
+        )
+    return cast(list[object], value)
+
+
+def _text(value: object, location: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA, f"Expected non-empty text at {location}."
+        )
+    return value
+
+
+def _herdr_text(value: object, location: str) -> str:
+    """A text herdr receives as a positional or an option value: non-empty and
+    never beginning with the long-option prefix herdr would read as an option."""
+    text = _text(value, location)
+    if text.startswith(LONG_OPTION_PREFIX):
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"Text at {location} begins with {LONG_OPTION_PREFIX!r}, which herdr "
+            f"reads as an option: {text!r}.",
+        )
+    return text
+
+
+def _text_list(value: object, location: str) -> list[str]:
+    items = _array(value, location)
+    if not items:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA, f"Expected a non-empty array at {location}."
+        )
+    return [_text(item, f"{location}[{index}]") for index, item in enumerate(items)]
+
+
+def _boolean(value: object, location: str) -> bool:
+    if not isinstance(value, bool):
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA, f"Expected a boolean at {location}."
+        )
+    return value
+
+
+def _integer(value: object, location: str, *, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA, f"Expected an integer at {location}."
+        )
+    if not minimum <= value <= maximum:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"Expected an integer between {minimum} and {maximum} at {location}.",
+        )
+    return value
+
+
+def _operation(value: object) -> Operation:
+    try:
+        return Operation(_text(value, OPERATION_FIELD))
+    except ValueError as error:
+        valid = ", ".join(sorted(operation.value for operation in Operation))
+        raise HerdrEnvironmentError(
+            ExecutionStatus.OPERATION_UNAVAILABLE,
+            f"Unsupported herdr operation: {value!r}. Valid operations: {valid}.",
+        ) from error
+
+
+def _agent_state(value: object, location: str) -> AgentState:
+    try:
+        return AgentState(_text(value, location))
+    except ValueError as error:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA, f"Unsupported agent state at {location}."
+        ) from error
+
+
+def _describe_shapes(contract: OperationContract) -> str:
+    return "; ".join(
+        f"required {sorted(shape.required_fields)}, optional {sorted(shape.optional_fields)}"
+        for shape in contract.request_shapes
+    )
+
+
+def _validated_request(request: object) -> tuple[Operation, dict[str, object]]:
+    value = _object(request, "request")
+    unexpected = sorted(set(value) - REQUEST_FIELDS)
+    missing = sorted(REQUEST_FIELDS - set(value))
+    if unexpected or missing:
+        details: list[str] = []
+        if unexpected:
+            details.append(f"unsupported: {', '.join(unexpected)}")
+        if missing:
+            details.append(f"missing: {', '.join(missing)}")
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"Operation request fields are invalid ({'; '.join(details)}).",
+        )
+    if value.get(SCHEMA_VERSION_FIELD) != SCHEMA_VERSION:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"Operation request schema version must be {SCHEMA_VERSION}.",
+        )
+    operation = _operation(value.get(OPERATION_FIELD))
+    arguments = _object(value.get(ARGUMENTS_FIELD), f"request.{ARGUMENTS_FIELD}")
+    contract = OPERATION_CONTRACTS[operation]
+    unexpected_arguments = sorted(set(arguments) - contract.allowed_fields)
+    if unexpected_arguments:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"{operation.value} contains unsupported arguments: {', '.join(unexpected_arguments)}.",
+        )
+    # Every required-field, request-shape, and value check runs before the
+    # authorization checks, so a malformed request is an invalid request whatever
+    # its authorization, and authorization is judged only on a well-formed one.
+    # The shape check takes the authorization field as supplied for an operation
+    # that always needs it, and the value checks require that field, where
+    # present, to be a JSON boolean.
+    if (
+        operation in WAIT_BEARING_OPERATIONS
+        and arguments.get(WAIT_FIELD, operation is not Operation.PROMPT) is True
+        and TIMEOUT_FIELD not in arguments
+    ):
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"{operation.value} waits on the agent and requires an explicit {TIMEOUT_FIELD}.",
+        )
+    supplied_fields = frozenset(arguments)
+    if operation in MUTATING_OPERATIONS:
+        supplied_fields |= {MUTATION_AUTHORIZED_FIELD}
+    if not any(shape.accepts(supplied_fields) for shape in contract.request_shapes):
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"{operation.value} arguments do not match a source-owned request shape; "
+            f"accepted shapes: {_describe_shapes(contract)}.",
+        )
+    selectors = [field for field in SELECTOR_FIELDS if field in arguments]
+    if operation not in SELECTORLESS_OPERATIONS and len(selectors) != 1:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"{operation.value} requires exactly one selector: {', '.join(SELECTOR_FIELDS)}.",
+        )
+    location = f"request.{ARGUMENTS_FIELD}"
+    for field_name in TEXT_ARGUMENT_FIELDS:
+        if field_name in arguments:
+            _herdr_text(arguments[field_name], f"{location}.{field_name}")
+    for field_name in TEXT_LIST_ARGUMENT_FIELDS:
+        if field_name in arguments:
+            items = _text_list(arguments[field_name], f"{location}.{field_name}")
+            # Agent arguments follow herdr's `--` separator and may carry the
+            # launched agent's own options; every other list is herdr's.
+            if field_name != AGENT_ARGUMENTS_FIELD:
+                for index, item in enumerate(items):
+                    _herdr_text(item, f"{location}.{field_name}[{index}]")
+    for field_name in BOOLEAN_ARGUMENT_FIELDS:
+        if field_name in arguments:
+            _boolean(arguments[field_name], f"{location}.{field_name}")
+    for field_name, (minimum, maximum) in INTEGER_BOUNDS.items():
+        if field_name in arguments:
+            _integer(
+                arguments[field_name],
+                f"{location}.{field_name}",
+                minimum=minimum,
+                maximum=maximum,
+            )
+    if UNTIL_FIELD in arguments:
+        for index, state in enumerate(cast(list[object], arguments[UNTIL_FIELD])):
+            _agent_state(state, f"{location}.{UNTIL_FIELD}[{index}]")
+    if SOURCE_FIELD in arguments:
+        try:
+            ReadSource(str(arguments[SOURCE_FIELD]))
+        except ValueError as error:
+            raise HerdrEnvironmentError(
+                ExecutionStatus.INVALID_SCHEMA,
+                f"Unsupported read source at {location}.{SOURCE_FIELD}.",
+            ) from error
+    if (
+        operation in MUTATING_OPERATIONS
+        and arguments.get(MUTATION_AUTHORIZED_FIELD) is not True
+    ):
+        raise HerdrEnvironmentError(
+            ExecutionStatus.MUTATION_UNAUTHORIZED,
+            f"{operation.value} requires {MUTATION_AUTHORIZED_FIELD}: true before command construction.",
+        )
+    # A prompt whose text, stripped of surrounding whitespace, is a session-ending
+    # command ends the agent session as stop does, so it is gated as stop is.
+    text = arguments.get(TEXT_FIELD)
+    if (
+        operation is Operation.PROMPT
+        and isinstance(text, str)
+        and text.strip() in AGENT_SESSION_ENDING_TEXTS
+        and arguments.get(MUTATION_AUTHORIZED_FIELD) is not True
+    ):
+        raise HerdrEnvironmentError(
+            ExecutionStatus.MUTATION_UNAUTHORIZED,
+            f"{operation.value} carrying {text.strip()!r} ends the agent session "
+            f"as {Operation.STOP.value} does and requires "
+            f"{MUTATION_AUTHORIZED_FIELD}: true before command construction.",
+        )
+    return operation, arguments
+
+
+def operation_request(
+    operation: Operation | str, **kwargs: object
+) -> dict[str, object]:
+    """Build one checked operation request from keyword arguments."""
+    operation_value = Operation(operation)
+    arguments: dict[str, object] = {}
+    for name, value in kwargs.items():
+        if name not in ARGUMENT_NAMES:
+            valid = ", ".join(sorted(ARGUMENT_NAMES))
+            raise HerdrEnvironmentError(
+                ExecutionStatus.INVALID_SCHEMA,
+                f"Unsupported operation-request argument {name!r}. Valid arguments: {valid}.",
+            )
+        if value is not None:
+            arguments[ARGUMENT_NAMES[name]] = value
+    request: dict[str, object] = {
+        SCHEMA_VERSION_FIELD: SCHEMA_VERSION,
+        OPERATION_FIELD: operation_value,
+        ARGUMENTS_FIELD: arguments,
+    }
+    _validated_request(request)
+    return request
+
+
+def _target(arguments: dict[str, object]) -> str:
+    for field_name in SELECTOR_FIELDS:
+        value = arguments.get(field_name)
+        if value is not None:
+            return str(value)
+    raise HerdrEnvironmentError(
+        ExecutionStatus.INVALID_SCHEMA, "The request carries no selector."
+    )
+
+
+def command_for(request: object) -> tuple[str, ...]:
+    """Map one checked request onto the exact herdr argument vector."""
+    operation, arguments = _validated_request(request)
+    options = PUBLIC_HERDR_ARGUMENT_OPTIONS
+    command: list[str] = list(PUBLIC_HERDR_COMMAND_PREFIXES[operation])
+    if operation is Operation.INVENTORY:
+        return tuple(command)
+    if operation in {Operation.START, Operation.RELAUNCH}:
+        command.append(str(arguments[NAME_FIELD]))
+        for field_name in (KIND_FIELD, PANE_FIELD):
+            command.extend((options[field_name], str(arguments[field_name])))
+        command.extend((options[TIMEOUT_FIELD], str(arguments[TIMEOUT_FIELD])))
+        if AGENT_ARGUMENTS_FIELD in arguments:
+            command.append(AGENT_ARGUMENTS_SEPARATOR)
+            command.extend(cast(list[str], arguments[AGENT_ARGUMENTS_FIELD]))
+        return tuple(command)
+    if operation is Operation.STOP:
+        command.extend((str(arguments[PANE_FIELD]), AGENT_EXIT_TEXT))
+        return tuple(command)
+    if operation in WORKTREE_OPERATIONS:
+        for field_name in (WORKSPACE_FIELD, BRANCH_FIELD, BASE_FIELD, PATH_FIELD):
+            if field_name in arguments:
+                command.extend((options[field_name], str(arguments[field_name])))
+        command.append(NO_FOCUS_OPTION)
+        return tuple(command)
+    command.append(_target(arguments))
+    if operation is Operation.READ:
+        for field_name in (SOURCE_FIELD, LINES_FIELD):
+            if field_name in arguments:
+                command.extend((options[field_name], str(arguments[field_name])))
+    elif operation is Operation.WAIT:
+        for state in cast(list[str], arguments.get(UNTIL_FIELD, [])):
+            command.extend((options[UNTIL_FIELD], state))
+        command.extend((options[TIMEOUT_FIELD], str(arguments[TIMEOUT_FIELD])))
+    elif operation is Operation.PROMPT:
+        command.append(str(arguments[TEXT_FIELD]))
+        if arguments.get(WAIT_FIELD) is True:
+            command.append(options[WAIT_FIELD])
+            for state in cast(list[str], arguments.get(UNTIL_FIELD, [])):
+                command.extend((options[UNTIL_FIELD], state))
+            command.extend((options[TIMEOUT_FIELD], str(arguments[TIMEOUT_FIELD])))
+    elif operation is Operation.KEY:
+        command.extend(cast(list[str], arguments[KEYS_FIELD]))
+    return tuple(command)
+
+
+def evidence_command_for(request: object) -> tuple[str, ...] | None:
+    """The command that reads the agent evidence a result carries, when the
+    operation's own command returns none."""
+    operation, arguments = _validated_request(request)
+    prefix = EVIDENCE_COMMAND_PREFIXES.get(operation)
+    if prefix is None:
+        return None
+    return (*prefix, _target(arguments))
+
+
+def command_bound_seconds(request: object) -> int:
+    """The subprocess bound for one request: above its own wait, never open."""
+    _, arguments = _validated_request(request)
+    timeout = arguments.get(TIMEOUT_FIELD)
+    if isinstance(timeout, int) and not isinstance(timeout, bool):
+        return -(-timeout // 1000) + WAIT_MARGIN_SECONDS
+    return COMMAND_TIMEOUT_SECONDS
+
+
+def _participant(item: object, location: str) -> dict[str, object]:
+    """Project one hosted agent session onto its source-preserved fields.
+
+    Evidence carrying every projected field projects in full. Evidence lacking
+    any projected field — a session started in a pane outside the adapter, for
+    one — projects to the incomplete item: every projected field it carries,
+    verbatim, and the names of the missing ones under `missingFields`. The pane
+    is one of those fields, so an item whose evidence lacks it carries no pane
+    and names it missing; it stays in the inventory and no pane selector reaches
+    it. A field present with a value outside its declared form is malformed
+    evidence rather than incomplete evidence, and stays invalid-schema.
+    """
+    agent = _object(item, location)
+    projection = {
+        field_name: agent[field_name]
+        for field_name in PARTICIPANT_FIELDS
+        if field_name in agent
+    }
+    if NAME_FIELD in projection:
+        _text(projection[NAME_FIELD], f"{location}.{NAME_FIELD}")
+    if PANE_ID_FIELD in projection:
+        _text(projection[PANE_ID_FIELD], f"{location}.{PANE_ID_FIELD}")
+    if AGENT_STATUS_FIELD in projection:
+        _agent_state(projection[AGENT_STATUS_FIELD], f"{location}.{AGENT_STATUS_FIELD}")
+    missing = [
+        field_name for field_name in PARTICIPANT_FIELDS if field_name not in agent
+    ]
+    if missing:
+        projection[MISSING_FIELDS_FIELD] = missing
+    return projection
+
+
+def missing_fields(projection: Mapping[str, object]) -> frozenset[str]:
+    """The projected fields an agent's evidence lacks; empty for a complete one."""
+    return frozenset(cast(list[str], projection.get(MISSING_FIELDS_FIELD, [])))
+
+
+def _result_object(response: object) -> dict[str, object]:
+    envelope = _object(response, RESPONSE_FIELD)
+    return _object(envelope.get(RESULT_FIELD), f"{RESPONSE_FIELD}.{RESULT_FIELD}")
+
+
+def participants_from_inventory(response: object) -> list[dict[str, object]]:
+    """Project herdr's agent inventory: every complete agent in full and every
+    agent whose evidence lacks a projected field as its incomplete item."""
+    result = _result_object(response)
+    agents = _array(
+        result.get(AGENTS_FIELD), f"{RESPONSE_FIELD}.{RESULT_FIELD}.{AGENTS_FIELD}"
+    )
+    return [
+        _participant(item, f"{AGENTS_FIELD}[{index}]")
+        for index, item in enumerate(agents)
+    ]
+
+
+def session_from_response(response: object) -> dict[str, object]:
+    """Project the one hosted agent session a herdr agent envelope carries."""
+    result = _result_object(response)
+    return _participant(
+        result.get(SESSION_FIELD), f"{RESPONSE_FIELD}.{RESULT_FIELD}.{SESSION_FIELD}"
+    )
+
+
+def worktree_from_response(response: object) -> dict[str, object]:
+    """Project a worktree create or open envelope onto the worktree's path, the
+    workspace herdr opened it in, and that workspace's root pane."""
+    result = _result_object(response)
+    location = f"{RESPONSE_FIELD}.{RESULT_FIELD}"
+    worktree = _object(
+        result.get(WORKTREE_RESPONSE_FIELD), f"{location}.{WORKTREE_RESPONSE_FIELD}"
+    )
+    workspace = _object(
+        result.get(WORKSPACE_RESPONSE_FIELD), f"{location}.{WORKSPACE_RESPONSE_FIELD}"
+    )
+    root_pane = _object(
+        result.get(ROOT_PANE_RESPONSE_FIELD), f"{location}.{ROOT_PANE_RESPONSE_FIELD}"
+    )
+    return {
+        PATH_FIELD: _text(
+            worktree.get(WORKTREE_PATH_RESPONSE_FIELD),
+            f"{location}.{WORKTREE_RESPONSE_FIELD}.{WORKTREE_PATH_RESPONSE_FIELD}",
+        ),
+        WORKSPACE_FIELD: _text(
+            workspace.get(WORKSPACE_ID_FIELD),
+            f"{location}.{WORKSPACE_RESPONSE_FIELD}.{WORKSPACE_ID_FIELD}",
+        ),
+        ROOT_PANE_RESULT_FIELD: _text(
+            root_pane.get(PANE_ID_FIELD),
+            f"{location}.{ROOT_PANE_RESPONSE_FIELD}.{PANE_ID_FIELD}",
+        ),
+    }
+
+
+def participant_for(
+    participants: list[dict[str, object]], selector: str
+) -> dict[str, object]:
+    """Select one participant by live agent name or pane id."""
+    matches = [
+        participant
+        for participant in participants
+        if selector in (participant.get(NAME_FIELD), participant.get(PANE_ID_FIELD))
+    ]
+    if not matches:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.IDENTITY_UNAVAILABLE,
+            f"No hosted agent session matches {selector!r}.",
+        )
+    if len(matches) > 1:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.IDENTITY_AMBIGUOUS,
+            f"{len(matches)} hosted agent sessions match {selector!r}.",
+        )
+    return matches[0]
+
+
+def raw_herdr_command_violations(sources: Mapping[str, str]) -> list[str]:
+    return sorted(
+        name
+        for name, text in sources.items()
+        if any(pattern.search(text) for pattern in RAW_HERDR_COMMAND_PATTERNS)
+    )
+
+
+def herdr_help_violations(sources: Mapping[str, str]) -> list[str]:
+    return sorted(
+        name
+        for name, text in sources.items()
+        if any(pattern.search(text) for pattern in HERDR_HELP_PATTERNS)
+    )
+
+
+def _projection_list(value: object, location: str) -> list[dict[str, object]]:
+    return [
+        _object(item, f"{location}[{index}]")
+        for index, item in enumerate(_array(value, location))
+    ]
+
+
+def validate_operation_result(result: object) -> dict[str, object]:
+    """Return a result checked against the source-owned success or failure shape."""
+    value = _object(result, "result")
+    if value.get(SCHEMA_VERSION_FIELD) != SCHEMA_VERSION:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"Operation result schema version must be {SCHEMA_VERSION}.",
+        )
+    operation_value = _text(value.get(OPERATION_FIELD), OPERATION_FIELD)
+    try:
+        status = ExecutionStatus(_text(value.get(STATUS_FIELD), STATUS_FIELD))
+    except ValueError as error:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            f"Unsupported operation result status: {value.get(STATUS_FIELD)!r}.",
+        ) from error
+    exit_bounds = {"minimum": -1_000_000, "maximum": 1_000_000}
+    if status is ExecutionStatus.SUCCEEDED:
+        fields = set(value)
+        if not SUCCESS_RESULT_FIELDS <= fields or fields - (
+            SUCCESS_RESULT_FIELDS | SUCCESS_RESULT_OPTIONAL_FIELDS
+        ):
+            raise HerdrEnvironmentError(
+                ExecutionStatus.INVALID_SCHEMA,
+                "Successful operation result fields do not match the source-owned schema.",
+            )
+        succeeded: dict[str, object] = {
+            SCHEMA_VERSION_FIELD: SCHEMA_VERSION,
+            OPERATION_FIELD: Operation(operation_value),
+            STATUS_FIELD: status,
+            COMMAND_EXIT_CODE_FIELD: _integer(
+                value.get(COMMAND_EXIT_CODE_FIELD),
+                f"result.{COMMAND_EXIT_CODE_FIELD}",
+                **exit_bounds,
+            ),
+            RESPONSE_FIELD: _object(value.get(RESPONSE_FIELD), RESPONSE_FIELD),
+        }
+        if SESSION_RESULT_FIELD in value:
+            succeeded[SESSION_RESULT_FIELD] = _object(
+                value[SESSION_RESULT_FIELD], SESSION_RESULT_FIELD
+            )
+        if AGENTS_RESULT_FIELD in value:
+            succeeded[AGENTS_RESULT_FIELD] = _projection_list(
+                value[AGENTS_RESULT_FIELD], AGENTS_RESULT_FIELD
+            )
+        if WORKTREE_RESULT_FIELD in value:
+            succeeded[WORKTREE_RESULT_FIELD] = _object(
+                value[WORKTREE_RESULT_FIELD], WORKTREE_RESULT_FIELD
+            )
+        return succeeded
+    allowed = FAILURE_RESULT_REQUIRED_FIELDS | FAILURE_RESULT_OPTIONAL_FIELDS
+    if not FAILURE_RESULT_REQUIRED_FIELDS <= set(value) or set(value) - allowed:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA,
+            "Failed operation result fields do not match the source-owned schema.",
+        )
+    validated: dict[str, object] = {
+        SCHEMA_VERSION_FIELD: SCHEMA_VERSION,
+        OPERATION_FIELD: operation_value,
+        STATUS_FIELD: status,
+        DETAIL_FIELD: _text(value.get(DETAIL_FIELD), DETAIL_FIELD),
+    }
+    if COMMAND_EXIT_CODE_FIELD in value:
+        validated[COMMAND_EXIT_CODE_FIELD] = _integer(
+            value[COMMAND_EXIT_CODE_FIELD],
+            f"result.{COMMAND_EXIT_CODE_FIELD}",
+            **exit_bounds,
+        )
+    if ERROR_CODE_FIELD in value:
+        validated[ERROR_CODE_FIELD] = _text(value[ERROR_CODE_FIELD], ERROR_CODE_FIELD)
+    if SESSION_RESULT_FIELD in value:
+        validated[SESSION_RESULT_FIELD] = _object(
+            value[SESSION_RESULT_FIELD], SESSION_RESULT_FIELD
+        )
+    return validated
+
+
+def _failure_result(
+    operation: str,
+    status: ExecutionStatus,
+    detail: str,
+    command_exit_code: int | None = None,
+    error_code: str | None = None,
+    session: dict[str, object] | None = None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        SCHEMA_VERSION_FIELD: SCHEMA_VERSION,
+        OPERATION_FIELD: operation,
+        STATUS_FIELD: status,
+        DETAIL_FIELD: detail,
+    }
+    if command_exit_code is not None:
+        result[COMMAND_EXIT_CODE_FIELD] = command_exit_code
+    if error_code is not None:
+        result[ERROR_CODE_FIELD] = error_code
+    if session is not None:
+        result[SESSION_RESULT_FIELD] = session
+    return validate_operation_result(result)
+
+
+def _error_envelope(text: str) -> tuple[str, str] | None:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get(ERROR_FIELD)
+    if not isinstance(error, dict):
+        return None
+    code = error.get(CODE_FIELD)
+    message = error.get(MESSAGE_FIELD)
+    if not isinstance(code, str) or not code:
+        return None
+    return code, message if isinstance(message, str) and message else code
+
+
+def _run(
+    operation: Operation,
+    command: tuple[str, ...],
+    bound: int,
+    runner: CommandRunner,
+) -> CommandResult | dict[str, object]:
+    """Run one command; return its successful result or the projected failure."""
+    try:
+        result = runner.run(command, timeout_seconds=bound)
+    except FileNotFoundError:
+        return _failure_result(
+            operation.value,
+            ExecutionStatus.SERVER_NOT_RUNNING,
+            "herdr is unavailable on this machine; no herdr server can be reached.",
+        )
+    except subprocess.TimeoutExpired:
+        return _failure_result(
+            operation.value,
+            ExecutionStatus.COMMAND_FAILED,
+            f"herdr command exceeded the {bound}-second bound: {' '.join(command)}",
+        )
+    if result.returncode == 0:
+        return result
+    envelope = _error_envelope(result.stderr.strip()) or _error_envelope(
+        result.stdout.strip()
+    )
+    if envelope is None:
+        detail = result.stderr.strip() or result.stdout.strip() or "no command detail"
+        return _failure_result(
+            operation.value, ExecutionStatus.COMMAND_FAILED, detail, result.returncode
+        )
+    code, message = envelope
+    return _failure_result(
+        operation.value,
+        HERDR_ERROR_STATUSES.get(code, ExecutionStatus.COMMAND_FAILED),
+        message,
+        result.returncode,
+        code,
+    )
+
+
+def execute(request: object, runner: CommandRunner) -> dict[str, object]:
+    """Run one operation's herdr commands and return the checked, projected result."""
+    operation_value = "unknown"
+    try:
+        raw = _object(request, "request")
+        candidate = raw.get(OPERATION_FIELD)
+        if isinstance(candidate, str) and candidate:
+            operation_value = candidate
+        operation, _ = _validated_request(request)
+        command = command_for(request)
+        evidence_command = evidence_command_for(request)
+        bound = command_bound_seconds(request)
+    except HerdrEnvironmentError as error:
+        return _failure_result(operation_value, error.status, str(error))
+    ran = _run(operation, command, bound, runner)
+    if isinstance(ran, dict):
+        return ran
+    evidence = ran
+    if evidence_command is not None:
+        evidence_ran = _run(
+            operation, evidence_command, COMMAND_TIMEOUT_SECONDS, runner
+        )
+        if isinstance(evidence_ran, dict):
+            return evidence_ran
+        evidence = evidence_ran
+    projection: dict[str, object] = {}
+    try:
+        if operation in TEXT_OPERATIONS:
+            response: dict[str, object] = {OUTPUT_FIELD: ran.stdout}
+        else:
+            response = _object(json.loads(ran.stdout), RESPONSE_FIELD)
+        if operation is Operation.INVENTORY:
+            projection[AGENTS_RESULT_FIELD] = participants_from_inventory(response)
+        elif operation in WORKTREE_OPERATIONS:
+            projection[WORKTREE_RESULT_FIELD] = worktree_from_response(response)
+        elif operation in SESSION_OPERATIONS:
+            evidence_response = (
+                response
+                if evidence is ran
+                else _object(json.loads(evidence.stdout), RESPONSE_FIELD)
+            )
+            projection[SESSION_RESULT_FIELD] = session_from_response(evidence_response)
+    except (json.JSONDecodeError, HerdrEnvironmentError) as error:
+        return _failure_result(
+            operation.value,
+            ExecutionStatus.INVALID_SCHEMA,
+            f"herdr returned an unexpected response: {error}",
+            ran.returncode,
+        )
+    session = projection.get(SESSION_RESULT_FIELD)
+    if isinstance(session, dict):
+        absent = missing_fields(session) & READINESS_FIELDS.get(operation, frozenset())
+        if absent:
+            return _failure_result(
+                operation.value,
+                ExecutionStatus.AGENT_EVIDENCE_INCOMPLETE,
+                f"{operation.value} judges readiness from "
+                f"{', '.join(sorted(absent))}, which the agent's evidence lacks.",
+                ran.returncode,
+                session=cast(dict[str, object], session),
+            )
+    return validate_operation_result(
+        {
+            SCHEMA_VERSION_FIELD: SCHEMA_VERSION,
+            OPERATION_FIELD: operation,
+            STATUS_FIELD: ExecutionStatus.SUCCEEDED,
+            COMMAND_EXIT_CODE_FIELD: ran.returncode,
+            RESPONSE_FIELD: response,
+            **projection,
+        }
+    )
+
+
+def _json_input(stream: TextIO, location: str) -> dict[str, object]:
+    try:
+        return _object(json.load(stream), location)
+    except json.JSONDecodeError as error:
+        raise HerdrEnvironmentError(
+            ExecutionStatus.INVALID_SCHEMA, f"{location} is not valid JSON: {error.msg}"
+        ) from error
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="herdr_environment")
+    parser.add_argument("cli_operation", choices=[op.value for op in CliOperation])
+    return parser
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    stdin: TextIO | None = None,
+    stdout: TextIO | None = None,
+    runner: CommandRunner | None = None,
+) -> int:
+    _parser().parse_args(argv)
+    request_stream: TextIO = sys.stdin if stdin is None else stdin
+    result_stream: TextIO = sys.stdout if stdout is None else stdout
+    command_runner: CommandRunner = SubprocessRunner() if runner is None else runner
+    try:
+        request = _json_input(request_stream, "request")
+    except HerdrEnvironmentError as error:
+        json.dump({STATUS_FIELD: error.status, DETAIL_FIELD: str(error)}, result_stream)
+        result_stream.write("\n")
+        return 2
+    result = execute(request, command_runner)
+    json.dump(result, result_stream)
+    result_stream.write("\n")
+    return 0 if result[STATUS_FIELD] is ExecutionStatus.SUCCEEDED else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

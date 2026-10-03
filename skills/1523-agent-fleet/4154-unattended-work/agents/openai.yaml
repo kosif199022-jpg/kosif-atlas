@@ -1,0 +1,5 @@
+interface:
+  display_name: "Unattended Work"
+  short_description: "Coordinate scoped unattended project work"
+  default_prompt:
+    "Use $unattended-work to complete the requested task or milestone within this project's configured execution policy."

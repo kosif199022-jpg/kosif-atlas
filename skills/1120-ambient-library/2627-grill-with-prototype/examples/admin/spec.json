@@ -1,0 +1,60 @@
+{
+  "name": "Ledgerline Ops",
+  "slug": "ledgerline-ops",
+  "tagline": "Internal invoicing and collections for the finance team.",
+  "seed": 11,
+  "currency": "€",
+  "nav": { "style": "sidebar", "items": ["overview", "invoices", "customers", "disputes", "settings"], "account": "signed-in" },
+  "entities": {
+    "Invoice": {
+      "count": 10,
+      "fields": [
+        { "name": "number", "type": "text", "label": "Invoice", "examples": ["INV-20481", "INV-20482", "INV-20483", "INV-20484", "INV-20485", "INV-20486", "INV-20487", "INV-20488", "INV-20489", "INV-20490"] },
+        { "name": "customer", "type": "title", "examples": ["Novak Logistics", "Bennett & Daughters", "Haddad Marine", "Silva Textiles", "Duarte Print", "Kimura Labs", "Rossi Foods", "Petrova Design", "Mensah Build", "Weber Optics"] },
+        { "name": "amount", "type": "money", "range": [400, 18000] },
+        { "name": "status", "type": "status", "options": ["Paid", "Open", "Overdue", "Draft", "Disputed"] },
+        { "name": "due", "type": "date", "label": "Due", "days": 45 },
+        { "name": "owner", "type": "name", "label": "Owner" }
+      ]
+    },
+    "Customer": {
+      "count": 8,
+      "fields": [
+        { "name": "company", "type": "title", "examples": ["Novak Logistics", "Bennett & Daughters", "Haddad Marine", "Silva Textiles", "Duarte Print", "Kimura Labs", "Rossi Foods", "Petrova Design"] },
+        { "name": "contact", "type": "name" },
+        { "name": "email", "type": "email" },
+        { "name": "terms", "type": "category", "options": ["Net 30", "Net 45", "Net 60", "On receipt"] },
+        { "name": "outstanding", "type": "money", "range": [0, 42000] },
+        { "name": "active", "type": "bool" }
+      ]
+    },
+    "Dispute": {
+      "count": 5,
+      "fields": [
+        { "name": "invoice", "type": "text", "examples": ["INV-20402", "INV-20417", "INV-20433", "INV-20461", "INV-20470"] },
+        { "name": "reason", "type": "category", "options": ["Wrong quantity", "Damaged goods", "Duplicate", "Pricing", "Never received"] },
+        { "name": "opened", "type": "date", "days": 20 },
+        { "name": "status", "type": "status", "options": ["Open", "Review", "Closed"] },
+        { "name": "assignee", "type": "name" }
+      ]
+    }
+  },
+  "screens": [
+    { "id": "overview", "title": "Overview", "archetype": "dashboard", "sub": "Collections for September",
+      "kpis": [ { "label": "Outstanding", "value": "€412,380", "delta": "-6.2%" }, { "label": "Overdue", "value": "€58,910", "delta": "-14.0%" }, { "label": "Collected this month", "value": "€1.28M", "delta": "+9.4%" }, { "label": "Avg days to pay", "value": "31", "delta": "-2.1%" } ],
+      "charts": [ { "title": "Cash collected", "kind": "area", "range": "Last 12 weeks" }, { "title": "Invoices issued", "kind": "bars", "range": "Last 12 weeks" } ],
+      "table": { "entity": "Invoice", "title": "Needs attention", "columns": ["number", "customer", "amount", "status", "due"], "count": 6, "target": "invoice", "see_all": "invoices" },
+      "actions": [ { "label": "New invoice", "target": "new-invoice", "tone": "primary" }, { "label": "Run dunning", "target": "dunning" } ] },
+    { "id": "invoices", "title": "Invoices", "archetype": "list", "entity": "Invoice", "view": "table", "sub": "All invoices across entities", "filters": ["Open", "Overdue", "Paid", "Draft", "Disputed"], "sort": "Due date", "primary": { "label": "New invoice", "target": "new-invoice" }, "row_action": { "target": "invoice" } },
+    { "id": "invoice", "title": "Invoice", "archetype": "detail", "entity": "Invoice", "media": false, "tabs": ["Details", "Line items", "Activity", "Emails"], "actions": [ { "label": "Record payment", "target": "record-payment", "tone": "primary" }, { "label": "Send reminder", "target": "invoice" }, { "label": "Open dispute", "target": "new-dispute" }, { "label": "Void", "tone": "danger" } ], "side_note": "Reminders go out automatically at +3, +10 and +20 days." },
+    { "id": "new-invoice", "title": "New invoice", "archetype": "form", "sub": "Drafts are saved automatically",
+      "fields": [ { "name": "customer", "type": "select", "options": ["Novak Logistics", "Bennett & Daughters", "Haddad Marine", "Silva Textiles"] }, { "name": "terms", "type": "select", "options": ["Net 30", "Net 45", "Net 60"] }, { "name": "issue_date", "type": "date", "label": "Issue date" }, { "name": "po", "type": "text", "label": "PO number", "placeholder": "Optional" }, { "name": "lines", "type": "textarea", "label": "Line items", "placeholder": "Qty × Description × Unit price", "help": "One line per item. Totals calculate on save." }, { "name": "send", "type": "bool", "label": "Email to customer on save" } ],
+      "submit": { "label": "Save invoice", "target": "invoice" }, "cancel": "invoices" },
+    { "id": "customers", "title": "Customers", "archetype": "list", "entity": "Customer", "view": "table", "filters": ["Active", "Overdue balance", "Inactive"], "primary": { "label": "Add customer", "target": "new-customer" }, "row_action": { "target": "customer" } },
+    { "id": "customer", "title": "Customer", "archetype": "detail", "entity": "Customer", "media": false, "tabs": ["Profile", "Invoices", "Payments", "Notes"], "actions": [ { "label": "New invoice", "target": "new-invoice", "tone": "primary" }, { "label": "Edit", "target": "edit-customer" } ] },
+    { "id": "disputes", "title": "Disputes", "archetype": "list", "entity": "Dispute", "view": "table", "filters": ["Open", "Review", "Closed"], "sort": "Oldest", "row_action": { "target": "dispute" } },
+    { "id": "settings", "title": "Settings", "archetype": "settings",
+      "sections": [ { "title": "Reminders", "items": [ { "label": "Automatic reminders", "help": "Send at +3, +10 and +20 days past due." }, { "label": "CC account owner", "help": "Owner receives a copy of every reminder." }, { "label": "Escalation", "type": "select", "options": ["After 30 days", "After 45 days", "Never"], "help": "When to hand over to collections." } ] }, { "title": "Numbering" }, { "title": "Team" }, { "title": "Integrations" } ] }
+  ],
+  "journeys": [ { "name": "Chase an overdue invoice", "steps": ["overview", "invoice", "record-payment"] } ]
+}

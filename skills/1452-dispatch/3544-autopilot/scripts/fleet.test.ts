@@ -1,0 +1,844 @@
+import { describe, expect, test } from "bun:test";
+import type { GraphNode, NodeValidity } from "../../flightplan/scripts/lib/graph-node";
+import type {
+  FlightlogEntry,
+  ScoreEntry,
+  StateEntry,
+} from "../../flightplan/scripts/lib/flightlog";
+import { formatEntry, parseLog } from "../../flightplan/scripts/lib/flightlog";
+import {
+  aggregateFleet,
+  deriveTaskViews,
+  parseAgentLabel,
+  type ParsedLabel,
+} from "./fleet";
+
+const note = (
+  task: string,
+  role: string,
+  attempt: number | undefined,
+  ts: string,
+  phase?: "start" | "end",
+  agentLabel?: string,
+): FlightlogEntry => ({
+  kind: "note",
+  task,
+  role,
+  attempt,
+  ts,
+  phase,
+  agentLabel,
+  message: `${role} message`,
+});
+
+const score = (task: string, attempt: number, ts: string): ScoreEntry => ({
+  kind: "score",
+  task,
+  attempt,
+  ts,
+  agentLabel: `judge:${task}#${attempt}`,
+  weighted: 4.5 + attempt / 10,
+  passed: true,
+  hardFailed: false,
+  missing: [],
+  threshold: 4.2,
+  passOp: ">",
+  breakdown: [{ name: "Correctness", weight: 2, score: 5 }],
+});
+
+const INVALID_COMPLETION: NodeValidity = {
+  kind: "invalid",
+  rule: "completion-state",
+  reason: "Status is done but a gate checkbox is still unticked. Do NOT tick the boxes by hand",
+};
+
+const task = (
+  ref: string,
+  status: GraphNode["status"] = "todo",
+  dependsOn: string[] = [],
+  validity: NodeValidity = status === "done"
+    ? { kind: "complete" }
+    : { kind: "unfinished", status },
+): GraphNode => {
+  const [bucket, nn] = ref.split("/");
+  return {
+    ref,
+    bucket,
+    nn,
+    title: ref,
+    dependsOn,
+    blocks: ["next/01"],
+    status,
+    finalReview: false,
+    validity,
+  };
+};
+
+describe("parseAgentLabel", () => {
+  test.each([
+    ["scout-wave-3", { role: "scout", wave: 3, raw: "scout-wave-3" }],
+    [
+      "dev:ui/03#2",
+      { role: "dev", ref: "ui/03", attempt: 2, raw: "dev:ui/03#2" },
+    ],
+    [
+      "dev-codex:ui/03#2",
+      { role: "dev", ref: "ui/03", attempt: 2, raw: "dev-codex:ui/03#2" },
+    ],
+    [
+      "verify:ui/03#2",
+      { role: "verify", ref: "ui/03", attempt: 2, raw: "verify:ui/03#2" },
+    ],
+    [
+      "requalify:alpha/beta#2",
+      {
+        role: "requalify",
+        ref: "alpha/beta",
+        attempt: 2,
+        raw: "requalify:alpha/beta#2",
+      },
+    ],
+    [
+      "reverify:ui/main#2",
+      { role: "reverify", ref: "ui/main", attempt: 2, raw: "reverify:ui/main#2" },
+    ],
+    [
+      "judge:ui/03#2",
+      { role: "judge", ref: "ui/03", attempt: 2, raw: "judge:ui/03#2" },
+    ],
+    [
+      "land:ui/03#2",
+      { role: "land", ref: "ui/03", attempt: 2, raw: "land:ui/03#2" },
+    ],
+    [
+      "review:reuse#1",
+      { role: "review", lens: "reuse", attempt: 1, raw: "review:reuse#1" },
+    ],
+    [
+      "fix:ui/03#1",
+      { role: "fix", ref: "ui/03", attempt: 1, raw: "fix:ui/03#1" },
+    ],
+    ["done:ui/03", { role: "done", ref: "ui/03", raw: "done:ui/03" }],
+    ["block:ui/03", { role: "block", ref: "ui/03", raw: "block:ui/03" }],
+    ["commit-post-loop", { role: "commit", raw: "commit-post-loop" }],
+  ])("parses %s", (label: string, expected: any) => {
+    expect(parseAgentLabel(label)).toEqual(expected);
+  });
+
+  test.each(["codex-delegate", "my-custom-label", "", "wat:ui/03#1"])(
+    "tolerates unknown label %s",
+    (label) => expect(() => parseAgentLabel(label)).not.toThrow(),
+  );
+
+  test("returns the raw unknown label", () => {
+    expect(parseAgentLabel("codex-delegate")).toEqual({
+      role: "unknown",
+      raw: "codex-delegate",
+    });
+  });
+});
+
+describe("deriveTaskViews", () => {
+  test("applies status precedence and keeps blockedBy off non-blocked rows", () => {
+    const views = deriveTaskViews(
+      {
+        "a/01": task("a/01", "done", ["missing/01"]),
+        "a/02": task("a/02", "blocked", ["a/01"]),
+        "a/03": task("a/03", "in-progress", ["missing/01"]),
+        "a/04": task("a/04", "todo", ["a/01"]),
+        "a/05": task("a/05", "todo", ["a/04", "missing/01"]),
+      },
+      [],
+    );
+    expect(views.map((view) => view.state)).toEqual([
+      "done",
+      "blocked",
+      "in-progress",
+      "ready",
+      "blocked",
+    ]);
+    expect(views[0].blockedBy).toEqual([]);
+    expect(views[2].blockedBy).toEqual([]);
+    expect(views[3].blockedBy).toEqual([]);
+    expect(views[4].blockedBy).toEqual(["a/04", "missing/01"]);
+    expect(views[3].dependsOn).toEqual(["a/01"]);
+    expect(views[3].blocks).toEqual(["next/01"]);
+  });
+
+  test("malformed completion reads as invalid, never as done", () => {
+    const views = deriveTaskViews(
+      { "a/01": task("a/01", "done", [], INVALID_COMPLETION) },
+      [],
+    );
+    expect(views[0].state).toBe("invalid");
+    expect(views[0].status).toBe("done");
+    expect(views[0].invalidReason).toMatch(/Do NOT tick the boxes by hand/);
+  });
+
+  test("a dependent of an invalid task stays blocked by that ref", () => {
+    const views = deriveTaskViews(
+      {
+        "a/01": task("a/01", "done", [], INVALID_COMPLETION),
+        "a/02": task("a/02", "todo", ["a/01"]),
+      },
+      [],
+    );
+    expect(views[1].state).toBe("blocked");
+    expect(views[1].blockedBy).toEqual(["a/01"]);
+  });
+
+  test("a valid done task carries no invalidReason", () => {
+    const views = deriveTaskViews({ "a/01": task("a/01", "done") }, []);
+    expect(views[0].state).toBe("done");
+    expect(views[0].invalidReason).toBeNull();
+  });
+
+  test("treats only the open attempt as in progress", () => {
+    const entries = [
+      note("ui/03", "dev", 1, "2026-01-01T00:00:00Z", "start"),
+      note("ui/03", "dev", 1, "2026-01-01T00:01:00Z", "end"),
+      note("ui/03", "dev", 2, "2026-01-01T00:02:00Z", "start"),
+      score("ui/03", 1, "2026-01-01T00:03:00Z"),
+      score("ui/03", 2, "2026-01-01T00:04:00Z"),
+    ];
+    const [view] = deriveTaskViews({ "ui/03": task("ui/03") }, entries);
+    expect(view.state).toBe("in-progress");
+    expect(view.attempts).toBe(2);
+    expect(view.latestScore?.weighted).toBe(4.7);
+  });
+
+  test("carries the judge rationale onto latestScore, and omits it when absent", () => {
+    const withProse = {
+      ...score("ui/03", 1, "2026-01-01T00:03:00Z"),
+      rationale: "Grounded in the gate evidence.",
+    };
+    const [view] = deriveTaskViews({ "ui/03": task("ui/03") }, [withProse]);
+    expect(view.latestScore?.rationale).toBe("Grounded in the gate evidence.");
+
+    // A trail written before `--rationale-file` leaves the key off entirely.
+    const [older] = deriveTaskViews({ "ui/03": task("ui/03") }, [
+      score("ui/03", 1, "2026-01-01T00:03:00Z"),
+    ]);
+    expect(older.latestScore).not.toHaveProperty("rationale");
+  });
+
+  test("keeps a task in progress until every parallel lens has ended", () => {
+    const lenses = ["leanness", "reuse", "codex", "efficiency"];
+    const entries = [
+      ...lenses.map((lens, index) =>
+        note(
+          "close/01",
+          "review",
+          1,
+          `2026-01-01T00:0${index}:00Z`,
+          "start",
+          `review:${lens}#1`,
+        ),
+      ),
+      note(
+        "close/01",
+        "review",
+        1,
+        "2026-01-01T00:10:00Z",
+        "end",
+        "review:reuse#1",
+      ),
+    ];
+
+    const [view] = deriveTaskViews({ "close/01": task("close/01") }, entries);
+
+    expect(view.state).toBe("in-progress");
+  });
+
+  test("leaves a task ready once every parallel lens has ended", () => {
+    const entries = [
+      note(
+        "close/01",
+        "review",
+        1,
+        "2026-01-01T00:00:00Z",
+        "start",
+        "review:reuse#1",
+      ),
+      note(
+        "close/01",
+        "review",
+        1,
+        "2026-01-01T00:01:00Z",
+        "start",
+        "review:codex#1",
+      ),
+      note(
+        "close/01",
+        "review",
+        1,
+        "2026-01-01T00:02:00Z",
+        "end",
+        "review:reuse#1",
+      ),
+      note(
+        "close/01",
+        "review",
+        1,
+        "2026-01-01T00:03:00Z",
+        "end",
+        "review:codex#1",
+      ),
+    ];
+
+    const [view] = deriveTaskViews({ "close/01": task("close/01") }, entries);
+
+    expect(view.state).toBe("ready");
+  });
+
+  test("returns an empty view list for an empty tree", () => {
+    expect(deriveTaskViews({}, [])).toEqual([]);
+  });
+});
+
+describe("aggregateFleet", () => {
+  test("preserves the commit role through the flightlog parse path", () => {
+    const line = formatEntry(
+      note(
+        "commit",
+        "commit",
+        undefined,
+        "2026-01-01T00:00:00Z",
+        "start",
+        "commit-post-loop",
+      ),
+    );
+    const rows = aggregateFleet(parseLog(line));
+
+    expect(rows[0]).toMatchObject({
+      role: "commit",
+      label: "commit-post-loop",
+    });
+  });
+
+  test("pairs by label and computes elapsed time from entry timestamps", () => {
+    const rows = aggregateFleet([
+      note("ui/03", "dev", 2, "2026-01-01T00:00:00Z", "start", "dev:ui/03#2"),
+      note("ui/03", "dev", 2, "2026-01-01T00:00:03Z", "end", "dev:ui/03#2"),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      key: "dev:ui/03#2",
+      status: "finished",
+      elapsedMs: 3000,
+      startedAt: "2026-01-01T00:00:00Z",
+      endedAt: "2026-01-01T00:00:03Z",
+    });
+  });
+
+  test("pairs by fallback identity and leaves unmatched entries incomplete", () => {
+    const rows = aggregateFleet([
+      note("ui/01", "dev", 1, "2026-01-01T00:00:00Z", "start"),
+      note("ui/01", "dev", 1, "2026-01-01T00:00:01Z", "end"),
+      note("ui/02", "verify", 1, "2026-01-01T00:00:02Z", "start"),
+      note("ui/03", "fix", 1, "2026-01-01T00:00:03Z", "end"),
+    ]);
+    expect(rows[0]).toMatchObject({
+      key: "ui/02|verify|1",
+      status: "in-flight",
+    });
+    expect(rows[0].elapsedMs).toBeUndefined();
+    expect(rows[1].startedAt).toBeUndefined();
+    expect(rows[1].elapsedMs).toBeUndefined();
+    expect(rows[2].key).toBe("ui/01|dev|1");
+  });
+
+  test("never closes another task's row when two agents share a label", () => {
+    const rows = aggregateFleet([
+      note("ui/01", "dev", 1, "2026-01-01T00:00:00Z", "start", "shared"),
+      note("ui/02", "dev", 1, "2026-01-01T00:00:01Z", "start", "shared"),
+      note("ui/02", "dev", 1, "2026-01-01T00:00:05Z", "end", "shared"),
+    ]);
+
+    expect(rows.find((row) => row.ref === "ui/02")).toMatchObject({
+      status: "finished",
+      elapsedMs: 4000,
+    });
+    expect(rows.find((row) => row.ref === "ui/01")?.status).toBe("in-flight");
+  });
+
+  test("falls back to the triple when only one entry has a label", () => {
+    const rows = aggregateFleet([
+      note("ui/01", "dev", 1, "2026-01-01T00:00:00Z", "start", "dev:ui/01#1"),
+      note("ui/01", "dev", 1, "2026-01-01T00:00:01Z", "end"),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "finished", elapsedMs: 1000 });
+  });
+
+  test("attaches scores, sorts finished rows, and makes keys unique", () => {
+    const entries = [
+      note("ui/01", "dev", 1, "2026-01-01T00:00:01Z", undefined, "same"),
+      note("ui/02", "dev", 1, "2026-01-01T00:00:03Z", undefined, "same"),
+      score("ui/01", 1, "2026-01-01T00:00:02Z"),
+    ];
+    const rows = aggregateFleet(entries);
+    expect(rows.map((row) => row.endedAt)).toEqual([
+      "2026-01-01T00:00:03Z",
+      "2026-01-01T00:00:02Z",
+      "2026-01-01T00:00:01Z",
+    ]);
+    expect(
+      rows.filter((row) => row.label === "same").map((row) => row.key),
+    ).toEqual(["same#2", "same"]);
+    expect(rows.find((row) => row.ref === "ui/01")?.score?.weighted).toBe(4.6);
+  });
+
+  test("attaches a verdict to the judge row without closing or duplicating it", () => {
+    const rows = aggregateFleet([
+      note(
+        "ui/03",
+        "judge",
+        1,
+        "2026-01-01T00:00:00Z",
+        "start",
+        "judge:ui/03#1",
+      ),
+      score("ui/03", 1, "2026-01-01T00:00:02Z"),
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      key: "judge:ui/03#1",
+      status: "in-flight",
+    });
+    expect(rows[0].score?.weighted).toBe(4.6);
+  });
+
+  test("closes the judge row on its end note, not on its verdict", () => {
+    const rows = aggregateFleet([
+      note(
+        "ui/03",
+        "judge",
+        1,
+        "2026-01-01T00:00:00Z",
+        "start",
+        "judge:ui/03#1",
+      ),
+      score("ui/03", 1, "2026-01-01T00:00:02Z"),
+      note("ui/03", "judge", 1, "2026-01-01T00:00:03Z", "end", "judge:ui/03#1"),
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      key: "judge:ui/03#1",
+      status: "finished",
+      elapsedMs: 3000,
+    });
+    expect(rows[0].score?.weighted).toBe(4.6);
+  });
+
+  test("uses first appearance to break equal timestamp ties", () => {
+    const entries = [
+      note("ui/01", "dev", 1, "2026-01-01T00:00:00Z"),
+      note("ui/02", "dev", 1, "2026-01-01T00:00:00Z"),
+    ];
+    expect(aggregateFleet(entries).map((row) => row.ref)).toEqual([
+      "ui/01",
+      "ui/02",
+    ]);
+    expect(aggregateFleet(entries).map((row) => row.ref)).toEqual([
+      "ui/01",
+      "ui/02",
+    ]);
+  });
+
+  test("abandons an open row once a later role for the same attempt starts", () => {
+    // Live case: dev-codex:core/03#2 logged start, died without logging end,
+    // and the verifier for that same attempt started anyway. The dev row would
+    // otherwise read in-flight forever, pinned to the top of the fleet panel.
+    const rows = aggregateFleet([
+      note("core/03", "dev", 2, "2026-01-01T00:00:00Z", "start", "dev#2"),
+      note("core/03", "verify", 2, "2026-01-01T00:05:00Z", "start", "verify#2"),
+      note("core/03", "verify", 2, "2026-01-01T00:06:00Z", "end", "verify#2"),
+    ]);
+    const dev = rows.find((row) => row.key === "dev#2");
+    expect(dev).toMatchObject({ status: "abandoned" });
+    // Nothing is invented: no end was logged, so no end time and no duration.
+    expect(dev?.endedAt).toBeUndefined();
+    expect(dev?.elapsedMs).toBeUndefined();
+  });
+
+  test("reverify starts after judge within the same attempt", () => {
+    const rows = aggregateFleet([
+      note("ui/01", "judge", 2, "2026-01-01T00:00:00Z", "start", "judge:ui/01#2"),
+      note("ui/01", "reverify", 2, "2026-01-01T00:05:00Z", "start", "reverify:ui/01#2"),
+    ]);
+    expect(rows.find((row) => row.role === "judge")?.status).toBe("abandoned");
+    expect(rows.find((row) => row.role === "reverify")?.status).toBe("in-flight");
+  });
+
+  test("abandons an open row once a later attempt for the same ref starts", () => {
+    const rows = aggregateFleet([
+      note("core/03", "dev", 1, "2026-01-01T00:00:00Z", "start", "dev#1"),
+      note("core/03", "dev", 2, "2026-01-01T00:05:00Z", "start", "dev#2"),
+    ]);
+    expect(rows.find((row) => row.key === "dev#1")).toMatchObject({
+      status: "abandoned",
+    });
+    expect(rows.find((row) => row.key === "dev#2")).toMatchObject({
+      status: "in-flight",
+    });
+  });
+
+  test("abandons a commit agent once the next commit agent starts", () => {
+    // Live case, member-email-export run.jsonl: commit-wave-2 logged start at
+    // 08:15:22 and threw. `settled()` swallowed it and the run continued by
+    // design, so no end was ever logged and the row read in-flight for 118
+    // minutes, pinned to the top of the fleet panel. Commit agents share one
+    // ref and carry no attempt, so only start order can reap them.
+    const rows = aggregateFleet([
+      note(
+        "commit",
+        "commit",
+        undefined,
+        "2026-01-01T00:00:00Z",
+        "start",
+        "commit-wave-2",
+      ),
+      note(
+        "commit",
+        "commit",
+        undefined,
+        "2026-01-01T00:18:00Z",
+        "start",
+        "commit-wave-3",
+      ),
+      note(
+        "commit",
+        "commit",
+        undefined,
+        "2026-01-01T00:19:00Z",
+        "end",
+        "commit-wave-3",
+      ),
+    ]);
+    expect(rows.find((row) => row.key === "commit-wave-2")).toMatchObject({
+      status: "abandoned",
+    });
+    // Nothing invented for the row that never closed.
+    expect(
+      rows.find((row) => row.key === "commit-wave-2")?.elapsedMs,
+    ).toBeUndefined();
+    expect(rows.find((row) => row.key === "commit-wave-3")).toMatchObject({
+      status: "finished",
+    });
+  });
+
+  test("leaves the newest commit agent in flight", () => {
+    // The commit agent currently running has nothing after it. Reaping it would
+    // blank the elapsed ticker on a live commit.
+    const rows = aggregateFleet([
+      note(
+        "commit",
+        "commit",
+        undefined,
+        "2026-01-01T00:00:00Z",
+        "start",
+        "commit-wave-2",
+      ),
+      note(
+        "commit",
+        "commit",
+        undefined,
+        "2026-01-01T00:01:00Z",
+        "end",
+        "commit-wave-2",
+      ),
+      note(
+        "commit",
+        "commit",
+        undefined,
+        "2026-01-01T00:18:00Z",
+        "start",
+        "commit-wave-3",
+      ),
+    ]);
+    expect(rows.find((row) => row.key === "commit-wave-3")).toMatchObject({
+      status: "in-flight",
+    });
+  });
+
+  test("abandons a hung scout once the next wave's scout starts", () => {
+    const rows = aggregateFleet([
+      note(
+        "scout",
+        "scout",
+        undefined,
+        "2026-01-01T00:00:00Z",
+        "start",
+        "scout-wave-1",
+      ),
+      note(
+        "scout",
+        "scout",
+        undefined,
+        "2026-01-01T00:05:00Z",
+        "start",
+        "scout-wave-2",
+      ),
+    ]);
+    expect(rows.find((row) => row.key === "scout-wave-1")).toMatchObject({
+      status: "abandoned",
+    });
+    expect(rows.find((row) => row.key === "scout-wave-2")).toMatchObject({
+      status: "in-flight",
+    });
+  });
+
+  test("a commit agent never reaps a scout, or vice versa", () => {
+    // Both are sequential, but they are separate sequences — the run interleaves
+    // them, so ordering one against the other would close a live agent.
+    const rows = aggregateFleet([
+      note(
+        "scout",
+        "scout",
+        undefined,
+        "2026-01-01T00:00:00Z",
+        "start",
+        "scout-wave-2",
+      ),
+      note(
+        "commit",
+        "commit",
+        undefined,
+        "2026-01-01T00:05:00Z",
+        "start",
+        "commit-wave-2",
+      ),
+    ]);
+    expect(rows.find((row) => row.key === "scout-wave-2")).toMatchObject({
+      status: "in-flight",
+    });
+    expect(rows.find((row) => row.key === "commit-wave-2")).toMatchObject({
+      status: "in-flight",
+    });
+  });
+
+  test("leaves a genuinely running row in flight", () => {
+    // The newest agent of a live run has nothing after it. Reaping this would
+    // blank the elapsed ticker on every currently-working agent.
+    const rows = aggregateFleet([
+      note("core/03", "dev", 1, "2026-01-01T00:00:00Z", "start", "dev#1"),
+      note("core/03", "dev", 1, "2026-01-01T00:01:00Z", "end", "dev#1"),
+      note("core/03", "verify", 1, "2026-01-01T00:02:00Z", "start", "verify#1"),
+    ]);
+    expect(rows.find((row) => row.key === "verify#1")).toMatchObject({
+      status: "in-flight",
+    });
+  });
+
+  test("does not let parallel review lenses abandon each other", () => {
+    // The final-review fan-out runs every lens at the same identity
+    // (ref, role, attempt). They are concurrent, not sequential.
+    const rows = aggregateFleet([
+      note("core/05", "review", 1, "2026-01-01T00:00:00Z", "start", "lens-a"),
+      note("core/05", "review", 1, "2026-01-01T00:00:01Z", "start", "lens-b"),
+      note("core/05", "review", 1, "2026-01-01T00:02:00Z", "end", "lens-b"),
+    ]);
+    expect(rows.find((row) => row.key === "lens-a")).toMatchObject({
+      status: "in-flight",
+    });
+  });
+
+  test("sorts in-flight first, then abandoned, then finished", () => {
+    const rows = aggregateFleet([
+      note("core/01", "dev", 1, "2026-01-01T00:00:00Z", "start", "dead"),
+      note("core/01", "verify", 1, "2026-01-01T00:01:00Z", "start", "done"),
+      note("core/01", "verify", 1, "2026-01-01T00:02:00Z", "end", "done"),
+      note("core/02", "dev", 1, "2026-01-01T00:03:00Z", "start", "live"),
+    ]);
+    expect(rows.map((row) => row.status)).toEqual([
+      "in-flight",
+      "abandoned",
+      "finished",
+    ]);
+  });
+
+  test("handles empty and semantically odd logs without throwing", () => {
+    expect(aggregateFleet([])).toEqual([]);
+    expect(() =>
+      aggregateFleet([
+        {
+          kind: "note",
+          ts: "bad",
+          task: "outside/01",
+          message: "odd",
+        } as FlightlogEntry,
+      ]),
+    ).not.toThrow();
+  });
+});
+
+describe("gate outcome", () => {
+  // One factory for both gate checks. Hand-copied twins drifted once already: the
+  // requalify copy carried `agentLabel: "requalify:task/name#1"` against
+  // `task: "ui/01"`, and only passed because `outcomeOf` matches on role.
+  const gateNote = (
+    role: "verify" | "requalify" | "reverify",
+    message: string,
+  ): FlightlogEntry => ({
+    kind: "note",
+    task: "ui/01",
+    role,
+    attempt: 1,
+    ts: role === "verify" ? "2026-01-01T00:00:01Z" : "2026-01-01T00:00:02Z",
+    phase: "end",
+    agentLabel: `${role}:ui/01#1`,
+    message,
+  });
+
+  const verifyNote = (message: string) => gateNote("verify", message);
+  const requalifyNote = (message: string) => gateNote("requalify", message);
+
+  const outcomeOf = (entries: FlightlogEntry[]) =>
+    aggregateFleet(entries).find(
+      (row) =>
+        row.role === "verify" ||
+        row.role === "requalify" ||
+        row.role === "reverify" ||
+        row.role === "judge",
+    )?.outcome;
+
+  test.each([
+    ["FAIL — merged verification rejected", "failed"],
+    ["PASS — 7 pass, 0 fail", "passed"],
+    ["merged verification failed", "failed"],
+    ["merged verification passed", "passed"],
+  ] as const)("reads drift re-verify outcome: %s", (message, outcome) => {
+    expect(outcomeOf([gateNote("reverify", message)])).toBe(outcome);
+  });
+
+  test("reads the verifier's PASS prefix", () => {
+    expect(outcomeOf([verifyNote("PASS — every command green")])).toBe(
+      "passed",
+    );
+  });
+
+  test("reads the verifier's FAIL prefix", () => {
+    expect(outcomeOf([verifyNote("FAIL — bun test exited 1")])).toBe("failed");
+  });
+
+  test("reads a requalifier's PASS prefix", () => {
+    expect(outcomeOf([requalifyNote("PASS — follow-up gate cleared")])).toBe(
+      "passed",
+    );
+  });
+
+  test("reads a requalifier's FAIL prefix", () => {
+    expect(outcomeOf([requalifyNote("FAIL — follow-up gate rejected")])).toBe(
+      "failed",
+    );
+  });
+
+  // The normal shape of a passing message: the verifier quotes its test summary,
+  // and that summary contains the word `fail`. Scanning the whole message paints
+  // a green run red.
+  test("the leading PASS wins over a `0 fail` in the quoted test summary", () => {
+    expect(
+      outcomeOf([
+        verifyNote("PASS — bun test (7 pass, 0 fail) and all criteria met"),
+      ]),
+    ).toBe("passed");
+  });
+
+  test("a requalifier's leading PASS wins over a later `0 fail`", () => {
+    expect(outcomeOf([requalifyNote("PASS: something 0 fail")])).toBe("passed");
+  });
+
+  test("verify and requalify keep separate outcomes at the same attempt", () => {
+    const entries = [
+      verifyNote("PASS — initial gate cleared"),
+      requalifyNote("FAIL — follow-up gate rejected"),
+    ];
+    const rows = aggregateFleet(entries);
+
+    expect(rows.find((row) => row.role === "verify")?.outcome).toBe("passed");
+    expect(rows.find((row) => row.role === "requalify")?.outcome).toBe(
+      "failed",
+    );
+    expect(
+      deriveTaskViews({ "ui/01": task("ui/01") }, entries)[0].attempts,
+    ).toBe(1);
+  });
+
+  test("the leading FAIL wins over passing prose after it", () => {
+    expect(
+      outcomeOf([verifyNote("FAIL — 6 of 7 passing, scope gate rejected")]),
+    ).toBe("failed");
+  });
+
+  test("still catches the older free-text failure phrasing", () => {
+    expect(
+      outcomeOf([verifyNote("VERIFICATION FAILED: Scope violation")]),
+    ).toBe("failed");
+  });
+
+  test("leaves an unrecognised verifier message unjudged", () => {
+    expect(outcomeOf([verifyNote("looked at the tree")])).toBeUndefined();
+  });
+
+  test("takes the judge's outcome from its verdict, not its prose", () => {
+    const rejected: ScoreEntry = {
+      kind: "score",
+      task: "ui/01",
+      attempt: 1,
+      ts: "2026-01-01T00:00:02Z",
+      agentLabel: "judge:ui/01#1",
+      weighted: 3.2,
+      passed: false,
+      hardFailed: false,
+      missing: [],
+      threshold: 4,
+      passOp: ">",
+      breakdown: [],
+    };
+
+    expect(outcomeOf([rejected])).toBe("failed");
+  });
+
+  test("a passing judge verdict is not marked failed", () => {
+    expect(outcomeOf([score("ui/01", 1, "2026-01-01T00:00:02Z")])).toBe(
+      "passed",
+    );
+  });
+
+  test("says nothing about roles that have no gate", () => {
+    const rows = aggregateFleet([
+      note("ui/01", "dev", 1, "2026-01-01T00:00:00Z", "end", "dev:ui/01#1"),
+    ]);
+
+    expect(rows[0].outcome).toBeUndefined();
+  });
+});
+
+describe("state declarations are inert in fleet", () => {
+  test("preserves rows, open starts, attempts and scores with interleaved states", () => {
+    const entries = [
+      note("ui/03", "dev", 2, "2026-01-01T00:00:00Z", "start", "dev:ui/03#2"),
+      score("ui/03", 2, "2026-01-01T00:00:02Z"),
+      note("ui/04", "dev", 1, "2026-01-01T00:00:03Z", "end"),
+    ];
+    const declarations: StateEntry["state"][] = ["done", "blocked", "failed"];
+    const states: StateEntry[] = declarations.map((state) => ({
+      kind: "state",
+      task: "ui/03",
+      ts: "2026-01-01T00:00:01Z",
+      state,
+      agentLabel: "dev:ui/03#99",
+      message: "Declared by workflow",
+    }));
+    const mixed = [entries[0], ...states, ...entries.slice(1)];
+    const byRef = { "ui/03": task("ui/03"), "ui/04": task("ui/04") };
+    expect(aggregateFleet(states)).toEqual([]);
+    expect(aggregateFleet(mixed)).toEqual(aggregateFleet(entries));
+    expect(deriveTaskViews(byRef, mixed)).toEqual(deriveTaskViews(byRef, entries));
+    expect(deriveTaskViews(byRef, mixed)[0]).toMatchObject({ attempts: 2, state: "in-progress" });
+    expect(deriveTaskViews(byRef, states)[0]).toMatchObject({ attempts: 0, latestScore: null, state: "ready" });
+  });
+});

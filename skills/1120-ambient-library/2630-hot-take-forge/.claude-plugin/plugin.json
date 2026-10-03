@@ -1,0 +1,11 @@
+{
+  "name": "hot-take-forge",
+  "description": "Hardens a contrarian claim by forcing it to survive repeated self-attack until it is simultaneously novel AND true; use for \"give me a hot take on X\", \"pressure test this take\", \"is this angle actually original\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

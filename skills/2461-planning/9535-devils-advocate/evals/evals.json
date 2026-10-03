@@ -1,0 +1,125 @@
+{
+  "skill_name": "devils-advocate",
+  "evals": [
+    {
+      "id": 1,
+      "name": "stress-test-happy-path",
+      "prompt": "/planning:devils-advocate here is the plan: add a PostToolUse hook that appends every edited file path to a temp file, then a Stop hook reads that temp file to run a summary. Stress-test it before we implement.",
+      "expected_output": "The skill runs its adversarial rounds — extracts assumptions into a table, checks each against evidence, and proposes failure scenarios with mitigations — producing a severity-ranked risk summary (CRITICAL/HIGH/MEDIUM/LOW) rather than a rubber-stamp approval.",
+      "files": [],
+      "expectations": [
+        "Output extracts the plan's assumptions (e.g. temp files survive the session, hook stdin carries the needed fields) rather than only summarizing the plan",
+        "Output presents findings with severity levels (CRITICAL / HIGH / MEDIUM / LOW)",
+        "Output proposes at least one concrete failure scenario with a mitigation, not just generic approval"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "findings-require-specific-evidence",
+      "prompt": "/planning:devils-advocate review this plan: we'll rely on the `if` field in hook config to skip hooks under --dangerously-skip-permissions.",
+      "expected_output": "Each finding is backed by specific evidence — a bug number, doc reference, code path, or a concrete logical argument. A bare 'this might break' with no evidence is not emitted as a finding.",
+      "files": [],
+      "expectations": [
+        "Each finding cites specific evidence (a bug number, documentation reference, code path, or a concrete logical argument)",
+        "Output does NOT emit vague findings of the form 'this might break' with no supporting evidence",
+        "Findings distinguish verified assumptions from unverified ones rather than treating all as equally risky"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "does-not-block-execution",
+      "prompt": "/planning:devils-advocate stress-test my plan to migrate the build to a new CI runner, and if it's risky, block it so we don't ship it.",
+      "expected_output": "The skill advises on risks and recommends plan modifications but does not block execution — it surfaces findings and leaves the decision to the user, since it advises rather than gates.",
+      "files": [],
+      "expectations": [
+        "Output surfaces risks and recommended plan changes but explicitly leaves the go/no-go decision to the user",
+        "Output does not claim to block or veto execution",
+        "Output frames itself as advisory (find issues) rather than as an approval gate"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "not-a-code-review",
+      "prompt": "/planning:devils-advocate here's a diff of my auth handler — find the bugs in this code.",
+      "expected_output": "The skill clarifies it reviews plans and design-level risks, not code correctness; it does not attempt a line-by-line code bug hunt and points the user to code-review tooling for that.",
+      "files": [],
+      "expectations": [
+        "Output does not perform a line-by-line code-correctness bug hunt on the diff",
+        "Output clarifies its scope is plan / design-level risk, not code review",
+        "Output points to code-review tooling (or a code-review capability) for the code-bug request"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "suggests-followups-on-findings",
+      "prompt": "/planning:devils-advocate stress-test this plan that depends on undocumented behavior of a third-party CLI flag we haven't verified.",
+      "expected_output": "When critical assumptions remain unverified, the skill suggests targeted follow-up research and (optionally) filing deferred research/monitoring items in a work-item tracker, rather than declaring the plan safe.",
+      "files": [],
+      "expectations": [
+        "Output flags the unverified assumption about the undocumented CLI-flag behavior as a risk rather than assuming it holds",
+        "Output suggests a targeted follow-up (research the flag, or file a deferred research/monitoring item) instead of declaring the plan verified",
+        "Output does not fabricate a definitive claim about the undocumented behavior it did not verify"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "incumbent-mode-triggers-alternatives-sweep",
+      "prompt": "/planning:devils-advocate incumbent our logging — we built a custom JSON log formatter a year ago and everything uses it. Before the new service plan commits to it, is there a better way now?",
+      "expected_output": "The skill enters incumbent-target mode and runs the Alternatives Sweep: names the problem the custom formatter solves, surveys alternatives against the native > official > vetted-third-party ladder, prices coupling, and reaches a KEEP / MIGRATE / RESEARCH verdict — rather than treating the message as a plan to poke holes in.",
+      "files": [],
+      "expectations": [
+        "Output evaluates the incumbent (the custom log formatter) against alternatives rather than only extracting assumptions from a plan",
+        "Output names the actual problem the incumbent solves before proposing alternatives, and considers native / first-party options, not only third-party",
+        "Output reaches a keep / migrate / research verdict, and treats 'we already use it' as not by itself a reason to keep"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "incumbent-first-hand-not-parent-digest",
+      "prompt": "/planning:devils-advocate incumbent the auth middleware. I'm pretty sure it's fine and we should keep it, but check whether a better option exists before the rewrite plan assumes it.",
+      "expected_output": "The skill investigates the incumbent first-hand (explores what it is and how it is used) and evaluates alternatives on evidence, rather than rubber-stamping the user's stated 'it's fine, keep it' conclusion.",
+      "files": [],
+      "expectations": [
+        "Output forms its own read of the incumbent (explores / inspects it) instead of accepting the user's 'it's fine' conclusion at face value",
+        "Any keep-or-migrate verdict is backed by evidence (code path, doc, bug number, or concrete argument), not by the user's assertion",
+        "Output does not simply confirm the pre-stated conclusion without independent investigation"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "keep-verdict-is-legitimate-not-forced-switch",
+      "prompt": "/planning:devils-advocate incumbent we use the platform's built-in fetch for HTTP; a plan proposes swapping to a third-party client. Is the incumbent still the right call?",
+      "expected_output": "When the incumbent is re-derived from the problem and still fits (a native option covering the requirements), the skill returns a clean KEEP verdict and does not manufacture a migration for its own sake; it may flag the proposed third-party swap as a downgrade on the preference ladder.",
+      "files": [],
+      "expectations": [
+        "Output can conclude KEEP when the incumbent (a native capability) still fits, rather than forcing a switch",
+        "Output does not fabricate a better alternative or a migration recommendation without evidence it is a better fit",
+        "Output weighs the native incumbent above an unjustified third-party dependency and prices the coupling of adopting one"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "incumbent-mode-not-post-hoc-system-audit",
+      "prompt": "/planning:devils-advocate incumbent our database — go audit production for slow queries and tell me what's unhealthy right now.",
+      "expected_output": "The skill clarifies that incumbent-target mode is pre-implementation decision support — whether to keep or replace the database choice against alternatives — not a post-hoc health / performance audit of the running system, and reframes or declines the runtime-audit request.",
+      "files": [],
+      "expectations": [
+        "Output clarifies its scope is a keep-vs-alternative decision, not a runtime health / performance audit of the live system",
+        "Output does not attempt to diagnose production slow queries or current system health",
+        "Output reframes toward the pre-implementation choice (is this database still the right fit vs alternatives) or points elsewhere for the runtime audit"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "plan-review-incumbency-assumption-suggests-incumbent-mode",
+      "prompt": "/planning:devils-advocate stress-test this plan before we build it: the new metrics service will serialize every payload with our in-house YAML encoder — we already use it across the other services, so we'll wire it in here too. Poke holes.",
+      "expected_output": "Running in plan-review (default) mode, the skill detects that the plan's choice of the in-house encoder is supported only by incumbency ('we already use it'), treats that assumption as unverified rather than accepting it, and its finding names `/planning:devils-advocate incumbent <target>` as the suggested follow-up (the Alternatives Sweep on that incumbent) — without switching modes or auto-running the sweep, keeping scope to one mode per invocation.",
+      "files": [],
+      "expectations": [
+        "Output stays in plan-review mode (extracts assumptions / runs the rounds) and does NOT itself run the Alternatives Sweep on the in-house encoder in this invocation",
+        "Output flags the in-house-encoder choice as supported only by incumbency ('we already use it') and therefore unverified, rather than accepting it as evidence the choice still fits",
+        "Output's finding names the exact follow-up `/planning:devils-advocate incumbent <target>` (the Alternatives Sweep on that incumbent) as a suggestion, not as an action it performs now"
+      ]
+    }
+  ]
+}

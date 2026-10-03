@@ -1,0 +1,23 @@
+{
+  "skill_name": "grill",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "ask me questions about the critical gaps one by one so i can understand the issues better and we can come to some decisions",
+      "expected_output": "Maps and ranks the unknowns by build-impact, asks exactly ONE question per turn with why-it-matters and a recommended default, locks each answer into a running ledger, never bundles questions.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "i want an app that takes a topic and audience and writes a complete five-day training email series. grill me on this, then build it",
+      "expected_output": "Grills serially on the architecture-fork questions first, detects convergence (doesn't over-grill), states the explicit autonomy handoff with locked constraints, writes decisions.md, then starts building without returning for already-answered questions.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "i need to clean up this 18TB drive of old backups but i'm nervous about it — help me figure out the approach",
+      "expected_output": "Recognizes irreversibility and makes risk posture a top-ranked question (non-destructive default, copy-not-move, dry-run first), captures it in the constraints section of the ledger before proposing any action.",
+      "files": []
+    }
+  ]
+}

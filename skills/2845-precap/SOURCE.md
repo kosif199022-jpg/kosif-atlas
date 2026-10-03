@@ -1,0 +1,10 @@
+# precap
+
+Write a grounded recap of a task as if it were already done, then use it to check whether a long-running agent is still on the imagined path.
+
+- License: **MIT**
+- Source: https://github.com/parcha-ai/parcha-skills/tree/1f0ac837287e4de130fa8eb91ddeccd074c32b7c/precap
+- Commit: `1f0ac837287e4de130fa8eb91ddeccd074c32b7c`
+- KOSIF static inspection: **REVIEW_BEFORE_INSTALL** (hooks: 0, MCP servers: 0, scripts: 3). Read the scripts before running anything.
+
+Unofficial mirror of the skill text for reference. All rights remain with the original authors under the license above.

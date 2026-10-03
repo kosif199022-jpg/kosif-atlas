@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "angular-developer",
+  "description": "Expert Angular v20 developer skill. Signals, Components, Templates, Directives, DI, Routing, Forms, HTTP Client, SSR/Hydration, Testing, i18n, Animations, Drag & Drop, and best practices — sourced from the official v20.angular.dev docs.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sleestk",
+    "url": "https://github.com/Sleestk"
+  },
+  "homepage": "https://github.com/Sleestk/Skills-Pipeline",
+  "repository": "https://github.com/Sleestk/Skills-Pipeline",
+  "license": "MIT",
+  "keywords": ["angular", "angular20", "signals", "components", "typescript", "frontend", "ssr", "reactive-forms"]
+}

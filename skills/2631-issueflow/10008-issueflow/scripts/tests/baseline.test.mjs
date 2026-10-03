@@ -1,0 +1,435 @@
+/**
+ * The baseline: a real issueflow run, frozen and re-run.
+ *
+ * Pinned against `natejswenson/local-fitness#133` — its real open issue list, its
+ * real issue payload, and the plan a real opus subagent produced from the
+ * briefs this skill rendered. `update.mjs` re-runs the whole state machine over
+ * those frozen inputs and the assertions byte-compare, so the eval fails when
+ * behaviour changes rather than merely when someone edits a fixture.
+ *
+ * Offline and $0 by construction: the frozen `gh` payloads are fed in through
+ * `--repo-json` / `--issues-json` / `--issue-json`, so nothing here can reach
+ * the network, spend, or flake.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { generate } from '../../evals/baseline/update.mjs';
+import { STAGES } from '../lib/stages.mjs';
+import { dispatchProfile } from '../lib/runtime.mjs';
+import { REVIEWS } from '../lib/reviews.mjs';
+import { createRun, saveRun, gateSteps } from '../lib/run.mjs';
+import { renderBrief, renderReviewBrief } from '../lib/brief.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SKILL = join(HERE, '..', '..');
+const BASELINE = join(SKILL, 'evals', 'baseline');
+const INPUTS = join(SKILL, 'evals', 'inputs');
+const CLI = join(SKILL, 'scripts', 'issueflow.js');
+const REFRESH = 'node evals/baseline/update.mjs';
+
+const frozen = (name) => readFileSync(join(BASELINE, name), 'utf8');
+
+/** One cell of a rendered board row, resolved by column NAME off the table's own header. */
+function boardCell(board, line, column) {
+  const header = board.split('\n').find((l) => l.startsWith('| # ')).split('|').map((c) => c.trim());
+  const at = header.indexOf(column);
+  assert.notEqual(at, -1, `the frozen board has no ${column} column`);
+  return line.split('|').map((c) => c.trim())[at];
+}
+
+test('a real run has been frozen as the baseline', () => {
+  assert.ok(existsSync(join(BASELINE, 'MANIFEST.json')), `no baseline frozen — run \`${REFRESH}\``);
+  const manifest = JSON.parse(frozen('MANIFEST.json'));
+  assert.equal(manifest.source, 'natejswenson/local-fitness#133');
+});
+
+// ---------------------------------------------------------------------------
+// the-real-run — the golden. Re-runs the state machine and byte-compares.
+// ---------------------------------------------------------------------------
+test('the-real-run: re-running the frozen inputs reproduces every artifact byte for byte', () => {
+  const produced = generate();
+  const manifest = JSON.parse(frozen('MANIFEST.json'));
+  const names = Object.keys(manifest.artifacts);
+
+  assert.ok(names.length >= 10, `the golden set collapsed to ${names.length} artifacts — run \`${REFRESH}\``);
+  assert.deepEqual(
+    Object.keys(produced).sort(),
+    names.sort(),
+    `the run produces a different artifact set than is frozen — run \`${REFRESH}\``,
+  );
+  for (const name of names) {
+    assert.equal(produced[name], frozen(name), `${name} drifted from the frozen run — if deliberate, run \`${REFRESH}\``);
+  }
+});
+
+test('the-real-run: the frozen board is a real board, not an empty one', () => {
+  const board = frozen('board.txt');
+  const rows = board.split('\n').filter((l) => /^\| \d+ /.test(l));
+  // local-fitness had 3 open issues when this was frozen. A refresh that
+  // collapsed every input to "nothing to report" would otherwise pass this
+  // golden over nothing at all.
+  assert.ok(rows.length >= 3, `the frozen board has ${rows.length} issue rows — a board over nothing proves nothing`);
+  assert.match(board, /natejswenson\/local-fitness/);
+  // and the Detail column must still discriminate: a signal that collapsed to
+  // one value for every issue is a column that has stopped meaning anything.
+  //
+  // Resolved by NAME, not by counting from the end. This read `.at(-2)` until
+  // `Run` was appended in 0.8.0, which silently retargeted it at a column that
+  // is `—` in every hermetic row — failing the assertion for a reason with
+  // nothing to do with Detail. By name it survives the next column too.
+  const details = new Set(rows.map((l) => boardCell(board, l, 'Detail')));
+  assert.ok(details.size >= 2, `every issue reported Detail "${[...details]}" — the signal has stopped discriminating`);
+  // And Run must be `—` in every row. This machine really does hold a run for
+  // issue 132, which is one of these rows, so a board regenerated
+  // non-hermetically would freeze WHO regenerated it — and fail here, at
+  // regeneration time, rather than later in CI as an unexplained byte diff.
+  const runs = new Set(rows.map((l) => boardCell(board, l, 'Run')));
+  assert.deepEqual(
+    [...runs], ['—'],
+    `the frozen board reports ${[...runs].join(', ')} under Run — it was regenerated non-hermetically`,
+  );
+});
+
+test('the Detail guard actually discriminates: a hand-built board whose Detail column holds one repeated value fails it', () => {
+  // The other half of the check above. Without this, `boardCell` could be
+  // changed to resolve the wrong column, a constant, or the header cell
+  // itself, and the frozen golden's own varied Detail values would keep the
+  // assertion passing anyway — a guard that stopped discriminating months ago
+  // and never told anyone.
+  const flat = [
+    '| #   | Issue | Labels | Comments | Updated | Detail | Run |',
+    '|-----|-------|--------|----------|---------|--------|-----|',
+    '| 1   | a     | —      | 0        | 2026-01-01 | some | — |',
+    '| 2   | b     | —      | 0        | 2026-01-01 | some | — |',
+    '| 3   | c     | —      | 0        | 2026-01-01 | some | — |',
+  ].join('\n');
+  const rows = flat.split('\n').filter((l) => /^\| \d+ /.test(l));
+  const details = new Set(rows.map((l) => boardCell(flat, l, 'Detail')));
+  assert.throws(
+    () => assert.ok(details.size >= 2, `every issue reported Detail "${[...details]}" — the signal has stopped discriminating`),
+    /stopped discriminating/,
+    'a board whose Detail column holds one repeated value must still fail the guard',
+  );
+});
+
+test('the-real-run: no padded table cell carries a path, so the golden survives another machine', () => {
+  // `table()` pads cells to the widest value. A cell holding an absolute path is
+  // therefore as wide as the machine's tmpdir — /var/folders/… on macOS,
+  // /tmp/… on Linux — and normalising the path afterwards shrinks the text but
+  // not the padding, so the golden disagreed with CI on the separator row alone.
+  // Paths belong on their own line.
+  for (const name of ['board.txt', 'start.txt', 'review-investigate-r1.txt']) {
+    for (const line of frozen(name).split('\n')) {
+      if (!line.startsWith('|')) continue;
+      assert.doesNotMatch(line, /\/(tmp|var|home|Users)\//, `${name} puts a machine-dependent path in a padded cell: ${line}`);
+    }
+  }
+});
+
+test('the-real-run: each frozen brief carries the issue and the artifacts it inherits', () => {
+  const investigate = frozen('brief-investigate.md');
+  assert.match(investigate, /tool descriptions promise behavior/, 'the investigate brief lost the issue body');
+  assert.doesNotMatch(investigate, /Read these first/, 'the first stage inherits nothing and must claim nothing');
+  // The plan stage owes the design's sections too, now that design is folded in.
+  assert.match(investigate, /\*\*Approach\*\*, \*\*Rejected\*\*, \*\*Files\*\*, \*\*Proof\*\*/, 'the plan brief lost the design half of its contract');
+  assert.match(investigate, /## Work items/, 'the plan brief no longer asks whether the issue splits');
+
+  const implement = frozen('brief-implement.md');
+  assert.match(implement, /Read these first/, 'the implement brief lost its inherited artifacts');
+  assert.match(implement, /shared\/investigate\.md/, 'the implement brief lost the plan — the subagent would start blind');
+  assert.match(implement, /feature\/issue-133-descriptions/, 'the implement brief lost the branch it must commit to');
+  assert.match(implement, /evidence file/, 'the implement brief lost the evidence file — the test half of the stage');
+  assert.match(implement, /the red run first, then the green/, 'the implement brief no longer states the evidence order the gate reads for');
+});
+
+test('the-real-run: the frozen `next` outputs carry the driver\'s contract at every state', () => {
+  const fresh = frozen('next-1-fresh.txt');
+  assert.match(fresh, /▶ brief — the plan has not been briefed/);
+  assert.match(fresh, /next: dispatch \(brief\)/);
+  assert.match(fresh, /Dispatch ONE subagent, model `opus`/);
+  assert.match(fresh, /wait: sh -c 'end=\$\(\( \$\(date \+%s\) \+ 1800 \)\); until \[ .*<RUN>\/shared\/investigate\.md.* -nt .*<RUN>\/briefs\/investigate\.md.* \]; do \[ \$\(date \+%s\) -ge \$end \] && exit 124; sleep 1; done; a=\$\(wc -c < .*; sleep 2; b=.*; while \[ "\$a" != "\$b" \]; do a=\$b; sleep 2; b=.*; done'/, 'the wait line lost its -nt shape, its deadline or its settle');
+  assert.doesNotMatch(fresh, /wait: timeout /, 'GNU timeout is not on a stock Mac');
+  assert.match(fresh, /then: node '<SKILL>\/scripts\/issueflow\.js' next --run-dir '<RUN>'/);
+  const delivered = frozen('next-2-plan-delivered.txt');
+  assert.match(delivered, /▶ brief — the plan is delivered — briefing red-team round 1/);
+  assert.match(delivered, /review-investigate-r1\.md/);
+  assert.match(delivered, /investigate-r1\.findings\.json/, 'the wait names the findings file');
+  const reviewed = frozen('next-3-reviewed.txt');
+  assert.match(reviewed, /Round 1 of 3 on investigate: PASS/);
+  assert.match(reviewed, /next: stop — human/);
+  assert.match(reviewed, /command: node '<SKILL>\/scripts\/issueflow\.js' accept --stage investigate --run-dir '<RUN>'/);
+  assert.doesNotMatch(reviewed, /next: dispatch/, 'the human stop must not be skipped past');
+  const approved = frozen('next-4-approved.txt');
+  assert.match(approved, /▶ split/);
+  assert.match(approved, /Read 4 work items from the approved plan/);
+  assert.match(approved, /▶ brief — descriptions\/implement is ready to be briefed/);
+  assert.match(approved, /\| investigate\s+\| opus\s+\| approved\s+\| 4m58s/, 'the pinned plan clock must render, not a wall-clock value');
+  assert.match(approved, /next: dispatch \(brief\)/);
+  for (const name of ['next-1-fresh.txt', 'next-2-plan-delivered.txt', 'next-3-reviewed.txt', 'next-4-approved.txt']) {
+    assert.doesNotMatch(frozen(name), /\/(Users|home)\/[a-z]/i, `${name} carries a machine path`);
+    assert.match(frozen(name), /budget: elapsed <ELAPSED>s total; allowance \d+s; remaining <REMAINING>s; active/);
+    if (name !== 'next-3-reviewed.txt') assert.match(frozen(name), /Native agent completion: run next immediately.*fallback wait/);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// checkpoint-comment — the durable record, pinned like the briefs are.
+//
+// This is the artifact that leaves the machine. Everything else in this run
+// lives under `$HOME`; if the comment is wrong, the run is unrecoverable and
+// nothing else notices.
+// ---------------------------------------------------------------------------
+test('the-real-run: the frozen checkpoint comment carries the run, its board and its approved artifacts', () => {
+  const comment = frozen('checkpoint-comment.md');
+
+  assert.ok(
+    comment.startsWith('<!-- issueflow:run natejswenson/local-fitness#133 -->'),
+    'the marker is how a run is adopted on another machine — it must lead the comment',
+  );
+  assert.match(comment, /\| investigate \| opus \| ✅ approved \|/, 'the board lost its approved stages');
+  // The frozen plan lists four work items, so the run is split by the time the comment is rendered.
+  assert.match(comment, /\| descriptions \| `feature\/issue-133-descriptions` \| `main` \|/, 'the lane table lost its branch');
+  assert.match(comment, /\| dead-notes-param \| `feature\/issue-133-dead-notes-param` \| `feature\/issue-133-plan-tool-truth` \|/, 'the stack lost its shape');
+  assert.match(comment, /\| investigate \| 1 \| 0 \| \d+ \|/, 'the round table lost the plan review');
+  // The approved plan, in full — this is what makes the issue the record.
+  assert.match(comment, /<details><summary><b>investigate<\/b>/);
+  assert.match(comment, /tools\.py:296-304/, 'the investigation body is not actually in the comment');
+  // `## Work items` sits past the comment's 20 000-character artifact budget on
+  // this plan; `## Approach` is the design half's first heading and is within it.
+  assert.match(comment, /## Approach/, 'the plan half of the artifact is not in the comment');
+  assert.ok(comment.length > 5000, `the comment is ${comment.length} bytes — an empty record would pass every check above`);
+});
+
+test('the-real-run: the checkpoint comment publishes no local path and no wall-clock timing', () => {
+  const comment = frozen('checkpoint-comment.md');
+  // Only the part this module writes. An artifact's own body is reproduced
+  // verbatim on purpose — a subagent that quoted its repo path is quoting
+  // itself, and rewriting a decision record is worse than publishing one.
+  const rendered = comment.split('<details>')[0];
+  assert.ok(rendered.includes('| Lane |'), 'the split found no rendered section to check');
+  // The pull request body leaked `/Users/<someone>/.claude/issueflow/…` for
+  // exactly this reason: this text is posted to a public issue.
+  for (const line of rendered.split('\n')) {
+    assert.doesNotMatch(line, /\/(Users|home)\/[a-z]/i, `the comment publishes a local path: ${line.slice(0, 120)}`);
+  }
+  // The Took column must be frozen empty: a duration here would pin the speed
+  // of whichever machine last ran the refresh.
+  const board = rendered.split('\n').filter((l) => /^\| (investigate|[a-z-]+\/implement) \| (opus|sonnet) \|/.test(l));
+  assert.ok(board.length >= 5, `the frozen board has ${board.length} rows — a board over nothing proves nothing`);
+  for (const row of board) {
+    assert.match(row, /\| — \|$|\| — \|\s*$/, `a wall-clock duration was frozen into the golden: ${row}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// stage-contract-corpus — every shipped stage, with an anti-vacuity floor.
+// ---------------------------------------------------------------------------
+test('stage-contract-corpus: every shipped stage is frozen with its full contract', () => {
+  const files = readdirSync(BASELINE).filter((f) => /^stage-.*\.json$/.test(f));
+  assert.ok(files.length >= 2, `the stage corpus matched ${files.length} files, floor is 2 — a resolver that matches nothing must go red`);
+  assert.equal(files.length, STAGES.length, `${STAGES.length} stages ship but ${files.length} are frozen — run \`${REFRESH}\``);
+
+  for (const s of STAGES) {
+    const snapshot = JSON.parse(frozen(`stage-${s.id}.json`));
+    assert.equal(snapshot.model, dispatchProfile('claude', s.id).model, `${s.id} changed model — that changes what every run of it costs and how good it is`);
+    assert.equal(snapshot.agent, dispatchProfile('claude', s.id).agent);
+    assert.equal(snapshot.artifact, s.artifact);
+    assert.deepEqual(snapshot.requires, s.requires, `${s.id} changed what the gate reads for`);
+    assert.deepEqual(snapshot.asks, s.asks, `${s.id} changed what it asks the subagent`);
+    assert.equal(snapshot.forbids, s.forbids);
+  }
+});
+
+test('stage-contract-corpus: the implement brief says which evidence the gate reads, and in what order (#215, 0.7.0)', () => {
+  const snapshot = JSON.parse(frozen('stage-implement.json'));
+  const asks = snapshot.asks.join(' ');
+  assert.match(asks, /pass\/fail summary/, `the frozen implement asks say nothing about the evidence contract — run \`${REFRESH}\``);
+  assert.match(asks, /exit code/, `the frozen implement asks say nothing about the evidence contract — run \`${REFRESH}\``);
+  assert.match(asks, /the red run first, then the green/, 'the frozen implement asks do not state the order the gate enforces');
+});
+
+test('stage-contract-corpus: the models are the ones the skill promises', () => {
+  const byId = Object.fromEntries(STAGES.map((s) => [s.id, dispatchProfile('claude', s.id).model]));
+  assert.deepEqual(byId, { investigate: 'opus', implement: 'opus' });
+});
+
+test('stage-contract-corpus: the frozen implement contract states a load error is not a red run (#219)', () => {
+  const snapshot = JSON.parse(frozen('stage-implement.json'));
+  const asks = snapshot.asks.join(' ');
+  assert.match(
+    asks,
+    /load or import error is NOT a red run/i,
+    `the frozen implement asks say nothing about a load error not counting as red — run \`${REFRESH}\``,
+  );
+  assert.match(
+    asks,
+    /watch each new assertion fail on its own claim/i,
+    `the frozen implement asks do not require each assertion be seen failing individually — run \`${REFRESH}\``,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// review-contract-corpus — the shipped reviewer, same floor discipline as
+// the stage corpus: a resolver that matches nothing must go red, and a
+// reviewer that changed model changes what every run costs and how well it
+// is gated.
+// ---------------------------------------------------------------------------
+test('review-contract-corpus: the shipped plan reviewer is frozen with its full contract, on opus', () => {
+  const files = readdirSync(BASELINE).filter((f) => /^review-[a-z]+\.json$/.test(f));
+  assert.ok(files.length >= 1, `the review corpus matched ${files.length} files, floor is 1 — run \`${REFRESH}\``);
+  assert.equal(files.length, REVIEWS.length, `${REVIEWS.length} reviewers ship but ${files.length} are frozen — run \`${REFRESH}\``);
+
+  for (const r of REVIEWS) {
+    const snapshot = JSON.parse(frozen(`review-${r.id}.json`));
+    assert.equal(snapshot.model, 'opus', `${r.id} reviewer changed model — the red team is the judgment the run pays for`);
+    assert.equal(snapshot.agent, dispatchProfile('claude', 'redTeam').agent);
+    assert.deepEqual(snapshot.asks, r.asks, `${r.id} reviewer changed what it hunts`);
+    assert.ok(snapshot.asks.length >= 8, 'the plan reviewer hunts the investigation AND the design — fewer than eight asks means one half fell out');
+    assert.match(snapshot.forbids, /Never edit the work/, 'the shared forbids lost its first rule');
+  }
+});
+
+test('the-real-run: the frozen review brief names the artifact under attack and the JSON shape', () => {
+  const brief = frozen('brief-review-investigate.md');
+  assert.match(brief, /red-team reviewer/, 'the review brief lost its identity');
+  assert.match(brief, /<RUN>\/shared\/investigate\.md/, 'the review brief lost the artifact under review');
+  assert.match(brief, /"severity": "critical\|high\|medium\|low"/, 'the finding shape is gone');
+  assert.match(brief, /"notExamined"/, 'the coverage-gap field is gone');
+  assert.match(brief, /Only critical\/high findings with `fixable` disposition block the stage/, 'the disposition gate is gone');
+  assert.match(brief, /addressed to `main`/, 'the review brief lost the completion contract');
+  assert.match(brief, /raw file line index/, 'the review brief lost the issue body');
+  assert.doesNotMatch(brief, /- \[critical\|high\|medium\|low\] <citation>/, 'the 0.6.0 one-line grammar is back');
+});
+
+test('the-real-run: the frozen review is the real one — its findings resolve and its coverage gap is named', () => {
+  const review = JSON.parse(frozen('../inputs/artifacts/review-investigate-r1.findings.json'));
+  // The fixture is the round-3 review a real opus subagent wrote on the first
+  // auto-mode run, carried into the JSON shape with its text unchanged. It must
+  // keep the shape the registrar checks — losing a field here means the golden
+  // is exercising a review the gate would refuse.
+  assert.ok(review.findings.length >= 3, `the frozen review has ${review.findings.length} findings — a review over nothing proves nothing`);
+  assert.ok(review.notExamined.length >= 3, 'the frozen review names nothing it did not examine');
+  assert.equal(review.verdict, 'pass');
+  for (const f of review.findings) assert.match(f.cite, /^[\w./-]+:\d+(-\d+)?$/, `a frozen finding cites nothing checkable: ${f.cite}`);
+});
+
+test('the-real-run: the registered round prints its findings table and names the coverage gap', () => {
+  const out = frozen('review-investigate-r1.txt');
+  assert.match(out, /Round 1 of 3 on investigate: PASS/);
+  assert.match(out, /\| Severity \| Cite/, 'the findings table is gone');
+  assert.match(out, /Not examined/, 'the coverage gap is not printed next to the findings');
+});
+
+test('the-real-run: the frozen verdict is hash-bound, timestamp-free and derived from its own findings', () => {
+  const verdict = JSON.parse(frozen('verdict-investigate-r1.json'));
+  assert.equal(verdict.step, 'investigate');
+  assert.equal(verdict.round, 1);
+  assert.equal(verdict.verdict, 'pass');
+  assert.match(verdict.artifactSha, /^[0-9a-f]{64}$/, 'a verdict that binds to no bytes approves anything');
+  assert.equal(verdict.review, 'reviews/investigate-r1.findings.json');
+  const raw = frozen('verdict-investigate-r1.json');
+  assert.doesNotMatch(raw, /\d{4}-\d{2}-\d{2}T/, 'a timestamp in the verdict would churn the golden on every refresh');
+  assert.doesNotMatch(raw, /\/(Users|home|tmp|var)\//, 'the verdict publishes a machine path');
+});
+
+// ---------------------------------------------------------------------------
+// completion-contract — every rendered brief, not just the frozen ones.
+// The measured failure was VARIANCE: two dispatches of the identical stage
+// contract behaved differently, so this checks every stage rather than
+// trusting the byte-compare of two briefs to stand in for the rest.
+// ---------------------------------------------------------------------------
+test('completion-contract: every stage brief asks the subagent to SendMessage main on completion (#219)', () => {
+  const policy = { base: 'dev', featurePrefix: 'feature/', mergeMethod: 'squash', source: 'test', shipflow: false };
+  const issue = { number: 1, title: 'a synthetic issue', url: 'https://github.com/x/y/issues/1', body: 'body text', comments: [] };
+  const run = createRun({ repo: { owner: 'x', name: 'y', path: '/tmp/x' }, issue, policy });
+
+  const steps = gateSteps(run);
+  assert.ok(steps.length >= STAGES.length, `only ${steps.length} steps rendered — fewer than the ${STAGES.length} shipped stages`);
+  for (const step of steps) {
+    const text = renderBrief('/tmp/run', run, step, issue);
+    assert.match(text, /## When you are done/, `${step.key} brief lost the completion section`);
+    assert.match(text, /SendMessage/, `${step.key} brief does not ask for a SendMessage`);
+    assert.match(text, /addressed to `main`/, `${step.key} brief does not name the addressee`);
+  }
+  // A reviewer is a subagent like any other, and the measured idle-without-a-
+  // message failure applies to it identically — so its brief carries the same
+  // contract.
+  const plan = steps.find((s) => s.stage.id === 'investigate');
+  const text = renderReviewBrief('/tmp/run', run, plan, issue, 1);
+  assert.match(text, /## When you are done/, 'the review brief lost the completion section');
+  assert.match(text, /SendMessage/, 'the review brief does not ask for a SendMessage');
+  assert.match(text, /addressed to `main`/, 'the review brief does not name the addressee');
+});
+
+// ---------------------------------------------------------------------------
+// unapproved-stage-trap — the known-bad side. Without this the golden above
+// goes green the day the gate stops refusing anything.
+// ---------------------------------------------------------------------------
+const cli = (args) => {
+  try {
+    execFileSync(process.execPath, [CLI, ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, NODE_TEST_CONTEXT: undefined },
+    });
+    return { code: 0, err: '' };
+  } catch (e) {
+    return { code: e.status ?? 1, err: String(e.stderr ?? '') };
+  }
+};
+
+/** A run where the plan has a real, red-teamed artifact on disk but was never approved. */
+function trapRun() {
+  const dir = mkdtempSync(join(tmpdir(), 'issueflow-trap-'));
+  const repo = join(INPUTS, 'repo');
+  const issue=JSON.parse(readFileSync(join(INPUTS,'issue-133.json')));
+  saveRun(dir,createRun({strict:false,repo:{path:repo,owner:'natejswenson',name:'local-fitness'},issue,policy:{base:'main',featurePrefix:'feature/'},offline:true}));
+  mkdirSync(join(dir, 'shared'), { recursive: true });
+  writeFileSync(join(dir, 'shared', 'investigate.md'), readFileSync(join(INPUTS, 'artifacts', 'investigate.md')));
+  mkdirSync(join(dir, 'reviews'), { recursive: true });
+  writeFileSync(join(dir, 'reviews', 'investigate-r1.findings.json'), readFileSync(join(INPUTS, 'artifacts', 'review-investigate-r1.findings.json')));
+  cli(['review', '--stage', 'investigate', '--run-dir', dir]);
+  // the artifact exists, is complete, and passed its review — the ONLY thing missing is the approval
+  return dir;
+}
+
+test('unapproved-stage-trap: a later stage cannot be briefed over an unapproved plan', () => {
+  const dir = trapRun();
+  const r = cli(['brief', '--stage', 'implement', '--run-dir', dir]);
+  assert.notEqual(r.code, 0, 'brief accepted a stage gated behind an unapproved plan');
+  assert.match(r.err, /investigate \(briefed\)|investigate \(pending\)/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('unapproved-stage-trap: a later stage cannot be accepted over an unapproved plan', () => {
+  const dir = trapRun();
+  mkdirSync(join(dir, 'root'), { recursive: true });
+  writeFileSync(join(dir, 'root', 'implement.md'), '## Changed\n\nstuff\n\n## Deviations\n\nnone\n## Command\n\nx\n## Two-sided\n\nx\n## Result\n\nx\n');
+  writeFileSync(join(dir, 'root', 'test-output.txt'), '# pass 0\n# fail 1\n\n# pass 3\n# fail 0\n');
+  const r = cli(['accept', '--stage', 'implement', '--run-dir', dir]);
+  assert.notEqual(r.code, 0, 'accept advanced a stage whose predecessor was never approved');
+  assert.match(r.err, /no stage runs on anything but its predecessor/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('unapproved-stage-trap: ship refuses an unapproved run and names every hole', () => {
+  const dir = trapRun();
+  const r = cli(['ship', '--run-dir', dir]);
+  assert.notEqual(r.code, 0, 'ship opened a pull request over an unapproved run');
+  assert.match(r.err, /every stage above must be approved first/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('unapproved-stage-trap: a skipped stage is not a pass — ship still refuses', () => {
+  const dir = trapRun();
+  cli(['accept', '--stage', 'investigate', '--run-dir', dir]);
+  cli(['accept', '--stage', 'implement', '--run-dir', dir, '--skip', 'nothing to build']);
+  const r = cli(['ship', '--run-dir', dir]);
+  assert.notEqual(r.code, 0, 'a skipped stage was treated as done');
+  rmSync(dir, { recursive: true, force: true });
+});

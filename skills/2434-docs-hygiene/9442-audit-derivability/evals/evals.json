@@ -1,0 +1,212 @@
+{
+  "skill_name": "audit-derivability",
+  "evals": [
+    {
+      "id": 1,
+      "name": "derivable-restatement-verdict",
+      "prompt": "Is this doc worth keeping? Read evals/fixtures/derivable-with-source/runtime-settings.md relative to the skill directory and audit its derivability. The values it states come from evals/fixtures/derivable-with-source/settings.json in the same directory.",
+      "expected_output": "Classifies the document as derivable — every claim (port 8080, 30s timeout, 3 retries, /healthz, /readyz, info) restates a value that settings.json already owns. The spot-test is empirically demonstrable: a fresh agent reading settings.json reproduces every conclusion. Returns `delete` or `convert-to-pointer` (a one-line pointer to settings.json as source of truth), names the audience, and reports the four factors. No file is edited.",
+      "files": [
+        "evals/fixtures/derivable-with-source/runtime-settings.md",
+        "evals/fixtures/derivable-with-source/settings.json"
+      ],
+      "expectations": [
+        "The document is classified as derivable — each claim maps to a value in settings.json",
+        "The verdict is `delete` or `convert-to-pointer`, not `keep-owns-facts`",
+        "The output names the primary audience and reports the four factors (derivable, re-derivation cost, drift risk, fact ownership)",
+        "No file is edited — the classifier is read-only"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "owned-rationale-is-kept",
+      "prompt": "Should this doc exist? Read evals/fixtures/decision-rationale.md relative to the skill directory and audit its derivability.",
+      "expected_output": "Returns `keep-owns-facts`: the document records WHY the retry count is 3 — an external billing/rate-limit constraint, a past incident, and a cross-cutting invariant tying the count to the circuit-breaker threshold. None of that is derivable from the code, which only shows the value 3. Fact ownership is the trump card even though the bare value itself is derivable.",
+      "files": ["evals/fixtures/decision-rationale.md"],
+      "expectations": [
+        "The verdict is `keep-owns-facts`",
+        "The output identifies the non-derivable owned facts (rationale / external constraint / past decision / cross-cutting invariant), not just the derivable value",
+        "The output does NOT recommend deletion despite the retry value itself being derivable from code"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "read-only-even-when-asked-to-delete",
+      "prompt": "Audit docs/legacy-notes.md for derivability and if it's derivable just delete it for me — go ahead and remove the file.",
+      "expected_output": "Stays read-only despite the explicit request to delete: surfaces the verdict with reasoning and does NOT run Edit/Write or a destructive Bash op. Explains that the author owns every deletion (deletion is the highest-stakes doc edit) and, for a load-bearing candidate, that the verdict should be confirmed by a fresh-context spot-test first. Optionally offers to route the deletion to the work-item tracker.",
+      "files": [],
+      "expectations": [
+        "Does NOT delete or edit the file despite the explicit request",
+        "Surfaces a verdict with reasoning for the author to act on",
+        "States or honors the read-only contract (author owns the deletion)"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "cache-verdict-demotes-without-drift-control",
+      "prompt": "A doc is a hand-maintained summary of a large generated OpenAPI spec — expensive to reconstruct by hand, but there is no regeneration script and no recorded recheck trigger keeping it in sync with the spec. Audit its derivability.",
+      "expected_output": "Recognizes the content is derivable-but-expensive, which points at `keep-as-derivation-cache`, but because there is NO drift-control condition (no regeneration/verification path, no recheck trigger) the cache verdict DEMOTES to `convert-to-pointer` (point at the generated spec) or `delete`. An unmaintained cache silently drifts from its source — the point-don't-copy failure the demotion rule prevents.",
+      "files": [],
+      "expectations": [
+        "Does NOT land on `keep-as-derivation-cache` given the absence of a regeneration path and recheck trigger",
+        "Demotes to `convert-to-pointer` or `delete`, citing the missing drift-control condition",
+        "Explains the risk: an unmaintained cache drifts silently from its source"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "audience-awareness-splits-the-verdict",
+      "prompt": "The same content — a list restating each public method of a well-named class — appears both as a `.claude/rules/` file (agent-facing) and as a hand-written onboarding page for new engineers (human-facing). Audit both for derivability.",
+      "expected_output": "Splits by audience. On the agent-facing `.claude/rules/` surface, exploration is cheap and the restatement is a standing token tax — full axe, lean toward `delete`/`convert-to-pointer`. On the human-facing onboarding page the deletion bar is higher because human re-derivation cost is real — a keep or convert-to-pointer is defensible. Names the audience in each verdict and does not apply one verdict to both.",
+      "files": [],
+      "expectations": [
+        "Classifies the agent-facing and human-facing copies separately",
+        "Applies a lower deletion bar to the agent-facing surface (exploration cheap / token tax) than to the human-facing doc",
+        "Names the audience in each verdict"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "duplication-routes-to-extract-ssot-not-delete",
+      "prompt": "This doc repeats, almost word for word, a section that already lives in another markdown doc in the repo. Audit its derivability.",
+      "expected_output": "Recognizes this is doc-to-doc DUPLICATION, not code-derivability, and routes it to `/docs-hygiene:extract-ssot` (dedup into one source of truth + cite) rather than issuing a `delete` on derivability grounds. Derivability is re-derivation from CODE/config/structure; a doc that restates another DOC is the sibling's axis, and this skill defers to it.",
+      "files": [],
+      "expectations": [
+        "Identifies the case as cross-document duplication rather than code-derivability",
+        "Routes to `/docs-hygiene:extract-ssot` rather than issuing a plain `delete` verdict",
+        "Distinguishes 're-derivable from code' from 'duplicates another doc'"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "load-bearing-deletion-uses-fresh-context-spot-test",
+      "prompt": "You've read an architecture doc and it looks entirely re-derivable from the code, so you're inclined to delete it. It is load-bearing — several teams rely on it. How do you confirm the deletion is safe?",
+      "expected_output": "Does NOT confirm the deletion from its own (now doc-contaminated) context — having read the doc, it knows the answers and would overestimate derivability (a self-grade). Delegates the empirical spot-test to a FRESH-CONTEXT, NON-FORK subagent that has not seen the doc: it reproduces the doc's key conclusions from native exploration only, then compare. Explicitly avoids the Agent tool's `fork` subagent type for uncontaminated spot-tests — official docs contrast it (inherits parent conversation) with a skill's `context: fork` (starts blank); an internal melodic-software tracker issue contests the Agent-tool half at runtime, so cite documented guidance, not a settled probe result. Convergence confirms derivable; divergence means the doc owns something — keep it.",
+      "files": [],
+      "expectations": [
+        "Delegates the derivability confirmation to a fresh-context subagent that has NOT seen the doc",
+        "Explicitly uses a non-fork subagent and avoids the Agent tool's `fork` subagent type for uncontaminated spot-tests (official-docs contrast; an internal tracker issue contests runtime inheritance)",
+        "Frames self-judgment from the doc-contaminated context as unreliable (self-grade / fresh-eyes rationale)",
+        "Treats divergence/failure of the fresh agent as evidence the doc owns non-derivable facts (keep)"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "cache-verdict-holds-with-drift-control",
+      "prompt": "A doc is a generated architecture-dependency table synthesized from many modules — genuinely expensive to reconstruct by hand. It is produced by a committed `scripts/gen-dep-table.sh` and its header records the recheck trigger 'regenerate when module boundaries change'. Audit its derivability.",
+      "expected_output": "Lands on `keep-as-derivation-cache` and does NOT demote: the content is derivable but expensive to re-derive AND a drift-control condition is present (a regeneration script plus a recorded recheck trigger), so the cache cannot silently rot. This is the positive counterpart to the demotion case — the drift-control condition is exactly what earns the cache its keep. Output records the regeneration path / recheck trigger as the thing that keeps it honest.",
+      "files": [],
+      "expectations": [
+        "The verdict is `keep-as-derivation-cache` (not demoted to delete / convert-to-pointer)",
+        "The output credits the drift-control condition (regeneration script + recorded recheck trigger) as what earns the keep",
+        "Distinguishes this from the no-drift-control case, which would demote"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "not-line-level-noise",
+      "prompt": "Audit derivability of a rule file that clearly owns a non-derivable team constraint but also contains a dated 'Empirically observed 2026-03-14' citation line and a bit of filler prose.",
+      "expected_output": "Keeps the document (`keep-owns-facts` — it owns a non-derivable constraint) and does NOT try to classify the dated citation line or the filler as its own concern. Routes line-level noise to `/docs-hygiene:audit-noise` and prose flavor to `/docs-hygiene:compress`. Document-level worth is this skill's axis; within-document trimming is the siblings'.",
+      "files": [],
+      "expectations": [
+        "The whole-document verdict is `keep-owns-facts`",
+        "Line-level noise (the dated citation) is routed to `/docs-hygiene:audit-noise`, not classified here",
+        "Prose flavor is routed to `/docs-hygiene:compress`, not classified here"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "empty-target-offers-repo-wide-sweep",
+      "prompt": "Run the audit with no argument in a repository whose working tree is clean (no uncommitted .md files).",
+      "expected_output": "Does not dead-end and does not start scanning on its own. Reports there are no uncommitted .md files, then OFFERS escalation to a repo-wide corpus sweep of tracked markdown, presenting the prescribed defaults (all tracked .md files, batched read-only subagents, low bounded concurrency, capped spot-tests) for confirmation — via AskUserQuestion where available. On decline or no answer, ends as the friendly no-op suggesting a file/dir target or `sweep <dir>`.",
+      "files": [],
+      "expectations": [
+        "Reports the clean tree / absence of uncommitted .md files",
+        "Offers a repo-wide sweep with prescribed defaults instead of only dead-ending",
+        "Does NOT start the repo-wide sweep without explicit user confirmation",
+        "On decline or no answer, falls back to the friendly no-op"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "runtime-scaffold-is-out-of-scope",
+      "prompt": "Audit derivability of a skill's templates/checklist.md whose owning SKILL.md instructs agents to copy the template into their working notes and tick each phase as it completes.",
+      "expected_output": "Recognizes the file as a functional artifact — an input the skill consumes/copies at runtime, not prose a reader learns from — and records it `out-of-scope: functional artifact` with NO verdict. Does not grade it delete or convert-to-pointer on the grounds that it restates the skill's phase list; the four factors presuppose a document read for its claims, and a scaffold has none.",
+      "files": [],
+      "expectations": [
+        "Classifies the checklist template as a functional artifact / runtime scaffold, not a document",
+        "Emits `out-of-scope: functional artifact` rather than any of the four verdicts",
+        "Does NOT recommend converting the template to a pointer or deleting it"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "deliberate-empty-state-is-an-owned-decision",
+      "prompt": "Audit derivability of a repository's root CLAUDE.md that is completely empty. The repo's git log shows a commit that deliberately emptied it as part of a recorded instruction-baseline reset experiment.",
+      "expected_output": "Checks git history before grading the empty file, finds the deliberate reset commit, and returns `keep-owns-facts`: the emptiness is a recorded decision (Factor 4 decisions class). Does NOT grade the file `delete` merely because it is empty and trivially reconstructible.",
+      "files": [],
+      "expectations": [
+        "Consults git history before an actionable verdict on the empty file",
+        "Recognizes the deliberate emptying as an owned decision (Factor 4)",
+        "The verdict is `keep-owns-facts`, not `delete`"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "pointer-verdict-verifies-its-anchor",
+      "prompt": "You are about to issue a convert-to-pointer verdict recommending the doc be replaced with a pointer at scripts/cleanup-config.sh. Finish the verdict.",
+      "expected_output": "Verifies the recommended anchor exists before the verdict ships (one ls or equivalent). If scripts/cleanup-config.sh does not exist, the verdict names the real file(s) that do (or downgrades/withholds the pointer recommendation) — it never ships a pointer at a nonexistent anchor, which is worse than the doc it replaces. The rationale records the verification.",
+      "files": [],
+      "expectations": [
+        "Checks the pointer target's existence before finalizing the verdict",
+        "Does not ship a pointer verdict citing a nonexistent anchor",
+        "Records the verification (or the corrected anchor) in the verdict rationale"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "routing-only-root-claude-md-is-already-a-pointer",
+      "prompt": "Run a sweep whose only document is the repository's root CLAUDE.md, which loads at session start. Its full text is: \"# acme-billing. Where to look. This file states no rules and no rationale. Build, test, and lint commands: README.md, 'Development'. CI checks and what each one gates: the header comment of .github/workflows/ci.yml. Pull request title and body format: .claude/rules/pr-body-contract.md. Service settings and their values: config/settings.json. Module layout: the src/ directory tree.\" Every pointer target exists. Give the verdict and the aggregate line, and say how you would spot-test it if you ran one.",
+      "expected_output": "Grades the file on the routing row of Factor 1, not as derivable-from-code: it holds pointers only ('fact X lives at Y'), and because it loads at launch it is what tells the agent where to look. Verdict `convert-to-pointer (already satisfied)`: no new pointer to write, not actionable, never `delete`. The verdict recommends no change, so the git-log precondition does not apply and no `reverses a recorded decision` label is added. The aggregate line counts the file (1 convert-to-pointer) and the confirmed-actionable subset is empty. A spot-test, if run, uses an Explore or Plan agent (the file is launch-loaded) and asks for the substantive conclusions the pointer targets own, not the trigger question 'what does this file tell you to read?'.",
+      "files": [],
+      "narration": true,
+      "expectations": [
+        "The verdict is `convert-to-pointer (already satisfied)`, not `delete` and not `keep-owns-facts`",
+        "The file is excluded from the confirmed-actionable subset, and no work-item routing is offered for it",
+        "The aggregate line counts the file as 1 convert-to-pointer, so the routing doc is visible in the total rather than dropped",
+        "The rationale says the file loads at launch and routes the agent to where facts live (the Factor 1 routing row), not that an agent could just look",
+        "Any spot-test named uses an Explore or Plan agent and does not ask the fresh agent what the file tells it to read"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "converged-keep-sample-goes-back-through-the-factors",
+      "prompt": "In a sweep, docs/why-retries.md was graded `keep-owns-facts` (it states that the retry count is 3 and gives two reasons: a rate limit and a circuit-breaker threshold). It was drawn as the keep-sample for its batch ledger. A fresh, non-fork Explore subagent that never saw the doc reproduced all three conclusions from a code comment in retry.ts and a test in retry.test.ts. What happens to the verdict, and what does the sweep's aggregate line report?",
+      "expected_output": "Treats the converged keep-sample as evidence, not as a confirmation: the doc goes back through the four factors. With the rationale and threshold recoverable from code and tests, the re-grade is derivable, cheap, no owned fact, so `delete` or `convert-to-pointer`. That result ships provisional (`keep-sample converged, verdict overturned`), is never confirmed-actionable, and is reported separately from the actionable subset. The aggregate line reports `keep-sample: 1 sampled, 1 overturned`. The sampled file list is recorded beside the batch ledger when drawn, not reconstructed later.",
+      "files": [],
+      "narration": true,
+      "expectations": [
+        "Does not confirm the `keep-owns-facts` verdict, and does not flip straight to a confirmed `delete`",
+        "Sends the doc back through the four factors with the converged result as evidence",
+        "The re-graded `delete` or `convert-to-pointer` ships provisional, labeled `keep-sample converged, verdict overturned`, and stays out of the confirmed-actionable subset",
+        "The aggregate line reports `keep-sample: 1 sampled, 1 overturned`",
+        "States that the sampled file list is recorded beside the batch ledger when drawn, not reconstructed later"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "deliberately-created-doc-ships-provisional",
+      "prompt": "Audit derivability of docs/deploy-notes.md, a 15-line page that restates the values in config/deploy.yaml (region, replica count, health path). Nothing in it explains why. Its git log shows the creating commit, whose message says the platform team asked for a written copy of the deploy values to be kept on purpose, for audit review.",
+      "expected_output": "Checks git log before the verdict and finds a commit that records a decision about the doc. The content is derivable, cheap to re-derive, and owns no fact of its own, so the base grade is `delete` or `convert-to-pointer`. Because a recorded decision created it, that verdict ships provisional with the text `reverses a recorded decision`, is excluded from the confirmed-actionable subset, and the author decides. The verdict is not `keep-owns-facts`, since the file's state is not itself the decision (contrast the deliberately emptied file), and not a confident `delete`.",
+      "files": [],
+      "narration": true,
+      "expectations": [
+        "Consults git log for the file before finalizing the verdict",
+        "Recognizes the creating commit's message as a recorded decision about the doc (Factor 4 decisions class)",
+        "The verdict is `delete` or `convert-to-pointer` shipped provisional with the text `reverses a recorded decision`",
+        "The verdict is excluded from the confirmed-actionable subset and is not offered for routing as actionable; the author decides",
+        "Does not grade the file `keep-owns-facts` merely because the file was created on purpose"
+      ]
+    }
+  ]
+}

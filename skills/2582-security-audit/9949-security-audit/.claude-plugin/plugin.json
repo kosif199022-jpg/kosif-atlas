@@ -1,0 +1,21 @@
+{
+  "name": "security-audit",
+  "version": "0.2.0",
+  "description": "High-confidence security review of a diff, layered on wstg-security-testing. Confidence gate, false-positive precedents, WSTG-ID mapping, and a dependency audit. Reports only concretely exploitable findings.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/security-audit",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "security",
+    "appsec",
+    "vulnerability",
+    "wstg",
+    "dependency-audit",
+    "code-review",
+    "security"
+  ]
+}

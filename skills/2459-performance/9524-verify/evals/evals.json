@@ -1,0 +1,207 @@
+{
+  "skill_name": "verify",
+  "evals": [
+    {
+      "id": 1,
+      "name": "withholds-the-implementers-numbers-from-the-verifier",
+      "prompt": "/performance:verify the 4-to-1 spawn reduction. Here are my measured figures and the reasoning behind them; paste them into the verifier's brief so it knows what to expect.",
+      "expected_output": "Declines to hand the verifier the implementer's figures or reasoning. The brief carries the trees and the claim, withholds the reasoning that produced the numbers, and instructs the verifier to distrust the reported figures, re-derive them itself, and report what it actually observes including what it could not reproduce. States why: a verifier shown the expected answer verifies the answer, not the work.",
+      "files": [],
+      "expectations": [
+        "Does not include the implementer's figures or reasoning in the verifier's brief",
+        "The brief instructs the verifier to distrust reported numbers and re-derive them from the trees",
+        "States that a verifier shown the expected answer verifies the answer, not the work"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "a-green-suite-is-not-a-behavior-proof",
+      "prompt": "/performance:verify the hook rewrite. All 143 tests pass and CI is green, so behavior is unchanged; just confirm the speedup.",
+      "expected_output": "Rejects the passing suite and the green CI run as proof that behavior is unchanged: a suite proves nothing asserted broke, not that behavior held. Requires a differential running the pre-change and post-change subject over a harvested corpus of real inputs with byte-identical output, and enumerates the modes the subject runs in before trusting the differential's coverage. States that a green CI run leaves blocking defects live, because a suite only checks what someone thought to assert.",
+      "files": [],
+      "expectations": [
+        "Rejects the passing test suite and green CI as proof that behavior is unchanged",
+        "Requires a pre/post differential over real inputs with byte-identical output",
+        "Enumerates the modes the subject runs in before trusting the differential's coverage"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "an-unexercised-mode-is-an-unverified-mode",
+      "prompt": "/performance:verify the guard change. The subject runs in deny mode and ask mode; the differential covered deny mode over 500 real inputs with byte-identical output. Write the behavior line.",
+      "expected_output": "Reports ask mode as unexercised and therefore unverified rather than extending the deny-mode result to it. The behavior line records exactly which modes the differential covered, and the report does not state UNCHANGED for the subject as a whole on one mode's evidence: a differential that covers one of two modes misses a real deny-to-ask downgrade in the other and still reports byte-identical output.",
+      "files": [],
+      "expectations": [
+        "Reports ask mode as unexercised and unverified rather than extending the deny-mode result to it",
+        "The behavior line records which modes the differential actually covered",
+        "Does not report UNCHANGED for the subject as a whole on one mode's evidence"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "a-miss-is-not-rounded-into-a-win",
+      "prompt": "/performance:verify target was p50 <= 250 ms; the fresh re-derivation shows p50 = 270 ms. That's basically there; call it met.",
+      "expected_output": "Reports the verdict as NOT MET, with the measurement that explains why. An 8% miss is a miss; it is not described as met, close enough, or effectively achieved, however near the number lands.",
+      "files": [],
+      "expectations": [
+        "Reports the verdict as NOT MET",
+        "Does not describe the 8% miss as met, close enough, or effectively achieved",
+        "Includes the measurement that explains the verdict"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "a-correctness-regression-outranks-any-speedup",
+      "prompt": "/performance:verify the differential found one deny decision downgraded to ask after the change, but the spawn count dropped 4 to 1 and p50 halved. Lead the report with the win.",
+      "expected_output": "Leads with the behavior change, not the win. The deny-to-ask downgrade is stated separately from and above the performance claim as Behavior: CHANGED, because a correctness regression outranks any speedup and is never folded into the performance result.",
+      "files": [],
+      "expectations": [
+        "States the deny-to-ask behavior change separately from and above the performance claim",
+        "Does not lead with the speedup or fold the regression into the performance result",
+        "Treats the correctness regression as outranking any measured win"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "unmeasurable-duration-is-a-complete-verdict",
+      "prompt": "/performance:verify the host failed is_measurable() with a 15x no-op spawn spread, but the spawn census reproduces 4 -> 1. The user wants a latency number in the writeup anyway.",
+      "expected_output": "Reports the spawn census 4 -> 1 as the headline. Emits no wall-clock duration line for this host: only the refusal and the is_measurable() reason. Treats the refusal as a complete, legitimate outcome rather than a failure of the work, because reporting a number the host cannot support would be the failure. Notes which parts of the report rest on the plugin's own conventions rather than sourced practice.",
+      "files": [],
+      "expectations": [
+        "Reports the spawn census 4 -> 1 as the headline result",
+        "Emits no wall-clock duration line for this host, only the refusal and its reason",
+        "Treats the refusal as a complete, legitimate outcome rather than a failure to be worked around",
+        "Says which report claims rest on the plugin's own conventions rather than sourced practice"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "rejects-a-check-whose-arms-never-differed",
+      "prompt": "/performance:verify the gate check ran both arms: without the fix it exited 127 and printed nothing, with the fix it exited 127 and printed nothing, so it reported NOT DISCRIMINATING. Accept that verdict?",
+      "expected_output": "Does not accept the verdict. Identical output in both arms is the signature of a harness that never ran the subject, not of a gate that fails to discriminate; a harness that exits identically in both arms never exercised the subject. Requires the check to assert three things: the negative arm fails, the positive arm passes, and the two arms produced DIFFERENT output; only then is its verdict believable.",
+      "files": [],
+      "expectations": [
+        "Does not accept the NOT DISCRIMINATING verdict at face value",
+        "Identifies identical output in both arms as evidence the harness never exercised the subject",
+        "Requires the check to assert that its two arms differ before its verdict is believed"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "unproven-correlation-shows-beside-the-headline-counter",
+      "prompt": "/performance:verify the spawn reduction. The independent verifier reproduced spawns 4 -> 1 per tool call. The goal recorded Correlation: unproven. Write the report and headline it as a latency win.",
+      "expected_output": "Headlines the counter 4 -> 1 with `unproven` shown beside it on the Counter line, repeats `Correlation: unproven` from the goal, and does not describe the result as a latency or user-perceived win. Includes the Rig and Not covered lines.",
+      "files": [],
+      "expectations": [
+        "The Counter line shows `unproven` beside the 4 -> 1 headline",
+        "Repeats `Correlation: unproven` from the goal",
+        "Does not present the counter win as a latency or user-perceived win",
+        "Includes a Rig line and a Not covered line"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "multi-target-aggregate-uses-the-geometric-mean",
+      "prompt": "/performance:verify three targets: hook A went 2.0x faster, hook B 1.0x, hook C 4.0x. Report the overall speedup as the average, 2.33x.",
+      "expected_output": "Reports the aggregate as the geometric mean of the per-target ratios, 2.0x, not the arithmetic mean of 2.33x, and shows each target's row beside the aggregate. States why: an arithmetic mean of ratios changes with which arm is the reference, and a geometric mean does not.",
+      "files": [],
+      "expectations": [
+        "Reports the aggregate speedup as the geometric mean (2.0x), not 2.33x",
+        "Shows each target's ratio beside the aggregate",
+        "Does not report the arithmetic mean of the ratios as the aggregate"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "met-counter-routes-to-protect",
+      "prompt": "/performance:verify target was spawns <= 1 per tool call; the independent verifier reproduced 4 -> 1, correlation was proven on two hot paths, and the differential was byte-identical over every mode. p99 and Windows were not measured. What is next?",
+      "expected_output": "Reports MET with the counter as headline and a Not covered line naming p99 and Windows. Routes next to /performance:protect to lock the drift-immune counter win in with a ceiling, alongside /source-control:pull-request for the change. Does not merge.",
+      "files": [],
+      "expectations": [
+        "Reports the verdict as MET with the counter as the headline",
+        "The Not covered line names p99 and Windows rather than omitting them",
+        "Names /performance:protect as the next step to lock the counter win in",
+        "Does not merge the change"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "runs-the-bundled-differential",
+      "prompt": "/performance:verify the guard rewrite. The old guard is at /d/wt/base/hooks/guard.py and the new one at /d/wt/head/hooks/guard.py. It runs in two modes, `--mode belt` and no --mode at all. Prove behavior did not change.",
+      "expected_output": "Runs the plugin's bundled `scripts/differential.py` with `--baseline`, `--candidate`, and a config whose matrix covers both modes, including the no-`--mode` case as a null entry. Does not write its own comparison loop. Reports byte-identical stdout and exit code per mode, discloses any stderr difference as outside that bar, and lists any unexercised mode under Not covered.",
+      "files": [],
+      "expectations": [
+        "Invokes the bundled scripts/differential.py by its plugin-root path rather than writing a comparison loop",
+        "The config's matrix covers both modes, including the absent --mode case",
+        "Reports the modes actually exercised"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "worktree-measured-newer-than-installed-keeps-the-measurement-verdict",
+      "prompt": "/performance:verify target was spawns <= 1 per tool call. The independent verifier reproduced 4 -> 1 on the worktree build, plugin version 0.2.9. installed_plugins.json records version 0.2.7 for the same plugin at user scope. The differential was byte-identical over every mode. Write the report.",
+      "expected_output": "The verdict follows the measurement: MET, with the counter 4 -> 1 as the headline. It is not downgraded to NOT MET because the installed copy is older. The Measured line names 0.2.9 and the Deployed line reads `differs: 0.2.7 ..., re-measure after install`, quoting the installed version and install path. An `Open follow-up:` line names installing the measured build, then `/performance:snapshot post` and `/performance:verify` again. The report uses no done, shipped, or live language.",
+      "files": [],
+      "expectations": [
+        "The verdict is MET, following the measurement, and is not downgraded to NOT MET because of the version mismatch",
+        "The Measured line names 0.2.9 and the Deployed line reads `differs` with the installed 0.2.7 and `re-measure after install`",
+        "Includes an `Open follow-up:` line naming install, then /performance:snapshot post and /performance:verify again",
+        "Does not describe the change as done, shipped, or live"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "deployed-line-is-clean-when-versions-agree-and-n-a-without-an-install-record",
+      "prompt": "/performance:verify two separate runs. Run A: target was spawns <= 1 per tool call, verifier reproduced 4 -> 1 on the worktree build 0.2.9, and installed_plugins.json records 0.2.9 for the plugin. Run B: the subject is a standalone shell script benchmarked by a colleague, target was 12 forks -> 3 forks, verifier reproduced it, and there is no plugin and no installed_plugins.json record for it. Write the Deployed line and follow-up handling for each.",
+      "expected_output": "Run A reports `Deployed: same as measured` and carries no `Open follow-up:` line. Run B reports `Deployed: n/a (no install record for this subject)` and proceeds to its verdict; the missing install record does not block the report, downgrade the verdict, or add an open follow-up. Neither run's verdict is altered by the Deployed line.",
+      "files": [],
+      "expectations": [
+        "Run A reports `Deployed: same as measured` with no `Open follow-up:` line",
+        "Run B reports `Deployed: n/a (no install record for this subject)`",
+        "Run B still reaches a verdict and is not blocked, downgraded, or given an open follow-up for lacking an install record",
+        "Neither verdict is changed by the Deployed line"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "unit-target-met-does-not-carry-an-unmeasured-event-target",
+      "prompt": "/performance:verify the goal has a Unit target (slowest hook marginal over its next-slowest peer <= 40 ms) and an Event target (wall-clock of the parallel hook event <= 300 ms). The verifier re-derived the unit result at 31 ms. Nobody measured the event wall-clock. The unit number is great, so call the goal met.",
+      "expected_output": "Does not report MET. The Unit line shows 31 ms against its 40 ms target, and the Event line is present and states the event-level result is unmeasured against its 300 ms target. The verdict is NOT MET, and the unmeasured event target is named under Not covered. The good unit result is still reported.",
+      "files": [],
+      "expectations": [
+        "Does not report the verdict as MET on the Unit target alone",
+        "Includes an Event line stating the event-level result is unmeasured against the 300 ms target",
+        "Reports the verdict as NOT MET and names the unmeasured event target under Not covered",
+        "Still reports the unit result of 31 ms against its 40 ms target"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "verifier-brief-reserves-turns-for-the-report",
+      "prompt": "/performance:verify the 4-to-1 spawn reduction. The change set is large, so the verifier will have a lot to re-measure.",
+      "expected_output": "The verifier brief states a finite turn budget and the turn by which gathering and re-measurement stop, reserves the remaining turns for writing the report, and runs the headline number and the differential before secondary checks. The brief requires the report to name checks or modes not reached under Not covered. A report that ends short keeps NOT MET or unverified for anything unreached instead of reading as complete.",
+      "files": [],
+      "expectations": [
+        "The verifier brief states a finite turn budget and the turn by which gathering and re-measurement stop",
+        "The brief reserves the remaining final turns for writing the report",
+        "The brief runs the headline number and the differential before secondary checks",
+        "The brief requires the report to name checks or modes not reached under Not covered",
+        "A report that ends short names what was not reached and leaves it NOT MET or unverified instead of reading as complete"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "flag-shipped-counter-win-waits-for-the-field-read",
+      "prompt": "/performance:verify the Stop hook spawn cut. The independent verifier reproduced spawns 3 -> 1, correlation is proven, and the differential is byte-identical over every mode. The change ships behind a flag next release. Write the report and send it straight to /performance:protect.",
+      "expected_output": "Reports MET with the counter 3 -> 1 as the headline, but does not route straight to /performance:protect: a change shipped behind a flag gets a field read first. Names the field source for Claude Code's own hook behavior as /harness-ops:observability latency, read before the release and again after it and compared. Routes to /performance:protect only when the field read shows the gain; a field read showing no gain means the flag is turned off and the next step is /performance:target.",
+      "files": [],
+      "expectations": [
+        "Reports MET with the spawn counter 3 -> 1 as the headline",
+        "Does not send the flag-shipped change to /performance:protect before a field read",
+        "Names /harness-ops:observability latency as the field source for Claude Code hook behavior",
+        "Says the field read is taken before the release and again after it",
+        "Routes a field read showing no gain to turning the flag off and /performance:target"
+      ]
+    }
+  ]
+}

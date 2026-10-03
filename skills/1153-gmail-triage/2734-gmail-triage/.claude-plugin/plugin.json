@@ -1,0 +1,11 @@
+{
+  "name": "gmail-triage",
+  "description": "Two-phase Gmail inbox sweep via the gmail MCP — batch-archive junk, then triage real emails one at a time; use for \"check my email\", \"clean up my inbox\".",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

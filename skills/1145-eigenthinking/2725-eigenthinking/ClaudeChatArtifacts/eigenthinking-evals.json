@@ -1,0 +1,82 @@
+{
+  "skill_name": "eigenthinking",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I've been consulting for 20 years and I keep noticing something: clients understand my advice perfectly but never implement it. I've tried clearer frameworks, better slides, more detailed action plans — nothing works. I don't know why this keeps happening.",
+      "expected_output": "Claude triggers Eigenthinking, starts at SIGNAL, helps the user articulate the structural friction (not 'clients don't implement' but the mechanism underneath), and begins the DRILL phase to identify why information transfer fails to produce behavioral change.",
+      "files": [],
+      "assertions": [
+        "Claude recognizes this as a SIGNAL moment — structural friction, not surface complaint",
+        "Claude does NOT immediately propose a solution or fix",
+        "Claude helps the user move from symptom ('they don't implement') toward mechanism ('what structural condition makes this inevitable?')",
+        "Claude uses the drilling protocol — keeps asking 'what causes this?' toward a structural answer",
+        "Claude explicitly names that this friction is pointing at something worth developing into IP",
+        "The response feels like a thinking partner, not an answer machine"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I have this thing I do with clients that they find incredibly valuable — I call it 'reading the room backwards.' I start from what the outcome needs to be and work back to find the hidden assumption that's blocking it. But I've never been able to explain how I do it. Clients just say it's magic. How do I turn this into something teachable?",
+      "expected_output": "Claude recognizes an eigenvector that's already been partially named, runs the full Eigenthinking cycle to surface the mechanism, formalize the methodology, and produce a teachable framework — starting from the user's intuitive description and working toward explicit IP.",
+      "files": [],
+      "assertions": [
+        "Claude recognizes 'reading the room backwards' as a partially-named cognitive eigenvector",
+        "Claude runs DRILL to surface the mechanism (not just describe the behavior)",
+        "Claude runs REFRAME to find the structural lens — what does 'backwards' reveal about conventional approaches?",
+        "Claude runs NAME — evaluates 'reading the room backwards' against naming criteria and either validates it or proposes sharper alternatives",
+        "Claude produces or begins building a structured methodology (BUILD phase)",
+        "Claude applies the quality gate: 'could someone without your instinct follow this?'",
+        "The output moves toward explicit, teachable steps — not just a better description of the intuition"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I want to create IP from my expertise. I'm a leadership coach and I specialize in helping executives who are technically brilliant but struggle to communicate with their boards. I've helped dozens of them. How do I package this into a framework I can sell?",
+      "expected_output": "Claude triggers Eigenthinking, but starts at SIGNAL rather than jumping to BUILD — surfaces the specific friction that drives the user's expertise, drills to the mechanism, and builds from the structural insight rather than packaging surface behaviors.",
+      "files": [],
+      "assertions": [
+        "Claude does NOT immediately create a framework or list coaching steps",
+        "Claude starts at SIGNAL — asks what keeps happening that others in leadership coaching miss or misdiagnose",
+        "Claude surfaces the structural mechanism: why technically brilliant executives struggle with boards specifically (not generically)",
+        "Claude runs REFRAME — what's the conventional framing of this problem vs. what the user actually sees?",
+        "Claude runs NAME — generates candidates from multiple metaphorical domains, not just the first obvious label",
+        "Claude applies the curiosity-gap test to name candidates",
+        "The methodology produced is grounded in the structural diagnosis, not generic coaching frameworks",
+        "Claude distinguishes the user's UP from commodity leadership coaching IP"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "I've just gone through the Eigenthinking process and have a named methodology called 'The Fault Architecture Method' — it's a six-step process for diagnosing organizational breakdown. Now I need to turn it into an article that will generate consulting leads. My audience is CHROs and COOs at mid-market companies.",
+      "expected_output": "Claude moves directly to Step 9 (TEACH) and runs the full production pipeline — Researcher, Strategist, Writer, Editor, Publisher — producing a complete, platform-ready article with headline options, voice specified for the audience, and a reflection report.",
+      "files": [],
+      "assertions": [
+        "Claude recognizes the user is at Step 9 and doesn't restart the Eigenthinking cycle",
+        "Claude runs the full multi-role production pipeline explicitly (all five roles)",
+        "The Researcher identifies angles specific to CHROs and COOs — not generic leadership content",
+        "The Strategist identifies the central tension (what CHROs and COOs currently believe vs. what the methodology reveals)",
+        "Voice is specified strategically — not just 'professional' but with a rationale for first vs. third person",
+        "The Writer produces a complete draft at appropriate length for the audience",
+        "The Editor provides reflection scores and makes specific improvements",
+        "The Publisher produces multiple headline options tested against the curiosity-gap criterion",
+        "The article demonstrates the methodology rather than just describing it"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Can you reverse-engineer my thinking patterns from this conversation and tell me what my cognitive eigenvectors are?",
+      "expected_output": "Claude produces a cognitive fingerprint — a reverse-engineered profile of the user's thinking patterns based on observable evidence from the conversation, named using the eigenvector typology, and formatted as usable IP.",
+      "files": [],
+      "assertions": [
+        "Claude identifies specific cognitive eigenvector types from the conversation (not generic observations)",
+        "Each eigenvector is grounded in specific evidence from the conversation — not speculation",
+        "Claude names the user's discovery sequence as a loop",
+        "Claude identifies what the user optimizes for, in priority order",
+        "Claude names the worldview underneath the patterns",
+        "The fingerprint is formatted as a usable artifact — not just a paragraph of observations",
+        "Claude acknowledges this fingerprint itself is IP and explains how to use it"
+      ]
+    }
+  ]
+}

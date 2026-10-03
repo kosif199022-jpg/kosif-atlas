@@ -1,0 +1,44 @@
+> Source: https://docs.firecrawl.dev/quickstarts/cursor.md
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.firecrawl.dev/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# MCP Web Search & Scrape in Cursor
+
+> Add web scraping and search to Cursor in 2 minutes
+
+Add Firecrawl's keyless Search, Scrape, and Parse tools to Cursor through the hosted MCP server.
+
+## Quick setup
+
+Open Cursor Settings, select **MCP**, and add:
+
+```json theme={null}
+{
+  "mcpServers": {
+    "firecrawl": {
+      "url": "https://mcp.firecrawl.dev/v2/mcp"
+    }
+  }
+}
+```
+
+Restart Cursor and confirm that `firecrawl_search`, `firecrawl_scrape`, and `firecrawl_parse` are available.
+
+Keyless access has limits shared by users on the same public IP. Sign in from an interactive client with [For Humans](/mcp-server/oauth), or [add an API key](/mcp-server/keyless#add-an-api-key) for unattended use.
+
+## Try it
+
+```text theme={null}
+Search for the latest TypeScript release notes and summarize the sources.
+```
+
+```text theme={null}
+Scrape https://firecrawl.dev and explain what it does.
+```
+
+## Troubleshooting
+
+* **Server does not connect:** confirm the URL is exactly `https://mcp.firecrawl.dev/v2/mcp` and inspect Cursor's MCP status.
+* **Crawl or another tool is missing:** keyless exposes exactly Search, Scrape, and Parse. Connect with OAuth or an API key for the broader tool surface.

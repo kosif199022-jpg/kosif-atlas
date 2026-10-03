@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "python3 <APP>/adapters/claude-code/hook.py" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "python3 <APP>/adapters/claude-code/hook.py" } ] }
+    ]
+  }
+}

@@ -1,0 +1,795 @@
+#!/usr/bin/env bash
+# AI-slop findings for /ai-slop:audit. Read-only.
+#
+# Rules: the catalog entries with v1=script (reference/catalog.md is the
+# inventory; the severity crosswalk in the detector-findings convention holds
+# the argued tier per rule). Two rule classes:
+#   pattern  fires per prose line matching the rule's expression
+#   density  fires per file when matches per 1000 words reach the threshold
+#
+# Output: Finding rows (rule/file/line/fired/excerpt), then Summary rows with
+# per-rule finding and declined counts, the declined count split by cause
+# (marker, quote, config), and the rule's disabled flag. All key=value,
+# line-oriented. A chunked run (--offset/--limit) emits one Summary block per
+# chunk; emit-findings.sh sums them. --list-targets prints the resolved target
+# list instead of scanning: one `<key><TAB><path>` row per file, the key spelled
+# as the file= field.
+# Exit: always 0 on audit paths (a read-only audit must never fail the caller);
+# 2 on unknown arguments or unreadable --paths-file.
+#
+# Prose extraction: fenced code blocks, inline code spans, and ignore-marked
+# lines and blocks are removed before any rule runs; exempted candidates are
+# counted as declined per rule, never silently dropped.
+#
+# Unicode: matching uses LC_ALL=C byte sequences and POSIX ERE only, so
+# behavior is identical across GNU and BSD grep and independent of the host
+# locale. Em dash is \xE2\x80\x94; emoji classes are \xF0\x9F.. and
+# \xE2[\x98-\x9E\xAC\xAD]..; curly quotes and invisible-space residue are
+# \xE2\x80[\x98\x99\x9C\x9D\x8B] and \xC2\xA0.
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/opt-value.sh
+source "$SCRIPT_DIR/lib/opt-value.sh"
+# shellcheck source=lib/cascade-read.sh
+source "$SCRIPT_DIR/lib/cascade-read.sh"
+# shellcheck source=lib/resolve-targets.sh
+source "$SCRIPT_DIR/lib/resolve-targets.sh"
+
+# All text processing runs in the C locale: the byte-sequence rules require it,
+# and word counts diverge between UTF-8 and C locales (caught by the CI
+# portability probe — a UTF-8 default runner counted 12 words where C counted
+# 15 on the same line). Forcing it here makes output identical on every
+# machine regardless of the caller's locale.
+export LC_ALL=C
+
+EM_DASH=$'\xe2\x80\x94'
+EMOJI_ERE=$'(\xf0\x9f|\xe2[\x98-\x9e\xac\xad])'
+CURLY_ERE=$'(\xe2\x80[\x98\x99\x9c\x9d\x8b]|\xc2\xa0)'
+
+# Distinctive AI-vocabulary defaults (catalog rule-ai-vocabulary; config-tunable).
+# The trailing four are measured admissions: three Cursor plain-word additions
+# (catalog calibration record, second pass) and pre-existing (fourth pass, from
+# the model-era section), common enough alone that only the density gate makes
+# them safe to ship. The bare singular "underscore" is not on the list: the
+# source's entry targets the verb ("underscores the importance"), and in a
+# programming-docs repository the singular is almost always the noun, the `_`
+# character in a naming convention. "underscores" stays, as the verb's common
+# form; rule-significance-inflation catches its stock objects separately.
+DEFAULT_VOCAB="delve tapestry testament pivotal crucial underscores boasts intricate intricacies meticulous meticulously garner bolstered fostering showcasing vibrant nestled groundbreaking renowned interplay enduring utilize leverage facilitate pre-existing"
+
+# Model-era phrase roster (catalog rule-model-era-phrases; config-tunable via
+# phrase_add/phrase_remove). One ERE alternation fragment per element, apostrophes
+# spelled `.` like the PATTERN_RULES phrase lists. Anchored forms only: the bare
+# "honest take" and "the unlock" bigrams are recorded-only in the catalog
+# (measured domain-literal false positives). A fragment may contain spaces, so
+# these are read and joined as whole elements, never word-split.
+MODEL_PHRASES=("the part most people skip" "(the|my) honest take" "that.s the unlock")
+
+# --- Rule registry ---------------------------------------------------------------
+# Pattern rules: slug|fired label|case-insensitive(0/1)|whole-word(0/1)|class|ERE
+#
+# whole-word adds grep's POSIX -w: the match must be bounded by non-word
+# characters on both sides. Phrase rules need it — without it "great question"
+# fires on "These are great questions for the reviewer", reporting an
+# IMPORTANT-tier chat-residue finding on ordinary prose. GNU's \b would express this inline but is not
+# POSIX, and this script's cross-grep parity claim rests on POSIX ERE only.
+#
+# It is OFF for rules whose match legitimately abuts a word character or is not
+# word-shaped at all: the byte-class rules (em dash, emoji, curly quotes),
+# the two EREs carrying `[^.]{0,80}` wildcards, the citation tokens (`[cite:`
+# is followed by digits), and `utm_[a-z]+=` (followed by its value).
+#
+# class is `wording` or `typography` — the policy-level quotation exemption
+# (catalog "Quotation exemption"; design borrowed from Wikipedia's MOS "principle
+# of minimal change"). A wording rule judges prose the repo AUTHORS, so it never
+# scans quoted material: blockquote lines and double-quoted spans are removed
+# from its input and counted as declined. A typography rule targets artifacts
+# that are defects wherever they appear (byte residue, tracking params, citation
+# tokens), so it scans quoted material too.
+#
+# rule-emoji-formatting anchors on the prose stream's field-separator tab and
+# then walks the markdown prefixes a formatting glyph can sit behind: up to
+# three spaces of indentation, any depth of blockquote marker, and then one
+# heading or bullet marker. A blockquote marker takes at most ONE following
+# space, because that space is part of the marker and every space after it is
+# the quote's own content: `>` and five spaces is an indented code block inside
+# a quote, and a greedy `[ ]*` there would report a glyph in code as
+# formatting. The blockquote branch is what catches a callout
+# written as `> <glyph>` or `> ### <glyph>`; without it the same glyph fired at
+# column zero and passed clean one character further in, which is how six
+# callouts survived a whole fix pass. The glyph must still follow the last
+# prefix DIRECTLY, so an emoji in content position stays clean: the catalog
+# scopes this rule to emoji used as bullets, section markers, or visual
+# separators, and an emoji inside a sentence is none of those.
+PATTERN_RULES=(
+  "rule-em-dash|zero-tolerance|0|0|typography|${EM_DASH}"
+  "rule-emoji-formatting|formatting emoji|0|0|typography|$(printf '\t')[ ]?[ ]?[ ]?(>[ ]?)*(#+[[:space:]]+|[-*+][[:space:]]+)?${EMOJI_ERE}"
+  "rule-curly-artifacts|unicode artifact|0|0|typography|${CURLY_ERE}"
+  "rule-significance-inflation|phrase match|1|1|wording|(stands as a testament|testament to|pivotal (moment|role)|underscores (its|the) (importance|significance)|reflects broader|enduring legacy|marks a (significant )?shift|evolving landscape|indelible mark|deeply rooted|setting the stage for|rich tapestry|key turning point|(crucial|vital) role)"
+  "rule-negative-parallelism|construction match|1|0|wording|(not (just|only|simply|merely) [^.]{0,80}but|isn.t [^.;]{0,60}[;,] it.s)"
+  "rule-challenges-conclusion|formula match|1|0|wording|(despite [^.]{0,80}(challenge|hurdle)|challenges (remain|ahead|persist)|faces (several|numerous|significant|ongoing) challenges)"
+  "rule-knowledge-cutoff-disclaimer|assistant-frame residue|1|1|wording|(knowledge cutoff|as of my last (knowledge )?(update|training)|up to my last training( update)?|i cannot browse|i do not have access to real|as an ai( language)? model|while specific details are (limited|scarce)|not widely (available|documented|disclosed)|(in|from) the (provided|available) (sources|search results)|based on (the )?available information)"
+  "rule-llm-citation-artifacts|citation residue|0|0|typography|(oaicite|\[cite:|grok_card|attached_file|contentReference|filecite)"
+  "rule-utm-params|tracking parameter|0|0|typography|utm_[a-z]+="
+  "rule-chatbot-artifacts|chat-turn residue|1|1|wording|(i hope this helps|let me know if you|feel free to (ask|reach out)|i.d be happy to|happy to help|great question|you.re absolutely right|found the smoking gun)"
+  "rule-filler-phrases|filler phrase|1|1|wording|(in order to|due to the fact that|it( is|.s) (important to note|worth noting)|it should be noted)"
+  "rule-stacked-hedging|stacked hedge|1|1|wording|((could|may|might) potentially|(could|might) possibly)"
+  "rule-model-era-phrases|phrase match|1|1|wording|__PHRASES__"
+)
+# Density rules: slug|threshold key|default threshold|ERE (vocab ERE is built at runtime).
+# All density rules are wording-class: they judge authored prose, so they run on
+# the quote-exempt stream and its word count.
+# A density rule needs BOTH density >= threshold AND at least DENSITY_MIN_HITS
+# matches: short files otherwise fire on a single normal-prose occurrence
+# (measured on this repo: one triad in a 201-word doc hit 5.0/1000).
+#
+# rule-rule-of-three was demoted from this table to the judgment rubric
+# (catalog reclass, 2026-08-25): a dogfood fix pass ended with 18/18 residual
+# findings on load-bearing enumerations, no surveyed prose linter implements a
+# tricolon rule, and the shipped ERE matched only single-word triads — biasing
+# it toward exactly the terse operative enumerations the catalog's own boundary
+# ("enumerating three actual things is not a tell") protects.
+DENSITY_MIN_HITS=3
+DENSITY_RULES=(
+  "rule-ai-vocabulary|ai_vocabulary|3.0|__VOCAB__"
+  "rule-copulative-avoidance|copulative_avoidance|4.0|(serves as|stands as|functions as|operates as|acts as a|represents a|marks a|boasts|features a|offers a|maintains a|refers to)"
+)
+
+PATHS_FILE=""
+TARGETS=()
+OFFSET=0
+LIMIT=0
+SHOW_CONFIG=0
+LIST_TARGETS=0
+
+usage() {
+  cat <<'EOF'
+detect.sh: emit AI-slop findings for /ai-slop:audit.
+
+Usage:
+  detect.sh [file.md ...]
+  detect.sh --paths-file <file>
+  detect.sh --offset N --limit N   # chunk the sorted target list
+  detect.sh --list-targets [...]   # print <key><TAB><path> per file a scan would read, then exit
+  detect.sh --show-config          # print effective config per layer, then exit
+  detect.sh --help
+
+With no paths, scans the repository's tracked markdown (git ls-files '*.md').
+A --paths-file with no non-blank line scans nothing; it also reads --list-targets output.
+--list-targets ignores --offset/--limit; --show-config wins over it.
+Exit: 0 on audit, 2 on unknown arguments or unreadable --paths-file.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --paths-file)
+    require_opt_value "detect.sh" "$@"
+    PATHS_FILE="$2"
+    shift 2
+    ;;
+  --offset)
+    require_opt_value "detect.sh" "$@"
+    OFFSET="$2"
+    shift 2
+    ;;
+  --limit)
+    require_opt_value "detect.sh" "$@"
+    LIMIT="$2"
+    shift 2
+    ;;
+  --show-config)
+    SHOW_CONFIG=1
+    shift
+    ;;
+  --list-targets)
+    LIST_TARGETS=1
+    shift
+    ;;
+  --help | -h)
+    usage
+    exit 0
+    ;;
+  -*)
+    echo "detect.sh: unknown option: $1" >&2
+    exit 2
+    ;;
+  *)
+    TARGETS+=("$1")
+    shift
+    ;;
+  esac
+done
+
+# --- Config cascade (.claude/ai-slop.json; user-global -> team -> overlay) ------
+
+REPO_ROOT="${CLAUDE_PROJECT_DIR:-}"
+if [[ -z "$REPO_ROOT" ]]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
+
+# Config-cascade step 2: a home or non-repo root has no team or overlay layer, and
+# a team or overlay file that is the user-global file is not read a second time.
+# shellcheck source=../../../lib/config-root.sh
+source "$SCRIPT_DIR/../../../lib/config-root.sh"
+USER_CFG="${HOME:-/nonexistent}/.claude/ai-slop.json"
+CFG_LAYERS=()
+[[ -f "$USER_CFG" ]] && CFG_LAYERS+=("$USER_CFG")
+if [[ "$(config_root_classify "$REPO_ROOT")" == repo ]]; then
+  for _cfg in "$REPO_ROOT/.claude/ai-slop.json" "$REPO_ROOT/.claude/ai-slop.local.json"; do
+    [[ -f "$_cfg" ]] && ! config_root_paths_same "$_cfg" "$USER_CFG" && CFG_LAYERS+=("$_cfg")
+  done
+fi
+
+HAVE_JQ=1
+command -v jq >/dev/null 2>&1 || HAVE_JQ=0
+
+VOCAB="$DEFAULT_VOCAB"
+PHRASE_ADD=()
+PHRASE_REMOVE=()
+PHRASE_ADD_LAYER=""
+EXCLUDED_GLOBS=()
+EM_DASH_ALLOWED_GLOBS=()
+DISABLED_RULES=""
+# Per-rule path exemptions: rule_allowed_paths maps a rule slug to globs whose
+# files decline that rule (the generalization of em_dash_allowed_paths, which
+# stays supported as an alias feeding rule-em-dash's entry). This is the
+# proportionate closure for a density rule: a line marker cannot quiet a
+# per-file density verdict, a file marker silences every rule, and this key
+# silences exactly one rule on exactly the named paths.
+declare -A RULE_ALLOWED_GLOBS
+
+# threshold_for <threshold key> <default>: .thresholds.<key> from config, else default.
+threshold_for() {
+  local key="$1" default="$2" v
+  cascade::scalar v ".thresholds.${key}" ${CFG_LAYERS[@]+"${CFG_LAYERS[@]}"}
+  printf '%s' "${v:-$default}"
+}
+
+if [[ "$HAVE_JQ" -eq 1 && "${#CFG_LAYERS[@]}" -gt 0 ]]; then
+  cascade::list EXCLUDED_GLOBS excluded_paths "${CFG_LAYERS[@]}"
+  cascade::list EM_DASH_ALLOWED_GLOBS em_dash_allowed_paths "${CFG_LAYERS[@]}"
+  _disabled=()
+  cascade::list _disabled disabled_rules "${CFG_LAYERS[@]}"
+  DISABLED_RULES="${_disabled[*]-}"
+  cascade::slug_map RULE_ALLOWED_GLOBS rule_allowed_paths "${CFG_LAYERS[@]}"
+  _add=()
+  _remove=()
+  cascade::list _add vocab_add "${CFG_LAYERS[@]}"
+  cascade::list _remove vocab_remove "${CFG_LAYERS[@]}"
+  add="${_add[*]-}"
+  remove="${_remove[*]-}"
+  [[ -n "${add// /}" ]] && VOCAB="$VOCAB $add"
+  if [[ -n "${remove// /}" ]]; then
+    filtered=""
+    for w in $VOCAB; do
+      case " $remove " in
+      *" $w "*) ;;
+      *) filtered="$filtered $w" ;;
+      esac
+    done
+    VOCAB="${filtered# }"
+  fi
+  cascade::list PHRASE_ADD phrase_add "${CFG_LAYERS[@]}"
+  PHRASE_ADD_LAYER="$cascade_list_layer"
+  cascade::list PHRASE_REMOVE phrase_remove "${CFG_LAYERS[@]}"
+elif [[ "$HAVE_JQ" -eq 0 && "${#CFG_LAYERS[@]}" -gt 0 ]]; then
+  echo "Note: jq not found; config layers present but unread, using defaults" >&2
+fi
+
+VOCAB_ERE="($(printf '%s' "$VOCAB" | tr ' ' '|'))"
+
+# Effective phrase roster: shipped minus phrase_remove, plus phrase_add, then
+# hygiene. Both hygiene checks close measured failure modes, not hypothetical
+# ones: an empty/whitespace fragment joins as an empty alternation branch that
+# matches EVERY line (flood), and a fragment grep -E rejects (exit 2, e.g. an
+# unbalanced paren) errors every grep for the rule into findings=0 — a Summary
+# row indistinguishable from a clean corpus. Invalid fragments are skipped with
+# a note; the rule keeps running on the fragments that survive.
+phrase_fragment_ok() {
+  LC_ALL=C grep -E -- "($1)" /dev/null >/dev/null 2>&1
+  [[ $? -ne 2 ]]
+}
+EFFECTIVE_PHRASES=()
+for frag in "${MODEL_PHRASES[@]}"; do
+  removed=0
+  for r in ${PHRASE_REMOVE[@]+"${PHRASE_REMOVE[@]}"}; do
+    [[ "$frag" == "$r" ]] && removed=1 && break
+  done
+  [[ "$removed" -eq 1 ]] && continue
+  EFFECTIVE_PHRASES+=("$frag")
+done
+for frag in ${PHRASE_ADD[@]+"${PHRASE_ADD[@]}"}; do
+  [[ -z "${frag//[[:space:]]/}" ]] && continue
+  if ! phrase_fragment_ok "$frag"; then
+    echo "Note: phrase_add fragment is not a valid ERE, skipped: '$frag' (${PHRASE_ADD_LAYER})" >&2
+    continue
+  fi
+  EFFECTIVE_PHRASES+=("$frag")
+done
+PHRASES_ERE=""
+if [[ "${#EFFECTIVE_PHRASES[@]}" -gt 0 ]]; then
+  PHRASES_ERE="($(
+    IFS='|'
+    printf '%s' "${EFFECTIVE_PHRASES[*]}"
+  ))"
+fi
+
+# em_dash_allowed_paths is the legacy alias: append it to rule-em-dash's entry
+# so both spellings work and neither silently shadows the other.
+if [[ "${#EM_DASH_ALLOWED_GLOBS[@]}" -gt 0 ]]; then
+  RULE_ALLOWED_GLOBS["rule-em-dash"]="${RULE_ALLOWED_GLOBS["rule-em-dash"]:-} ${EM_DASH_ALLOWED_GLOBS[*]}"
+fi
+
+# rule_allowed <slug> <file>: the file declines this one rule via config.
+rule_allowed() {
+  local slug="$1" file="$2" globs
+  globs="${RULE_ALLOWED_GLOBS[$slug]:-}"
+  [[ -z "${globs// /}" ]] && return 1
+  # read -r -a word-splits WITHOUT pathname expansion. An unquoted $globs here
+  # was glob-expanded against the caller's cwd first, so a configured glob
+  # reached matches_glob as whatever files it happened to match locally —
+  # exemptions silently failed whenever the cwd made the expansion diverge
+  # from the literal glob (worst from the repo root, where globs expand).
+  local -a glob_arr=()
+  read -r -a glob_arr <<<"$globs"
+  [[ "${#glob_arr[@]}" -eq 0 ]] && return 1
+  matches_glob "$file" "${glob_arr[@]}"
+}
+
+rule_disabled() {
+  case " $DISABLED_RULES " in
+  *" $1 "*) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+if [[ "$SHOW_CONFIG" -eq 1 ]]; then
+  echo "Config layers (later refines earlier):"
+  if [[ "${#CFG_LAYERS[@]}" -eq 0 ]]; then
+    echo "  (none; bundled defaults)"
+  else
+    for layer in "${CFG_LAYERS[@]}"; do echo "  $layer"; done
+  fi
+  for entry in "${DENSITY_RULES[@]}"; do
+    IFS='|' read -r slug key default _ <<<"$entry"
+    echo "Effective: threshold_${key}=$(threshold_for "$key" "$default") (rule $slug)"
+  done
+  echo "Effective: vocab=$VOCAB"
+  echo "Effective: model_phrases=${PHRASES_ERE:-"(empty roster; rule inert)"}"
+  echo "Effective: excluded_paths=${EXCLUDED_GLOBS[*]:-}"
+  echo "Effective: em_dash_allowed_paths=${EM_DASH_ALLOWED_GLOBS[*]:-}"
+  for slug in "${!RULE_ALLOWED_GLOBS[@]}"; do
+    echo "Effective: rule_allowed_paths[$slug]=${RULE_ALLOWED_GLOBS[$slug]# }"
+  done
+  echo "Effective: disabled_rules=${DISABLED_RULES:-}"
+  exit 0
+fi
+
+# --- Target list -----------------------------------------------------------------
+
+resolve_targets TARGETS "$REPO_ROOT" "$PATHS_FILE" "$OFFSET" "$LIMIT" "$LIST_TARGETS" ${TARGETS[@]+"${TARGETS[@]}"} || exit $?
+
+matches_glob() {
+  # matches_glob <path> <glob>...: any glob matches the path (or its repo-relative form).
+  local path="$1" rel="${1#"$REPO_ROOT"/}" g
+  shift
+  for g in "$@"; do
+    # shellcheck disable=SC2254
+    case "$path" in $g) return 0 ;; *) ;; esac
+    # shellcheck disable=SC2254
+    case "$rel" in $g) return 0 ;; *) ;; esac
+  done
+  return 1
+}
+
+# Excluded paths, the filter the scan loop applies before reading a file.
+if [[ "$LIST_TARGETS" -eq 1 ]]; then
+  for file in ${TARGETS[@]+"${TARGETS[@]}"}; do
+    [[ "${#EXCLUDED_GLOBS[@]}" -gt 0 ]] && matches_glob "$file" "${EXCLUDED_GLOBS[@]}" && continue
+    printf '%s\t%s\n' "${file#"$REPO_ROOT"/}" "$file"
+  done
+  exit 0
+fi
+
+# --- Prose extraction ------------------------------------------------------------
+# Emits "lineno<TAB>text" for prose lines; strips fenced code blocks, inline code
+# spans, and honors the ignore markers. A DECLINE row carries the same trailing
+# fields as a prose row, "DECLINE<TAB>kind<TAB>lineno<TAB>text", so a caller can
+# cut them back to the prose shape and ask which rule the exempted line would
+# have matched instead of charging every rule for it.
+#
+# A fence opener may follow a list marker (`- ` or `1. ` plus one to four
+# spaces), because CommonMark puts a fence inside a list item; its closer is
+# then measured against that item's content column rather than column zero. A
+# fence still open at end of file is reported on stderr: that is the correct
+# parse, but it reads the rest of the file as code, and scanning nothing is a
+# failure that must not be silent.
+#
+# Markers must be WELL-FORMED comment markers, not prose mentions (the
+# audit-noise precedent): the file/start/end forms must stand alone on their
+# line, and the trailing line form must not be backtick-quoted. Without this, a
+# document that DOCUMENTS the markers exempts itself — found by dogfooding when
+# the plugin's own README declined and was silently half-scanned.
+#
+# Every form takes the same optional `: reason`, because the fix flow tells the
+# operator to suppress with one (audit SKILL.md, step 3) and the catalog names
+# the marker as the remedy for a recorded false-positive class. When only the
+# file form parsed a reason, the two forms an operator reaches for first failed
+# differently and silently: a line marker carrying a reason did not match, so
+# the finding stayed AND the reason text landed in its own excerpt; a `-start`
+# carrying one never opened the block, so the whole block was scanned. The `-end`
+# form takes one for the same reason in the dangerous direction — an unmatched
+# `-end` leaves `ignored` set and silently swallows the rest of the file.
+#
+# The backtick guard mirrors the line-marker pattern exactly rather than matching
+# any string starting with the marker prefix. A prefix match would let a
+# backticked mention of `-start`, `-end`, or `-file` veto a genuine line marker
+# sharing that line, rejecting the suppression and quoting the operator's own
+# marker back inside the excerpt — the same failure this parser exists to avoid,
+# in a new shape. Covered by the mixed-marker case in detect.test.sh.
+extract_prose() {
+  # Fences per CommonMark: openers may be indented up to three spaces past their
+  # container (counted by hand, because mawk has no {n,m} intervals), and a fence closes
+  # only on its OWN character, so ~~~ inside a backtick fence stays content.
+  # `stopped` guards the END rule, because awk runs END even after `exit`.
+  awk '
+    function fence_char(s) {
+      if (substr(s, 1, 3) == "```") return "`"
+      if (substr(s, 1, 3) == "~~~") return "~"
+      return ""
+    }
+    # An ordered marker carries at most nine digits (CommonMark "Lists"), so a
+    # longer run is a number in prose, not a list. Without the cap a line such
+    # as `1234567890. ` followed by a fence opened one, and every following
+    # line was read as code until a bare closer or end of file.
+    function marker_len(s,   n) {
+      if (s ~ /^[-*+]/) return 1
+      n = 0
+      while (n < 9 && substr(s, n + 1, 1) ~ /^[0-9]$/) n++
+      if (n > 0 && (substr(s, n + 1, 1) == "." || substr(s, n + 1, 1) == ")")) return n + 1
+      return 0
+    }
+    # Inline code spans go, and so does a line ignore marker: the marker and its
+    # reason are control syntax the author did not write as prose, so a rule
+    # must not be charged a decline for a word that appears only there.
+    function stripped(s,   t) {
+      t = s
+      gsub(/`[^`]*`/, "", t)
+      gsub(/<!-- ai-slop-ignore(-file|-start|-end)?(:[^>]*)? -->/, "", t)
+      return t
+    }
+    BEGIN { fence = ""; fence_ind = 0; fence_line = 0; ignored = 0; stopped = 0 }
+    /^[[:space:]]*<!-- ai-slop-ignore-file(:[^>]*)? -->[[:space:]]*$/ {
+      printf "DECLINE\tfile\t%d\t%s\n", NR, stripped($0)
+      stopped = 1
+      exit
+    }
+    {
+      ind = 0
+      while (substr($0, ind + 1, 1) == " ") ind++
+      rest = substr($0, ind + 1)
+      # A fence opened inside a list item ends with its CONTAINER, not only at a
+      # closer. A non-blank line indented less than the content column of that
+      # item ends the item, and lazy continuation reaches a paragraph but never
+      # a fenced block, so such a line belongs to the document. Clear the fence
+      # and fall through, so the line is judged on its own: it may be prose, and
+      # it may itself be an opener. A blank line does NOT end an item, which is
+      # why this tests rest. A document-level fence keeps fence_ind 0, so the
+      # comparison is never true for one and no top-level case moves.
+      # No apostrophes in this block: the awk program is single-quoted.
+      if (fence != "" && fence_ind > 0 && rest != "" && ind < fence_ind) fence = ""
+      fc = fence_char(rest)
+      fi = 0
+      if (fc == "" && ind <= 3) {
+        ml = marker_len(rest)
+        if (ml > 0) {
+          sp = 0
+          while (substr(rest, ml + sp + 1, 1) == " ") sp++
+          if (sp >= 1 && sp <= 4) {
+            fc = fence_char(substr(rest, ml + sp + 1))
+            if (fc != "") fi = ind + ml + sp
+          }
+        }
+      }
+      if (fence == "") {
+        if (fc != "" && ind <= 3) { fence = fc; fence_ind = fi; fence_line = NR; next }
+      } else {
+        if (fence_char(rest) == fence && ind <= fence_ind + 3) { fence = ""; next }
+        next
+      }
+    }
+    /^[[:space:]]*<!-- ai-slop-ignore-start(:[^>]*)? -->[[:space:]]*$/ { ignored = 1; next }
+    /^[[:space:]]*<!-- ai-slop-ignore-end(:[^>]*)? -->[[:space:]]*$/ { ignored = 0; next }
+    ignored { printf "DECLINE\tblock\t%d\t%s\n", NR, stripped($0); next }
+    /<!-- ai-slop-ignore(:[^>]*)? -->/ && $0 !~ /`<!-- ai-slop-ignore(:[^>]*)? -->/ {
+      printf "DECLINE\tline\t%d\t%s\n", NR, stripped($0)
+      next
+    }
+    { printf "%d\t%s\n", NR, stripped($0) }
+    END {
+      if (fence != "" && !stopped) {
+        printf "detect.sh: %s: code fence opened at line %d is never closed; the rest of the file was read as code\n", FILENAME, fence_line > "/dev/stderr"
+      }
+    }
+  ' "$1"
+}
+
+# strip_quoted: reads a "lineno<TAB>text" stream on stdin and writes the same
+# stream with quoted material removed: blockquote lines dropped, double-quoted
+# spans cut. Both the scanned prose and the declined rows go through it, so the
+# quote policy has exactly one implementation.
+#
+# A quoted span may WRAP: markdown prose soft-wraps at a column, so the
+# closing quote of a span often sits on the next line. The stripper carries
+# an open-span state across lines: a line with an unmatched opening quote is
+# cut from that quote to its end and the next line is cut from its start
+# through the closing quote. Without the carry, the quote pairing on the
+# continuation line is off by one and the exemption inverts, keeping the
+# quoted text and stripping the prose between quotes. The state resets at a
+# paragraph boundary (a blank line) and at the start of a new block element
+# (heading, list item, table row), so a stray unmatched quote can blank out
+# at most the rest of its own paragraph.
+strip_quoted() {
+  awk '
+    BEGIN { open = 0 }
+    {
+      tab = index($0, "\t")
+      if (tab == 0) next
+      lineno = substr($0, 1, tab - 1)
+      text = substr($0, tab + 1)
+      if (text ~ /^[ ]?[ ]?[ ]?>/) next
+      if (text ~ /^[[:space:]]*$/ || text ~ /^[[:space:]]*(#|[-*+] |[0-9]+\. |\|)/) open = 0
+      if (open) {
+        q = index(text, "\"")
+        if (q == 0) { printf "%s\t\n", lineno; next }
+        text = substr(text, q + 1)
+        open = 0
+      }
+      gsub(/"[^"]*"/, "", text)
+      q = index(text, "\"")
+      if (q > 0) {
+        # A lone quote opens a span only when it sits where an opening quote
+        # sits: after the line start, whitespace, or an opening bracket, and
+        # directly before a non-space character. An inch or second mark
+        # (6", 30") or a stray closing quote fails that test, so it is
+        # dropped and the prose on both sides stays scanned instead of
+        # blanking the rest of the paragraph.
+        before = (q > 1) ? substr(text, q - 1, 1) : " "
+        after = substr(text, q + 1, 1)
+        if (before ~ /[[:space:](\[{]/ && after ~ /[^[:space:]]/) {
+          text = substr(text, 1, q - 1)
+          open = 1
+        } else {
+          text = substr(text, 1, q - 1) substr(text, q + 1)
+        }
+      }
+      printf "%s\t%s\n", lineno, text
+    }'
+}
+
+# Truncate an excerpt to at most 80 BYTES without splitting a multi-byte UTF-8
+# sequence: under the script's forced LC_ALL=C, `cut -c` counts bytes, so an em
+# dash / curly quote / emoji straddling the boundary — exactly this tool's own
+# targets — would be cut mid-character and emit invalid UTF-8 into the finding.
+# Scans back over at most three trailing continuation bytes; if their lead byte
+# declares more bytes than survived the cut, the whole partial sequence drops.
+truncate_excerpt() {
+  awk '
+    BEGIN { for (j = 0; j < 256; j++) ORD[sprintf("%c", j)] = j }
+    {
+      s = substr($0, 1, 80)
+      n = length(s)
+      for (i = 0; i < 4 && n - i >= 1; i++) {
+        b = ORD[substr(s, n - i, 1)]
+        if (b < 128) break
+        if (b >= 192) {
+          need = (b >= 240) ? 4 : (b >= 224) ? 3 : 2
+          if (i + 1 < need) s = substr(s, 1, n - i - 1)
+          break
+        }
+      }
+      print s
+      exit
+    }
+  '
+}
+
+# --- Scan ------------------------------------------------------------------------
+
+ALL_RULES=()
+for entry in "${PATTERN_RULES[@]}" "${DENSITY_RULES[@]}"; do ALL_RULES+=("${entry%%|*}"); done
+
+# Declined counts are kept per rule AND per cause, because one total tells a
+# reader nothing about what was exempted: `marker` is the in-file ignore
+# markers, counting the exempted lines, or occurrences, THAT RULE would have matched,
+# plus one whole-file charge to every rule when a file-level marker declines
+# the file; `quote` is the quotation exemption (blockquote lines and
+# double-quoted spans a wording rule would have matched); and `config` is an
+# excluded_paths glob or a rule_allowed_paths entry. Fenced code is not a
+# decline at all: it is never prose, so nothing is counted for it.
+declare -A FINDINGS DECLINED DECL_MARKER DECL_QUOTE DECL_CONFIG
+for slug in "${ALL_RULES[@]}"; do
+  FINDINGS[$slug]=0
+  DECLINED[$slug]=0
+  DECL_MARKER[$slug]=0
+  DECL_QUOTE[$slug]=0
+  DECL_CONFIG[$slug]=0
+done
+
+# decline_rule <slug> <n> <cause>: cause is marker | quote | config.
+decline_rule() {
+  local slug="$1" n="$2" cause="$3"
+  DECLINED[$slug]=$((DECLINED[$slug] + n))
+  case "$cause" in
+  marker) DECL_MARKER[$slug]=$((DECL_MARKER[$slug] + n)) ;;
+  quote) DECL_QUOTE[$slug]=$((DECL_QUOTE[$slug] + n)) ;;
+  config) DECL_CONFIG[$slug]=$((DECL_CONFIG[$slug] + n)) ;;
+  *)
+    echo "detect.sh: internal error: unknown decline cause '$cause'" >&2
+    exit 2
+    ;;
+  esac
+}
+
+# decline_all_rules <n> <cause>
+decline_all_rules() {
+  local n="$1" cause="$2" slug
+  for slug in "${ALL_RULES[@]}"; do
+    decline_rule "$slug" "$n" "$cause"
+  done
+}
+
+TOTAL_FILES=0
+DECLINED_FILES=0
+
+emit_finding() {
+  # emit_finding <slug> <rel> <lineno> <fired> <excerpt>
+  printf 'Finding: rule=ai-slop/audit/%s file=%s line=%s fired=%s excerpt=%s\n' \
+    "$1" "$2" "$3" "$4" "$5"
+  FINDINGS[$1]=$((FINDINGS[$1] + 1))
+}
+
+for file in ${TARGETS[@]+"${TARGETS[@]}"}; do
+  rel="${file#"$REPO_ROOT"/}"
+
+  if [[ "${#EXCLUDED_GLOBS[@]}" -gt 0 ]] && matches_glob "$file" "${EXCLUDED_GLOBS[@]}"; then
+    DECLINED_FILES=$((DECLINED_FILES + 1))
+    decline_all_rules 1 config
+    echo "Declined: file=$rel cause=excluded-glob"
+    continue
+  fi
+
+  TOTAL_FILES=$((TOTAL_FILES + 1))
+  prose="$(extract_prose "$file")"
+
+  # A file-level marker declines the WHOLE file wherever it sits — extraction
+  # stops at the marker, so match the DECLINE row anywhere, not only as a
+  # prefix (a mid-file marker would otherwise truncate the scan silently).
+  if printf '%s\n' "$prose" | LC_ALL=C grep -q $'^DECLINE\tfile'; then
+    DECLINED_FILES=$((DECLINED_FILES + 1))
+    decline_all_rules 1 marker
+    echo "Declined: file=$rel cause=file-marker"
+    continue
+  fi
+
+  # Marker-exempt lines are kept in a stream shaped exactly like the prose
+  # stream (`lineno<TAB>text`), so each rule can be asked what IT would have
+  # matched instead of every rule being charged the raw exempted-line count.
+  # The shape matters beyond tidiness: rule-emoji-formatting anchors its
+  # expression on that field separator, so a bare-text stream could never
+  # match it.
+  declined_prose=""
+  declined_wording=""
+  if printf '%s\n' "$prose" | LC_ALL=C grep -q '^DECLINE'; then
+    declined_prose="$(printf '%s\n' "$prose" | LC_ALL=C grep '^DECLINE' | cut -f3- || true)"
+    declined_wording="$(printf '%s\n' "$declined_prose" | strip_quoted)"
+  fi
+  prose="$(printf '%s\n' "$prose" | LC_ALL=C grep -v '^DECLINE' || true)"
+
+  # Quotation exemption: wording rules never scan quoted material. Blockquote
+  # lines are dropped and double-quoted spans stripped; every quote-exempt
+  # candidate a wording rule WOULD have matched is counted as declined for that
+  # rule below, never silently dropped. Typography rules keep the full stream.
+  #
+  # The same split applies to the marker accounting above: a wording rule is
+  # charged against `declined_wording`, a typography rule against
+  # `declined_prose`. A marker-exempt line a wording rule would only have
+  # matched inside quoted material is charged to no rule at all. It was exempt
+  # twice over, and the marker count is the count of lines the rule would
+  # actually have raised a finding on.
+  prose_wording="$(printf '%s\n' "$prose" | strip_quoted)"
+
+  # Pattern rules: one finding per matching prose line.
+  for entry in "${PATTERN_RULES[@]}"; do
+    IFS='|' read -r slug label ci word class ere <<<"$entry"
+    # Runtime-built roster, like __VOCAB__ in the density loop. The empty-roster
+    # guard runs before decline accounting: with every phrase removed there is
+    # nothing to exempt, and "()" would match every line.
+    if [[ "$ere" == "__PHRASES__" ]]; then
+      [[ -z "$PHRASES_ERE" ]] && continue
+      ere="$PHRASES_ERE"
+    fi
+    rule_disabled "$slug" && continue
+    if rule_allowed "$slug" "$file"; then
+      decline_rule "$slug" 1 config
+      continue
+    fi
+    flags=(-E)
+    [[ "$ci" == "1" ]] && flags+=(-i)
+    [[ "$word" == "1" ]] && flags+=(-w)
+    stream="$prose"
+    declined_stream="$declined_prose"
+    if [[ "$class" == "wording" ]]; then
+      stream="$prose_wording"
+      declined_stream="$declined_wording"
+      full_hits="$(printf '%s\n' "$prose" | LC_ALL=C grep -c "${flags[@]}" -- "$ere" || true)"
+      kept_hits="$(printf '%s\n' "$stream" | LC_ALL=C grep -c "${flags[@]}" -- "$ere" || true)"
+      [[ "$full_hits" -gt "$kept_hits" ]] && decline_rule "$slug" $((full_hits - kept_hits)) quote
+    fi
+    if [[ -n "$declined_prose" ]]; then
+      marker_hits="$(printf '%s\n' "$declined_stream" | LC_ALL=C grep -c "${flags[@]}" -- "$ere" || true)"
+      [[ "$marker_hits" -gt 0 ]] && decline_rule "$slug" "$marker_hits" marker
+    fi
+    while IFS=$'\t' read -r lineno text; do
+      [[ -z "$lineno" ]] && continue
+      excerpt="$(printf '%s' "$text" | truncate_excerpt | tr '|' '/')"
+      emit_finding "$slug" "$rel" "$lineno" "$label" "$excerpt"
+    done < <(printf '%s\n' "$stream" | LC_ALL=C grep "${flags[@]}" -- "$ere" || true)
+  done
+
+  # Marker declines for the density rules are counted OUTSIDE the word-count
+  # guard below. A file whose every prose line sits inside an ignore block has
+  # no scannable words left, so the guarded loop never runs, and a rule would
+  # report zero declines for material the markers demonstrably suppressed.
+  if [[ -n "$declined_prose" ]]; then
+    for entry in "${DENSITY_RULES[@]}"; do
+      IFS='|' read -r slug key default ere <<<"$entry"
+      rule_disabled "$slug" && continue
+      rule_allowed "$slug" "$file" && continue
+      [[ "$ere" == "__VOCAB__" ]] && ere="$VOCAB_ERE"
+      marker_hits="$(printf '%s\n' "$declined_wording" | cut -f2- | LC_ALL=C grep -E -o -i -w -- "$ere" | wc -l | tr -d ' ')"
+      [[ "$marker_hits" -gt 0 ]] && decline_rule "$slug" "$marker_hits" marker
+    done
+  fi
+
+  # Density rules: one finding per file when density reaches the threshold.
+  # All density rules are wording-class, so both the hit count and the word
+  # count come from the quote-exempt stream; quote-exempt hits are declined.
+  words="$(printf '%s\n' "$prose_wording" | cut -f2- | wc -w | tr -d ' ')"
+  if [[ "$words" -gt 0 ]]; then
+    for entry in "${DENSITY_RULES[@]}"; do
+      IFS='|' read -r slug key default ere <<<"$entry"
+      rule_disabled "$slug" && continue
+      if rule_allowed "$slug" "$file"; then
+        decline_rule "$slug" 1 config
+        continue
+      fi
+      [[ "$ere" == "__VOCAB__" ]] && ere="$VOCAB_ERE"
+      threshold="$(threshold_for "$key" "$default")"
+      hits="$(printf '%s\n' "$prose_wording" | cut -f2- | LC_ALL=C grep -E -o -i -w -- "$ere" | wc -l | tr -d ' ')"
+      full_hits="$(printf '%s\n' "$prose" | cut -f2- | LC_ALL=C grep -E -o -i -w -- "$ere" | wc -l | tr -d ' ')"
+      [[ "$full_hits" -gt "$hits" ]] && decline_rule "$slug" $((full_hits - hits)) quote
+      [[ "$hits" -lt "$DENSITY_MIN_HITS" ]] && continue
+      density="$(awk -v h="$hits" -v w="$words" 'BEGIN { printf "%.1f", (h * 1000) / w }')"
+      over="$(awk -v d="$density" -v t="$threshold" 'BEGIN { print (d >= t) ? 1 : 0 }')"
+      if [[ "$over" -eq 1 ]]; then
+        first_line="$(printf '%s\n' "$prose_wording" | LC_ALL=C grep -E -i -m1 -- "$ere" | cut -f1)"
+        emit_finding "$slug" "$rel" "${first_line:-1}" \
+          "density $density/1000 words, threshold $threshold ($hits hits in $words words)" \
+          "density rule"
+      fi
+    done
+  fi
+done
+
+TOTAL_FINDINGS=0
+for slug in "${ALL_RULES[@]}"; do
+  disabled=0
+  rule_disabled "$slug" && disabled=1
+  echo "Summary rule=ai-slop/audit/$slug findings=${FINDINGS[$slug]} declined=${DECLINED[$slug]} declined_marker=${DECL_MARKER[$slug]} declined_quote=${DECL_QUOTE[$slug]} declined_config=${DECL_CONFIG[$slug]} disabled=$disabled"
+  TOTAL_FINDINGS=$((TOTAL_FINDINGS + FINDINGS[$slug]))
+done
+echo "Summary total: $TOTAL_FINDINGS findings across $TOTAL_FILES files scanned ($DECLINED_FILES files declined)"
+exit 0

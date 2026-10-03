@@ -1,0 +1,41 @@
+{
+  "name": "resume-skill",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Self-contained Claude Code skill that tailors a resume to a job description and renders it through one semantic HTML template styled by a swappable CSS theme. Reading, extraction, and tailoring run agent-native; only rendering and content validation are code.",
+  "license": "MIT",
+  "author": "Nate Swenson",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/natejswenson/claude-skills.git"
+  },
+  "homepage": "https://github.com/natejswenson/claude-skills#readme",
+  "bugs": {
+    "url": "https://github.com/natejswenson/claude-skills/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "claude-code-skill",
+    "resume",
+    "cv",
+    "resume-tailoring",
+    "pdf",
+    "themes",
+    "cli"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.mjs",
+    "eval": "node scripts/evals/run.mjs",
+    "render": "node scripts/render.mjs"
+  },
+  "dependencies": {
+    "mammoth": "^1.12.0",
+    "playwright": "1.61.1",
+    "unpdf": "^1.6.0",
+    "zod": "^4.3.6"
+  }
+}

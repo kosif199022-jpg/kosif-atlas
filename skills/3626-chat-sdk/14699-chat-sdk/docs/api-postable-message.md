@@ -1,0 +1,151 @@
+> Source: https://chat-sdk.dev/docs/api/postable-message.md
+
+---
+title: PostableMessage
+description: The union type accepted by thread.post() for sending messages.
+type: reference
+related:
+  - /docs/posting-messages
+  - /docs/streaming
+  - /docs/cards
+---
+
+# PostableMessage
+
+
+`PostableMessage` is the union of all message formats accepted by `thread.post()` and `sent.edit()`.
+
+```typescript
+type PostableMessage =
+  | AdapterPostableMessage
+  | AsyncIterable<string | StreamChunk | StreamEvent>
+  | PostableObject;
+```
+
+`PostableObject` covers `Plan` (mutable task lists) and `StreamingPlan` (streams with platform-specific options). Both are documented below.
+
+## String
+
+Raw text passed through as-is to the platform.
+
+```typescript
+await thread.post("Hello world");
+```
+
+## PostableRaw
+
+Explicit raw text. Behaves the same as a plain string.
+
+```typescript
+await thread.post({ raw: "Hello world" });
+```
+
+
+## PostableMarkdown
+
+Markdown converted to each platform's native format.
+
+```typescript
+await thread.post({ markdown: "**Bold** and _italic_" });
+```
+
+
+## PostableAst
+
+mdast AST converted to each platform's native format. See [Markdown](/docs/api/markdown) for builder functions.
+
+```typescript
+import { root, paragraph, text, strong } from "chat";
+
+await thread.post({
+  ast: root([paragraph([strong([text("Hello")])])]),
+});
+```
+
+
+## PostableCard
+
+Rich card with interactive elements. See [Cards](/docs/api/cards) for components.
+
+```typescript
+import { Card, Text } from "chat";
+
+await thread.post(Card({ title: "Hello", children: [Text("World")] }));
+```
+
+You can also pass a card with explicit fallback text:
+
+```typescript
+await thread.post({
+  card: Card({ title: "Hello", children: [Text("World")] }),
+  fallbackText: "Hello — World",
+});
+```
+
+
+## Plan
+
+A `Plan` is a step-by-step task list that mutates after posting. Each `addTask` / `updateTask` / `complete` call re-renders the same message in place. See [Plan API](/docs/streaming#plan-api) for full usage.
+
+```typescript
+import { Plan } from "chat";
+
+const plan = new Plan({ initialMessage: "Researching options..." });
+await thread.post(plan);
+await plan.addTask({ title: "Look up records" });
+await plan.complete({ completeMessage: "Done!" });
+```
+
+Adapters that don't support `PostableObject` editing render the plan as fallback text and ignore subsequent mutations.
+
+## StreamingPlan
+
+Wraps an async iterable with platform-specific streaming options. Use this when you need to pass options like task grouping or stop blocks through `thread.post()`. See [Streaming with options](/docs/streaming#streaming-with-options).
+
+```typescript
+import { StreamingPlan } from "chat";
+
+const planned = new StreamingPlan(stream, {
+  groupTasks: "plan",
+  endWith: [feedbackBlock],
+  updateIntervalMs: 750,
+});
+
+await thread.post(planned);
+```
+
+
+## AsyncIterable (streaming)
+
+An async iterable of strings, `StreamChunk` objects, or stream events. The SDK streams the message in real time using platform-native APIs where available.
+
+You can yield structured `StreamChunk` objects for rich content like task progress cards on platforms that support it (Slack). See [Streaming](/docs/streaming#structured-streaming-chunks) for details.
+
+Both AI SDK stream types and TanStack AI streams are supported:
+
+```typescript
+// fullStream (recommended): preserves step boundaries in multi-step agents
+const result = await agent.stream({ prompt: message.text });
+await thread.post(result.fullStream);
+
+// textStream: plain string chunks
+await thread.post(result.textStream);
+
+// TanStack AI: the stream returned by chat()
+await thread.post(chat({ adapter, messages }));
+```
+
+When using `fullStream`, the SDK auto-detects `text-delta` and `finish-step` events, extracting text and inserting paragraph breaks between agent steps. AG-UI `TEXT_MESSAGE_CONTENT` and `TEXT_MESSAGE_END` events from TanStack AI are handled the same way: deltas become text and each message end becomes a paragraph break between tool-loop turns.
+
+## FileUpload
+
+Used in the `files` field of any structured message format.
+
+
+---
+
+For a semantic overview of all documentation, see [/sitemap.md](/sitemap.md)
+
+For an index of all available documentation, see [/llms.txt](/llms.txt)
+
+For agent-facing discovery, including API and MCP surfaces, see [/agents.md](/agents.md)

@@ -1,0 +1,475 @@
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { mkdirSync, writeFileSync, statSync, utimesSync } from "fs";
+import { join } from "path";
+import * as os from "os";
+import {
+  buildImagePrompt,
+  extractGeneratedPngPath,
+  findNewestPng,
+  selectSourcePng,
+  codexBackend,
+} from "./codex";
+import type { InvokeOpts } from "../types";
+
+describe("codexBackend", () => {
+  describe("invokeLive", () => {
+    it("returns null for image mode (stays headless/native)", () => {
+      expect(codexBackend.invokeLive!("image", {})).toBeNull();
+    });
+
+    it("launches the bare TUI (no exec/-o) and maps model + dangerous", () => {
+      const spec = codexBackend.invokeLive!("delegate", {
+        model: "gpt-6-codex",
+        dangerous: true,
+      })!;
+
+      expect(spec.agentBin).toBe("codex");
+      expect(spec.argv).toEqual([
+        "-m",
+        "gpt-6-codex",
+        "--dangerously-bypass-approvals-and-sandbox",
+      ]);
+      expect(spec.argv).not.toContain("exec");
+      expect(spec.argv).not.toContain("-o");
+    });
+
+    it("drops the sandbox but keeps approvals when not dangerous", () => {
+      const spec = codexBackend.invokeLive!("review", {})!;
+
+      expect(spec.argv).toEqual(["-s", "danger-full-access"]);
+      expect(spec.argv).not.toContain(
+        "--dangerously-bypass-approvals-and-sandbox",
+      );
+    });
+  });
+
+  describe("supports", () => {
+    it("should support delegate, review, and image modes", () => {
+      expect(codexBackend.supports.has("delegate")).toBe(true);
+      expect(codexBackend.supports.has("review")).toBe(true);
+      expect(codexBackend.supports.has("image")).toBe(true);
+    });
+  });
+
+  describe("invoke", () => {
+    describe("delegate mode", () => {
+      it("should build argv with danger-full-access sandbox", () => {
+        const opts: InvokeOpts = {
+          promptText: "test prompt",
+          lastFile: "/tmp/last.txt",
+          dangerous: false,
+        };
+        const result = codexBackend.invoke("delegate", opts);
+        // No `-a never`: removed in codex >= 0.139 (exec is non-interactive).
+        expect(result.argv).toEqual([
+          "codex",
+          "exec",
+          "-s",
+          "danger-full-access",
+          "-o",
+          "/tmp/last.txt",
+          "-",
+        ]);
+        expect(result.stdin).toBe("test prompt");
+      });
+
+      it("should build argv with dangerous bypass flag when requested", () => {
+        const opts: InvokeOpts = {
+          promptText: "test prompt",
+          lastFile: "/tmp/last.txt",
+          dangerous: true,
+        };
+        const result = codexBackend.invoke("delegate", opts);
+        expect(result.argv).toEqual([
+          "codex",
+          "exec",
+          "--dangerously-bypass-approvals-and-sandbox",
+          "-o",
+          "/tmp/last.txt",
+          "-",
+        ]);
+        expect(result.stdin).toBe("test prompt");
+      });
+
+      it("passes the model with -m", () => {
+        const opts: InvokeOpts = {
+          promptText: "test prompt",
+          lastFile: "/tmp/last.txt",
+          model: "gpt-5.6-sol",
+        };
+        const result = codexBackend.invoke("delegate", opts);
+        expect(result.argv).toEqual([
+          "codex",
+          "exec",
+          "-m",
+          "gpt-5.6-sol",
+          "-s",
+          "danger-full-access",
+          "-o",
+          "/tmp/last.txt",
+          "-",
+        ]);
+      });
+    });
+
+    describe("review native mode", () => {
+      it("reviews uncommitted changes when task is absent", () => {
+        const opts: InvokeOpts = { promptText: "uncommitted prompt" };
+        const result = codexBackend.invoke("review", opts);
+        expect(result.argv).toEqual(["codex", "review", "--uncommitted", "-"]);
+        expect(result.stdin).toBe("uncommitted prompt");
+      });
+
+      it("passes a provided review task without forcing uncommitted scope", () => {
+        const opts: InvokeOpts = {
+          task: "review the auth flow",
+          promptText: "custom review prompt",
+        };
+        const result = codexBackend.invoke("review", opts);
+        expect(result.argv).toEqual(["codex", "review", "-"]);
+        expect(result.stdin).toBe("custom review prompt");
+      });
+
+      it("passes the model as a -c config override", () => {
+        const opts: InvokeOpts = {
+          task: "review the auth flow",
+          promptText: "custom review prompt",
+          model: "gpt-5.6-sol",
+        };
+        const result = codexBackend.invoke("review", opts);
+        expect(result.argv).toEqual([
+          "codex",
+          "review",
+          "-c",
+          'model="gpt-5.6-sol"',
+          "-",
+        ]);
+      });
+    });
+
+    describe("image mode", () => {
+      it("should build argv with image prompt from task", () => {
+        const opts: InvokeOpts = {
+          task: "a sunset over mountains",
+          lastFile: "/tmp/last.txt",
+        };
+        const result = codexBackend.invoke("image", opts);
+        expect(result.argv).toEqual([
+          "codex",
+          "exec",
+          "-o",
+          "/tmp/last.txt",
+          "Generate an image of: a sunset over mountains.",
+        ]);
+        expect(result.stdin).toBeUndefined();
+      });
+
+      it("should use generic prompt if task is absent", () => {
+        const opts: InvokeOpts = { lastFile: "/tmp/last.txt" };
+        const result = codexBackend.invoke("image", opts);
+        expect(result.argv[result.argv.length - 1]).toBe(
+          "Generate an image of: an image.",
+        );
+      });
+    });
+  });
+
+  describe("parseOutput", () => {
+    it("should return input unchanged", () => {
+      const raw = "Some output from codex";
+      expect(codexBackend.parseOutput(raw)).toBe(raw);
+    });
+
+    it("should preserve multi-line output", () => {
+      const raw = "Line 1\nLine 2\nLine 3";
+      expect(codexBackend.parseOutput(raw)).toBe(raw);
+    });
+  });
+
+  describe("buildImagePrompt", () => {
+    it("should format prompt without naming a model", () => {
+      const result = buildImagePrompt("a blue ocean");
+      expect(result).toBe(
+        "Generate an image of: a blue ocean.",
+      );
+    });
+
+    it("should handle prompts with special characters", () => {
+      const result = buildImagePrompt("a cat & dog on a beach");
+      expect(result).toBe(
+        "Generate an image of: a cat & dog on a beach.",
+      );
+    });
+
+    it("should handle empty prompt", () => {
+      const result = buildImagePrompt("");
+      expect(result).toBe("Generate an image of: .");
+    });
+  });
+
+  describe("extractGeneratedPngPath", () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = join(os.tmpdir(), `test-png-${Date.now()}`);
+      mkdirSync(tempDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      // Cleanup
+      try {
+        const fs = require("fs");
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+    });
+
+    it("should extract absolute path from output", () => {
+      const pngPath = join(tempDir, "test.png");
+      writeFileSync(pngPath, "fake png");
+
+      const output = `Generated image: ${pngPath}`;
+      const result = extractGeneratedPngPath(output);
+      expect(result).toBe(pngPath);
+    });
+
+    it("should resolve tilde-relative paths", () => {
+      // This test depends on a real ~/something.png existing, so we skip in CI
+      // or use a fixture. For now, test the path resolution logic via direct test.
+      const output = `Image saved to ~/test-image.png`;
+      const result = extractGeneratedPngPath(output);
+      // Will be null since ~/test-image.png likely doesn't exist
+      expect(result).toBeNull();
+    });
+
+    it("should return null if no .png found in output", () => {
+      const output = "No image generated";
+      const result = extractGeneratedPngPath(output);
+      expect(result).toBeNull();
+    });
+
+    it("should return null if path in output doesn't exist", () => {
+      const output = "/nonexistent/path/image.png";
+      const result = extractGeneratedPngPath(output);
+      expect(result).toBeNull();
+    });
+
+    it("should find first valid PNG path among multiple candidates", () => {
+      const validPath = join(tempDir, "valid.png");
+      writeFileSync(validPath, "fake");
+
+      const output = `/nonexistent/bad.png and ${validPath} are here`;
+      const result = extractGeneratedPngPath(output);
+      expect(result).toBe(validPath);
+    });
+  });
+
+  describe("findNewestPng", () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = join(os.tmpdir(), `test-newest-${Date.now()}`);
+      mkdirSync(tempDir, { recursive: true });
+      mkdirSync(join(tempDir, "subdir"), { recursive: true });
+    });
+
+    afterEach(() => {
+      try {
+        const fs = require("fs");
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+    });
+
+    it("should find the newest PNG file after a given date", () => {
+      const oldPng = join(tempDir, "old.png");
+      const newPng = join(tempDir, "new.png");
+
+      const oldTime = new Date(Date.now() - 10000);
+      const newTime = new Date(Date.now() - 1000);
+
+      writeFileSync(oldPng, "old");
+      writeFileSync(newPng, "new");
+
+      // Set mtimes using utimesSync
+      utimesSync(oldPng, oldTime, oldTime);
+      utimesSync(newPng, newTime, newTime);
+
+      const cutoff = new Date(Date.now() - 5000);
+      const result = findNewestPng(cutoff, tempDir);
+      expect(result).toBe(newPng);
+    });
+
+    it("should recursively scan subdirectories", () => {
+      const subPng = join(tempDir, "subdir", "nested.png");
+      writeFileSync(subPng, "nested");
+
+      const cutoff = new Date(Date.now() - 5000);
+      const result = findNewestPng(cutoff, tempDir);
+      expect(result).toBe(subPng);
+    });
+
+    it("should return null if no PNGs found after cutoff date", () => {
+      const oldPng = join(tempDir, "old.png");
+      writeFileSync(oldPng, "old");
+
+      // Set mtime to well before the cutoff (year 2020)
+      const veryOldTime = new Date("2020-01-01");
+      utimesSync(oldPng, veryOldTime, veryOldTime);
+
+      const cutoff = new Date(Date.now() - 5000);
+      const result = findNewestPng(cutoff, tempDir);
+      expect(result).toBeNull();
+    });
+
+    it("should return null if baseDir doesn't exist", () => {
+      const nonexistent = join(tempDir, "nonexistent");
+      const cutoff = new Date();
+      const result = findNewestPng(cutoff, nonexistent);
+      expect(result).toBeNull();
+    });
+
+    it("should select the newest among multiple valid PNGs", () => {
+      const png1 = join(tempDir, "img1.png");
+      const png2 = join(tempDir, "img2.png");
+
+      writeFileSync(png1, "1");
+      writeFileSync(png2, "2");
+
+      // Give png2 a newer mtime
+      const time1 = new Date(Date.now() - 3000);
+      const time2 = new Date(Date.now() - 1000);
+
+      utimesSync(png1, time1, time1);
+      utimesSync(png2, time2, time2);
+
+      const cutoff = new Date(Date.now() - 5000);
+      const result = findNewestPng(cutoff, tempDir);
+      expect(result).toBe(png2);
+    });
+  });
+
+  describe("selectSourcePng", () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = join(os.tmpdir(), `test-select-${Date.now()}`);
+      mkdirSync(join(tempDir, "generated"), { recursive: true });
+    });
+
+    afterEach(() => {
+      try {
+        const fs = require("fs");
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+    });
+
+    it("prefers the PNG generated during this run over an older one named in the output", () => {
+      // An older image that still exists on disk, of the kind a model routinely
+      // refers to ("similar to ~/reference.png").
+      const olderPng = join(tempDir, "reference.png");
+      writeFileSync(olderPng, "old");
+      const longAgo = new Date(Date.now() - 86_400_000);
+      utimesSync(olderPng, longAgo, longAgo);
+
+      // The image this run actually produced.
+      const freshPng = join(tempDir, "generated", "fresh.png");
+      writeFileSync(freshPng, "new");
+
+      const runStartedAt = new Date(Date.now() - 5_000);
+      const parsed = `Generated something similar to ${olderPng}`;
+
+      expect(
+        selectSourcePng(parsed, runStartedAt, join(tempDir, "generated")),
+      ).toBe(freshPng);
+    });
+
+    it("falls back to the output path when this run generated nothing", () => {
+      // Covers a codex that saved outside ~/.codex/generated_images.
+      const elsewhere = join(tempDir, "elsewhere.png");
+      writeFileSync(elsewhere, "png");
+
+      const runStartedAt = new Date(Date.now() - 5_000);
+      const parsed = `Image written to ${elsewhere}`;
+
+      expect(
+        selectSourcePng(parsed, runStartedAt, join(tempDir, "generated")),
+      ).toBe(elsewhere);
+    });
+
+    it("returns null when neither source has anything", () => {
+      expect(
+        selectSourcePng("no path here", new Date(), join(tempDir, "generated")),
+      ).toBeNull();
+    });
+  });
+
+  describe("postRun", () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = join(os.tmpdir(), `test-postrun-${Date.now()}`);
+      mkdirSync(tempDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      try {
+        const fs = require("fs");
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+    });
+
+    it("should return parsed unchanged for delegate mode", () => {
+      const parsed = "Some delegate output";
+      const opts: InvokeOpts = {};
+      const result = codexBackend.postRun!("delegate", parsed, opts);
+      expect(result).toEqual({ ok: true, text: parsed });
+    });
+
+    it("should return parsed unchanged for review mode", () => {
+      const parsed = "Some review output";
+      const opts: InvokeOpts = {};
+      const result = codexBackend.postRun!("review", parsed, opts);
+      expect(result).toEqual({ ok: true, text: parsed });
+    });
+
+    it("should copy image PNG to output path for image mode", () => {
+      // Create a source PNG
+      const sourceDir = join(tempDir, "source");
+      mkdirSync(sourceDir);
+      const sourcePng = join(sourceDir, "generated.png");
+      writeFileSync(sourcePng, "fake png data");
+
+      // Set up output path
+      const outDir = join(tempDir, "output");
+      mkdirSync(outDir);
+      const outPath = join(outDir, "result.png");
+
+      // Far-future cutoff so the mtime search finds nothing in the real
+      // ~/.codex/generated_images and the output-path fallback is what runs.
+      const opts: InvokeOpts = {
+        out: outPath,
+        runStartedAt: new Date(Date.now() + 60_000),
+      };
+      const parsed = `Image at ${sourcePng}`;
+
+      const result = codexBackend.postRun!("image", parsed, opts);
+
+      // Result should indicate success
+      expect(result.ok).toBe(true);
+      expect(result.text).toContain("Image saved:");
+      expect(result.text).toContain(".png");
+    });
+
+    it("should return error message if PNG not found", () => {
+      const opts: InvokeOpts = {
+        out: "/tmp/nonexistent/result.png",
+        // Far-future cutoff so no real ~/.codex PNG matches the fallback search.
+        runStartedAt: new Date(Date.now() + 60_000),
+      };
+      const parsed = "No PNG path in output";
+      const result = codexBackend.postRun!("image", parsed, opts);
+      expect(result.ok).toBe(false);
+      expect(result.text).toContain("Error");
+      expect(result.text).toContain("No image found");
+    });
+  });
+});

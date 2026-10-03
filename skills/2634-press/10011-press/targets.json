@@ -1,0 +1,982 @@
+{
+  "$comment": "Every place the brand is written down. A consumer not listed here is invisible to `press check`, which is the whole failure mode this skill exists to close — so adding a consumer means adding it here, not copying tokens into it. Paths are relative to their own repo root; selection is by file presence, so this one registry works unchanged inside claude-skills, budget, local-fitness or the site.",
+  "targets": [
+    {
+      "id": "city-report",
+      "repo": "claude-skills",
+      "path": "skills/city-report/skills/city-report/scripts/brand.py",
+      "region": "tokens",
+      "syntax": "python",
+      "emitter": "python-theme",
+      "params": {
+        "env_var": "CITY_REPORT_BRAND_FILE",
+        "brand_line": "DATA USA",
+        "byline": "datausa.io · US Census ACS",
+        "document_kind": "CITY PROFILE",
+        "extras": [
+          "fill_steps"
+        ]
+      },
+      "init": {
+        "replaceFrom": "^import copy$",
+        "replaceTo": "^    return theme$"
+      }
+    },
+    {
+      "id": "resume-theme",
+      "repo": "claude-skills",
+      "path": "skills/resume/skills/resume/assets/themes/press.css",
+      "region": "tokens",
+      "syntax": "css",
+      "emitter": "css-vars",
+      "params": {
+        "selector": ":root",
+        "align": true,
+        "comments": false,
+        "vars": [
+          {
+            "token": "paper"
+          },
+          {
+            "token": "ink"
+          },
+          {
+            "token": "dim"
+          },
+          {
+            "token": "accent",
+            "name": "sig"
+          },
+          {
+            "token": "hair"
+          },
+          {
+            "token": "display_stack",
+            "name": "font"
+          },
+          {
+            "token": "serif_stack",
+            "name": "serif"
+          },
+          {
+            "token": "mono_stack",
+            "name": "mono"
+          }
+        ]
+      },
+      "init": {
+        "replaceFrom": "^:root \\{$",
+        "replaceTo": "^\\}$"
+      }
+    },
+    {
+      "id": "ghostwriter-card",
+      "repo": "claude-skills",
+      "path": "skills/ghostwriter/skills/ghostwriter/assets/diagram.css.example",
+      "region": "tokens",
+      "syntax": "css",
+      "emitter": "css-vars",
+      "params": {
+        "selector": ".card.press",
+        "stamp": "YN",
+        "vars": [
+          {
+            "token": "paper",
+            "comment": "warm paper canvas"
+          },
+          {
+            "token": "ink"
+          },
+          {
+            "token": "dim"
+          },
+          {
+            "token": "accent",
+            "name": "press-sig",
+            "comment": "THE signature accent — one loud color, used sparingly"
+          },
+          {
+            "token": "rule",
+            "comment": "heavy editorial rules"
+          },
+          {
+            "token": "serif_stack",
+            "name": "serif",
+            "comment": "commentary voice"
+          },
+          {
+            "token": "stamp",
+            "quote": true,
+            "comment": "your monogram initials (2 chars)"
+          },
+          {
+            "token": "term_bg",
+            "comment": "dark panel: only ever inside .term"
+          },
+          {
+            "token": "term_text"
+          },
+          {
+            "token": "term_dim"
+          },
+          {
+            "token": "term_hot"
+          },
+          {
+            "token": "term_prompt"
+          }
+        ],
+        "trailing": [
+          "color: var(--ink);"
+        ],
+        "comments": "explicit",
+        "align": true
+      },
+      "init": {
+        "replaceFrom": "^\\.card\\.press \\{$",
+        "replaceTo": "^\\}$"
+      }
+    },
+    {
+      "id": "ghostwriter-x-card",
+      "repo": "claude-skills",
+      "path": "skills/ghostwriter-x/skills/ghostwriter-x/assets/diagram.css.example",
+      "region": "tokens",
+      "syntax": "css",
+      "emitter": "css-vars",
+      "params": {
+        "selector": ".card.press",
+        "stamp": "YN",
+        "vars": [
+          {
+            "token": "paper",
+            "comment": "warm paper canvas"
+          },
+          {
+            "token": "ink"
+          },
+          {
+            "token": "dim"
+          },
+          {
+            "token": "accent",
+            "name": "press-sig",
+            "comment": "THE signature accent — one loud color, used sparingly"
+          },
+          {
+            "token": "rule",
+            "comment": "heavy editorial rules"
+          },
+          {
+            "token": "serif_stack",
+            "name": "serif",
+            "comment": "commentary voice"
+          },
+          {
+            "token": "stamp",
+            "quote": true,
+            "comment": "your monogram initials (2 chars)"
+          },
+          {
+            "token": "term_bg",
+            "comment": "dark panel: only ever inside .term"
+          },
+          {
+            "token": "term_text"
+          },
+          {
+            "token": "term_dim"
+          },
+          {
+            "token": "term_hot"
+          },
+          {
+            "token": "term_prompt"
+          }
+        ],
+        "trailing": [
+          "color: var(--ink);"
+        ],
+        "comments": "explicit",
+        "align": true
+      },
+      "init": {
+        "replaceFrom": "^\\.card\\.press \\{$",
+        "replaceTo": "^\\}$"
+      }
+    },
+    {
+      "id": "devlog-palette",
+      "repo": "claude-skills",
+      "path": "skills/devlog/skills/devlog/image-style/style-guide.example.md",
+      "region": "palette",
+      "syntax": "md",
+      "emitter": "md-palette",
+      "params": {
+        "omit": [
+          "rule",
+          "paper_surface",
+          "paper_elevated"
+        ]
+      },
+      "init": {
+        "replaceFrom": "^- \\*\\*Paper\\*\\* ",
+        "replaceTo": "^  outside a `\\.term` panel\\.$"
+      }
+    },
+    {
+      "$comment": "Phase 2 — external repos. Declared now so the registry documents where the brand lives, even before those repos carry a press CI step. They resolve only when `press check` runs inside their own checkout.",
+      "id": "budget",
+      "repo": "local-budget",
+      "path": "src/local_budget/report/brand.py",
+      "region": "tokens",
+      "syntax": "python",
+      "emitter": "python-theme",
+      "params": {
+        "env_var": "BUDGET_BRAND_FILE",
+        "brand_line": "LOCAL BUDGET",
+        "byline": "local-budget · generated offline",
+        "document_kind": "MONTHLY REPORT",
+        "extras": [
+          "warn"
+        ]
+      },
+      "init": {
+        "replaceFrom": "^import copy$",
+        "replaceTo": "^    return theme$"
+      },
+      "github": "local-budget"
+    },
+    {
+      "id": "local-fitness",
+      "repo": "local-fitness",
+      "path": "src/local_fitness/agent/branding.py",
+      "region": "tokens",
+      "syntax": "python",
+      "emitter": "python-theme",
+      "params": {
+        "env_var": "LOCAL_FITNESS_BRAND_FILE",
+        "brand_line": "LOCAL FITNESS",
+        "document_kind": "MORNING BRIEF",
+        "logging": true,
+        "extras": [
+          "mono_file"
+        ],
+        "font_profile": "fontconfig",
+        "byline": "linkedin.com/in/natejswenson"
+      },
+      "init": {
+        "replaceFrom": "^import copy$",
+        "replaceTo": "^    return theme$"
+      }
+    },
+    {
+      "id": "site-tokens",
+      "repo": "natejswenson.io",
+      "path": "src/styles/global.css",
+      "region": "tokens",
+      "syntax": "css",
+      "emitter": "css-vars",
+      "params": {
+        "selector": ":root",
+        "align": true,
+        "comments": false,
+        "vars": [
+          {
+            "token": "paper",
+            "name": "bg"
+          },
+          {
+            "token": "paper_surface",
+            "name": "bg-surface"
+          },
+          {
+            "token": "paper_elevated",
+            "name": "bg-elevated"
+          },
+          {
+            "token": "ink",
+            "name": "fg"
+          },
+          {
+            "token": "dim",
+            "name": "fg-secondary"
+          },
+          {
+            "token": "ink_faint",
+            "name": "fg-tertiary"
+          },
+          {
+            "token": "border"
+          },
+          {
+            "token": "border_hover"
+          },
+          {
+            "token": "accent"
+          },
+          {
+            "token": "accent_dim"
+          },
+          {
+            "token": "rule"
+          },
+          {
+            "token": "display_stack",
+            "name": "font-display"
+          },
+          {
+            "token": "serif_stack",
+            "name": "font-serif"
+          },
+          {
+            "token": "mono_stack",
+            "name": "font-mono"
+          },
+          {
+            "token": "term_bg",
+            "name": "panel"
+          },
+          {
+            "token": "term_text",
+            "name": "panel-fg"
+          },
+          {
+            "token": "term_dim",
+            "name": "panel-dim"
+          },
+          {
+            "token": "term_hot",
+            "name": "panel-hot"
+          },
+          {
+            "token": "term_prompt",
+            "name": "panel-bar"
+          }
+        ]
+      },
+      "init": {
+        "replaceFrom": "^:root \\{$",
+        "replaceTo": "^\\}$"
+      }
+    },
+    {
+      "id": "profile-readme",
+      "repo": "natejswenson",
+      "path": "build_svg.py",
+      "region": "tokens",
+      "syntax": "python",
+      "emitter": "python-consts",
+      "params": {
+        "consts": [
+          {
+            "name": "PAPER",
+            "token": "paper"
+          },
+          {
+            "name": "INK",
+            "token": "ink"
+          },
+          {
+            "name": "DIM",
+            "token": "dim"
+          },
+          {
+            "name": "ACCENT",
+            "token": "accent"
+          }
+        ],
+        "dicts": [
+          {
+            "name": "FACES",
+            "group": "fontFiles",
+            "key_style": "kebab"
+          }
+        ]
+      },
+      "init": {
+        "insertAfter": "^# "
+      }
+    },
+    {
+      "id": "natejswenson.io-readme",
+      "repo": "natejswenson.io",
+      "path": "README.md",
+      "region": "version",
+      "syntax": "md",
+      "emitter": "version-badge",
+      "params": {
+        "what": "The site's colour, type and panel tokens"
+      },
+      "init": {
+        "insertAfter": "^# "
+      }
+    },
+    {
+      "id": "budget-readme",
+      "repo": "local-budget",
+      "path": "README.md",
+      "region": "version",
+      "syntax": "md",
+      "emitter": "version-badge",
+      "params": {
+        "what": "The report's colour and type tokens"
+      },
+      "github": "local-budget",
+      "init": {
+        "insertAfter": "^# "
+      }
+    },
+    {
+      "id": "local-fitness-readme",
+      "repo": "local-fitness",
+      "path": "README.md",
+      "region": "version",
+      "syntax": "md",
+      "emitter": "version-badge",
+      "params": {
+        "what": "The brief and report-card colour and type tokens"
+      },
+      "init": {
+        "insertAfter": "^# "
+      }
+    },
+    {
+      "id": "root-readme",
+      "repo": "claude-skills",
+      "path": "README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {
+        "document_kind": "skill marketplace"
+      },
+      "init": {
+        "insertAfter": "^# claude-skills$"
+      }
+    },
+    {
+      "id": "city-report-readme",
+      "repo": "claude-skills",
+      "path": "skills/city-report/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# city-report$"
+      }
+    },
+    {
+      "id": "resume-readme",
+      "repo": "claude-skills",
+      "path": "skills/resume/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# resume$"
+      }
+    },
+    {
+      "id": "ghostwriter-readme",
+      "repo": "claude-skills",
+      "path": "skills/ghostwriter/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# ghostwriter$"
+      }
+    },
+    {
+      "id": "ghostwriter-x-readme",
+      "repo": "claude-skills",
+      "path": "skills/ghostwriter-x/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# ghostwriter-x$"
+      }
+    },
+    {
+      "id": "devlog-readme",
+      "repo": "claude-skills",
+      "path": "skills/devlog/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# devlog$"
+      }
+    },
+    {
+      "id": "ghfactory-readme",
+      "repo": "claude-skills",
+      "path": "skills/ghfactory/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# ghfactory$"
+      }
+    },
+    {
+      "id": "skillfactory-readme",
+      "repo": "claude-skills",
+      "path": "skills/skillfactory/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# skillfactory$"
+      }
+    },
+    {
+      "id": "github-stats-readme",
+      "repo": "claude-skills",
+      "path": "skills/github-stats/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# github-stats$"
+      }
+    },
+    {
+      "id": "press-readme",
+      "repo": "claude-skills",
+      "path": "skills/press/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# press$"
+      }
+    },
+    {
+      "id": "shipflow-readme",
+      "repo": "claude-skills",
+      "path": "skills/shipflow/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# shipflow$"
+      }
+    },
+    {
+      "id": "eval-readme",
+      "repo": "claude-skills",
+      "path": "skills/eval/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# eval$"
+      }
+    },
+    {
+      "id": "release-readme",
+      "repo": "claude-skills",
+      "path": "skills/release/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# release$"
+      }
+    },
+    {
+      "id": "pluginsync-readme",
+      "repo": "claude-skills",
+      "path": "skills/pluginsync/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# pluginsync$"
+      }
+    },
+    {
+      "id": "issueflow-readme",
+      "repo": "claude-skills",
+      "path": "skills/issueflow/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# issueflow$"
+      }
+    },
+    {
+      "id": "shipreport-readme",
+      "repo": "claude-skills",
+      "path": "skills/shipreport/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# shipreport$"
+      }
+    },
+    {
+      "id": "shipreport-theme",
+      "repo": "claude-skills",
+      "path": "skills/shipreport/skills/shipreport/assets/report.css",
+      "region": "tokens",
+      "syntax": "css",
+      "emitter": "css-vars",
+      "params": {
+        "selector": ":root",
+        "align": true,
+        "comments": false,
+        "vars": [
+          {
+            "token": "paper"
+          },
+          {
+            "token": "paper_surface"
+          },
+          {
+            "token": "ink_faint"
+          },
+          {
+            "token": "paper_elevated"
+          },
+          {
+            "token": "ink"
+          },
+          {
+            "token": "ink_mid"
+          },
+          {
+            "token": "dim"
+          },
+          {
+            "token": "accent",
+            "name": "sig"
+          },
+          {
+            "token": "display_stack",
+            "name": "font"
+          },
+          {
+            "token": "serif_stack",
+            "name": "serif"
+          },
+          {
+            "token": "mono_stack",
+            "name": "mono"
+          }
+        ]
+      },
+      "init": {
+        "replaceFrom": "^:root \\{$",
+        "replaceTo": "^\\}$"
+      }
+    },
+    {
+      "id": "gmailtriage-readme",
+      "repo": "claude-skills",
+      "path": "skills/gmailtriage/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# gmailtriage$"
+      }
+    },
+    {
+      "id": "skillhelp-readme",
+      "repo": "claude-skills",
+      "path": "skills/skillhelp/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# skillhelp$"
+      }
+    },
+    {
+      "id": "brandreport-readme",
+      "repo": "claude-skills",
+      "path": "skills/brandreport/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# brandreport$"
+      }
+    },
+    {
+      "id": "brandreport-theme",
+      "repo": "claude-skills",
+      "path": "skills/brandreport/skills/brandreport/assets/report.css",
+      "region": "tokens",
+      "syntax": "css",
+      "emitter": "css-vars",
+      "params": {
+        "selector": ":root",
+        "align": true,
+        "comments": false,
+        "vars": [
+          {
+            "token": "paper"
+          },
+          {
+            "token": "paper_surface"
+          },
+          {
+            "token": "ink_faint"
+          },
+          {
+            "token": "paper_elevated"
+          },
+          {
+            "token": "ink"
+          },
+          {
+            "token": "ink_mid"
+          },
+          {
+            "token": "dim"
+          },
+          {
+            "token": "accent",
+            "name": "sig"
+          },
+          {
+            "token": "display_stack",
+            "name": "font"
+          },
+          {
+            "token": "serif_stack",
+            "name": "serif"
+          },
+          {
+            "token": "mono_stack",
+            "name": "mono"
+          }
+        ]
+      },
+      "init": {
+        "replaceFrom": "^:root \\{$",
+        "replaceTo": "^\\}$"
+      }
+    },
+    {
+      "id": "netwatch-readme",
+      "repo": "claude-skills",
+      "path": "skills/netwatch/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# netwatch$"
+      }
+    },
+    {
+      "id": "netwatch-theme",
+      "repo": "claude-skills",
+      "path": "skills/netwatch/skills/netwatch/assets/report.css",
+      "region": "tokens",
+      "syntax": "css",
+      "emitter": "css-vars",
+      "params": {
+        "selector": ":root",
+        "align": true,
+        "comments": false,
+        "vars": [
+          {
+            "token": "paper"
+          },
+          {
+            "token": "paper_surface"
+          },
+          {
+            "token": "ink_faint"
+          },
+          {
+            "token": "paper_elevated"
+          },
+          {
+            "token": "ink"
+          },
+          {
+            "token": "ink_mid"
+          },
+          {
+            "token": "dim"
+          },
+          {
+            "token": "accent",
+            "name": "sig"
+          },
+          {
+            "token": "display_stack",
+            "name": "font"
+          },
+          {
+            "token": "serif_stack",
+            "name": "serif"
+          },
+          {
+            "token": "mono_stack",
+            "name": "mono"
+          }
+        ]
+      },
+      "init": {
+        "replaceFrom": "^:root \\{$",
+        "replaceTo": "^\\}$"
+      }
+    },
+    {
+      "id": "appletv-readme",
+      "repo": "claude-skills",
+      "path": "skills/appletv/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# appletv$"
+      }
+    },
+    {
+      "id": "issuecreator-readme",
+      "repo": "claude-skills",
+      "path": "skills/issuecreator/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# issuecreator$"
+      }
+    },
+    {
+      "id": "bible-study-readme",
+      "repo": "claude-skills",
+      "path": "skills/bible-study/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# bible-study$"
+      }
+    },
+    {
+      "id": "bible-study-theme",
+      "repo": "claude-skills",
+      "path": "skills/bible-study/skills/bible-study/assets/study.css",
+      "region": "tokens",
+      "syntax": "css",
+      "emitter": "css-vars",
+      "params": {
+        "selector": ":root",
+        "vars": [
+          {
+            "token": "paper"
+          },
+          {
+            "token": "ink"
+          },
+          {
+            "token": "dim"
+          },
+          {
+            "token": "accent",
+            "name": "sig"
+          },
+          {
+            "token": "display_stack",
+            "name": "font"
+          },
+          {
+            "token": "serif_stack",
+            "name": "serif"
+          },
+          {
+            "token": "mono_stack",
+            "name": "mono"
+          }
+        ]
+      },
+      "init": {
+        "replaceFrom": "^:root \\{$",
+        "replaceTo": "^\\}$"
+      }
+    },
+    {
+      "id": "traefik-readme",
+      "repo": "claude-skills",
+      "path": "skills/traefik/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# traefik$"
+      }
+    },
+    {
+      "id": "local-dev-readme",
+      "repo": "claude-skills",
+      "path": "skills/local-dev/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# local-dev$"
+      }
+    },
+    {
+      "id": "dotfiles-readme",
+      "repo": "claude-skills",
+      "path": "skills/dotfiles/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# dotfiles$"
+      }
+    },
+    {
+      "id": "brand-images-readme",
+      "repo": "claude-skills",
+      "path": "skills/brand-images/README.md",
+      "region": "masthead",
+      "syntax": "md",
+      "emitter": "readme-masthead",
+      "params": {},
+      "init": {
+        "insertAfter": "^# brand-images$"
+      }
+    }
+  ],
+  "$readme_note": "natejswenson has no README target on purpose: its README.md is generated by build_svg.py, so a region there would be clobbered on the next build. Its press version is visible in build_svg.py's own region marker instead."
+}

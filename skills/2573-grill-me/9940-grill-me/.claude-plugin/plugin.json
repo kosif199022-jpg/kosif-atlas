@@ -1,0 +1,19 @@
+{
+  "name": "grill-me",
+  "version": "0.4.2",
+  "description": "Stress-test a plan or design via relentless interview. Resolves each branch of the decision tree, captures domain vocabulary, emits Design Notes + Glossary block for /to-prd. Adapted from mattpocock/skills.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/grill-me",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "design-review",
+    "pre-prd",
+    "interview",
+    "ubiquitous-language",
+    "engineering-workflow"
+  ]
+}

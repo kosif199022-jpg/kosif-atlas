@@ -1,0 +1,84 @@
+schema_version: 1
+integrity_manifest: source-lock.sha256
+verify_from: .agents/skills/factory-bootstrap
+verify_command: shasum -a 256 -c source-lock.sha256
+
+sources:
+  matt-pocock-skills:
+    repository: https://github.com/mattpocock/skills
+    revision: 0ab1b63a410a03d3627979a109c8695de27af954
+    license: MIT
+    license_file: upstream/matt/LICENSE
+    selected:
+      - skills/engineering/grill-with-docs
+      - skills/engineering/to-spec
+      - skills/engineering/to-tickets
+      - skills/engineering/tdd
+      - skills/engineering/diagnosing-bugs
+      - skills/engineering/code-review
+      - skills/engineering/implement
+      - skills/productivity/grill-me
+    omitted:
+      - agents/openai.yaml
+    omission_reason: Agent-specific discovery metadata is unnecessary for file-based routing; the skill text and required local support files are preserved.
+
+  addy-osmani-agent-skills:
+    repository: https://github.com/addyosmani/agent-skills
+    revision: df1edb2e05487d0aa6d93c747141e0aed1187f25
+    license: MIT
+    license_file: upstream/addy/LICENSE
+    selected:
+      - docs/skill-anatomy.md
+      - skills/interview-me
+      - skills/spec-driven-development
+      - skills/context-engineering
+      - skills/planning-and-task-breakdown
+      - skills/test-driven-development
+      - skills/incremental-implementation
+      - skills/source-driven-development
+      - skills/debugging-and-error-recovery
+      - skills/code-review-and-quality
+      - references/definition-of-done.md
+      - references/testing-patterns.md
+      - references/security-checklist.md
+      - references/performance-checklist.md
+
+  helderberto-agent-skills:
+    repository: https://github.com/helderberto/agent-skills
+    revision: 6f94e940f79d478782683ce81f2c9f83acad6e56
+    license: MIT
+    license_file: upstream/helder/LICENSE
+    selected:
+      - skills/spec
+      - skills/plan
+      - skills/tdd
+      - skills/build
+      - skills/validate-code
+      - skills/source-driven
+      - skills/diagnose
+      - skills/review
+      - skills/code-review
+
+pattern_only_sources:
+  recursive-development:
+    evaluated_revision: dde4715891017cec6e860195eac645de747d615e
+    status: not-vendored
+    reason: No distribution license was found at evaluation time; only independently expressed patterns may be used.
+    evaluated_files:
+      skills/wbs-prd/SKILL.md: 48d2ab9b5a9f38bad9b6d0976642d8a099b672ff6c3212d18e885a8f42638d3e
+      skills/wbs-exec/SKILL.md: 6519dbc689184911c337622029e17d9a10598a5e3d9940cc6f340e0d0ed4dfd3
+
+admission:
+  routing: explicit-only
+  whole_repository_provider: false
+  upstream_files_are_runtime_authority: false
+  controller_or_owner_authority_required_for:
+    - branch creation
+    - commits
+    - pushes
+    - issue mutation
+    - pull-request mutation
+    - approval
+    - merge
+    - release
+    - deployment

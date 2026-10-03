@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD Fleet"
+  short_description: "Isolated worktree fleet for ready tasks"
+  default_prompt: "Use $sdd-fleet to launch, inspect, or tear down a fleet of ready tasks."

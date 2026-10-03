@@ -1,0 +1,106 @@
+> Source: https://chat-sdk.dev/adapters/community/wecom.md
+
+---
+title: WeCom
+description: Community WeCom (企业微信) adapter for Chat SDK covering group webhook bots, smart bots, and apps, with template cards, rich media, and AES-256-CBC encryption.
+tagline: WeCom (企业微信) adapter for Chat SDK. Group webhook bots, smart bots (callback or WebSocket), and apps, with template cards and AES encryption.
+package: @agentor/chat-wecom
+---
+
+# WeCom
+
+
+## Install
+
+
+## Quick start
+
+WeCom supports three kinds of bot, and the package exports a factory for each:
+`createWeComWebhookAdapter` for group bots, `createWeComBotAdapter` for smart
+bots, and `createWeComAppAdapter` for apps.
+
+### Webhook (group bot)
+
+A group bot pushes messages one way to a group chat:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createWeComWebhookAdapter } from "@agentor/chat-wecom";
+
+const adapter = createWeComWebhookAdapter({
+  key: process.env.WECOM_WEBHOOK_KEY,
+});
+
+const threadId = adapter.encodeThreadId({ key: process.env.WECOM_WEBHOOK_KEY });
+await adapter.postMessage(threadId, "Hello from @agentor/chat-wecom!");
+```
+
+### Smart bot (WebSocket)
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createWeComBotAdapter } from "@agentor/chat-wecom";
+
+const adapter = createWeComBotAdapter({
+  botId: process.env.WECOM_BOT_WS_BOT_ID,
+  secret: process.env.WECOM_BOT_WS_SECRET,
+});
+
+await adapter.initialize({
+  processMessage: async (_adapter, threadId, factory) => {
+    const message = await factory();
+    await adapter.postMessage(threadId, message.text);
+  },
+});
+```
+
+### App
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createWeComAppAdapter } from "@agentor/chat-wecom";
+
+const adapter = createWeComAppAdapter({
+  corpId: process.env.WECOM_APP_CORP_ID,
+  corpSecret: process.env.WECOM_APP_CORP_SECRET,
+  agentId: Number(process.env.WECOM_APP_AGENT_ID),
+});
+```
+
+## Configuration
+
+
+### Environment variables
+
+The quick start examples read these variables. Each adapter needs only its own.
+
+| Variable                | Required  | Description                                 |
+| ----------------------- | --------- | ------------------------------------------- |
+| `WECOM_WEBHOOK_KEY`     | Group bot | Webhook group-bot key, passed as `key`.     |
+| `WECOM_BOT_WS_BOT_ID`   | Smart bot | Smart bot ID, passed as `botId`.            |
+| `WECOM_BOT_WS_SECRET`   | Smart bot | Smart bot secret, passed as `secret`.       |
+| `WECOM_APP_CORP_ID`     | App       | WeCom corporation ID, passed as `corpId`.   |
+| `WECOM_APP_CORP_SECRET` | App       | Application secret, passed as `corpSecret`. |
+| `WECOM_APP_AGENT_ID`    | App       | Application AgentId, passed as `agentId`.   |
+
+## Template cards
+
+The adapter converts a Chat SDK `CardElement` to a WeCom Template Card and
+infers the card type from the content:
+
+| Card type              | Inferred from                        |
+| ---------------------- | ------------------------------------ |
+| `text_notice`          | Default (text only).                 |
+| `news_notice`          | Contains an image.                   |
+| `button_interaction`   | Contains buttons.                    |
+| `vote_interaction`     | Contains a single-select.            |
+| `multiple_interaction` | Contains a multi-select or dropdown. |
+
+Webhook and callback bots support only `text_notice` and `news_notice`. The
+WebSocket and app adapters support all five card types.
+
+## Encryption
+
+All callback communication is encrypted with AES-256-CBC and verified with a
+SHA1 signature. Set `token` and `encodingAESKey` for callback modes.
+
+## Feature support
+
+

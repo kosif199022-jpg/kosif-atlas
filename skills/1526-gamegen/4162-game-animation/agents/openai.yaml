@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Animation"
+  short_description: "GameGen: game animation workflow"
+  default_prompt: "Use $game-animation for this game using its saved GameGen preferences."

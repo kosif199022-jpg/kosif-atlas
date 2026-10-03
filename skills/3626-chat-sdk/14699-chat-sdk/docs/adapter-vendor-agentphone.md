@@ -1,0 +1,145 @@
+> Source: https://chat-sdk.dev/adapters/vendor-official/agentphone.md
+
+---
+title: AgentPhone
+description: Unified SMS, MMS, iMessage, and voice adapter for Chat SDK. Send and receive messages across all channels with a single integration.
+tagline: SMS, MMS, iMessage, and voice adapter for Chat SDK. Receive inbound messages and call transcripts via webhooks, send replies, and react to iMessages.
+package: @agentphone/chat-sdk-adapter
+---
+
+# AgentPhone
+
+
+## Install
+
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { MemoryStateAdapter } from "@chat-adapter/state-memory";
+import { createAgentPhoneAdapter } from "@agentphone/chat-sdk-adapter";
+
+const agentphone = createAgentPhoneAdapter({
+  // apiKey: "...",          // or set AGENTPHONE_API_KEY
+  // agentId: "agent_...",   // or set AGENTPHONE_AGENT_ID
+  // webhookSecret: "whsec_...", // or set AGENTPHONE_WEBHOOK_SECRET
+});
+
+export const chat = new Chat({
+  userName: "my-bot",
+  adapters: { agentphone },
+  state: new MemoryStateAdapter(),
+});
+
+// Handles SMS, MMS, iMessage, and voice call transcripts
+chat.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await thread.post(`Got your message: ${message.text}`);
+});
+
+chat.onSubscribedMessage(async (thread, message) => {
+  await thread.post(`Reply: ${message.text}`);
+});
+```
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/agentphone/route.ts" lineNumbers
+import { after } from "next/server";
+import { chat } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return chat.webhooks.agentphone(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+Point your AgentPhone webhook at this route's deployed URL, and set `AGENTPHONE_WEBHOOK_SECRET` so the adapter can verify each request. See [Webhooks](#webhooks).
+
+## Configuration
+
+
+### Environment variables
+
+| Variable                    | Required                 | Description                                                   |
+| --------------------------- | ------------------------ | ------------------------------------------------------------- |
+| `AGENTPHONE_API_KEY`        | Yes                      | AgentPhone API key. Overridden by `config.apiKey`.            |
+| `AGENTPHONE_AGENT_ID`       | Yes                      | Agent ID. Overridden by `config.agentId`.                     |
+| `AGENTPHONE_WEBHOOK_SECRET` | For webhook verification | Webhook signing secret. Overridden by `config.webhookSecret`. |
+
+## Webhooks
+
+The adapter handles three webhook event types:
+
+| Event              | Description                          |
+| ------------------ | ------------------------------------ |
+| `agent.message`    | Inbound SMS, MMS, or iMessage        |
+| `agent.call_ended` | Voice call completed with transcript |
+| `agent.reaction`   | iMessage tapback reaction            |
+
+AgentPhone signs each webhook with HMAC-SHA256. Copy the signing secret from your [AgentPhone webhook configuration](https://docs.agentphone.ai/documentation/guides/webhooks) into `AGENTPHONE_WEBHOOK_SECRET`. With a secret set, the adapter returns `401` for a request with a missing or invalid signature, or with a timestamp outside a 5-minute window, which blocks replayed deliveries.
+
+
+  Without a signing secret, the adapter accepts unsigned requests. Set one before you expose the route publicly.
+
+
+## Channels
+
+One adapter handles all four AgentPhone channels:
+
+| Channel  | Send | Receive     | Media | Reactions |
+| -------- | ---- | ----------- | ----- | --------- |
+| SMS      | Yes  | Yes         | --    | --        |
+| MMS      | Yes  | Yes         | Yes   | --        |
+| iMessage | Yes  | Yes         | Yes   | Yes       |
+| Voice    | --   | Transcripts | --    | --        |
+
+Inbound SMS, MMS, and iMessage messages arrive as `onNewMention` or `onSubscribedMessage` events. A voice call arrives as a message containing the full transcript and summary after the call ends.
+
+## iMessage reactions
+
+Send an iMessage tapback with `addReaction`:
+
+```typescript
+// Send a tapback reaction to a message
+await chat.adapters.agentphone.addReaction(threadId, messageId, "love");
+```
+
+Supported tapbacks: `love`, `like`, `dislike`, `laugh`, `emphasize`, `question`. Newer devices also accept custom emoji reactions such as `🔥`.
+
+When a user reacts to a message, the adapter fires your `onReaction` handler.
+
+## Voice call transcripts
+
+When a voice call ends, AgentPhone delivers the full transcript as a message. Check `message.raw.callId` to tell a transcript apart from a text message:
+
+```typescript
+chat.onNewMention(async (thread, message) => {
+  if (message.raw.callId) {
+    // This is a voice call transcript
+    console.log("Call summary:", message.raw.summary);
+    console.log("Transcript:", message.raw.transcript);
+    console.log("Duration:", message.raw.durationSeconds, "seconds");
+  }
+});
+```
+
+## Limitations
+
+SMS and voice constrain what the adapter can do:
+
+* `editMessage` and `deleteMessage` aren't supported, because an SMS can't be changed after it's sent.
+* `removeReaction` isn't supported.
+* `startTyping` is a no-op, because SMS has no typing indicator.
+* Streaming isn't supported.
+
+## Feature support
+
+
+## Resources
+
+* [AgentPhone docs](https://docs.agentphone.ai)
+* [GitHub](https://github.com/AgentPhone-AI/chat-sdk-adapter)
+* [npm](https://www.npmjs.com/package/@agentphone/chat-sdk-adapter)

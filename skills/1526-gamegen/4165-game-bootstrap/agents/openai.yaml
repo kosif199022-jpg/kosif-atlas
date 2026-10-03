@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Bootstrap"
+  short_description: "GameGen: game bootstrap workflow"
+  default_prompt: "Use $game-bootstrap for this game using its saved GameGen preferences."

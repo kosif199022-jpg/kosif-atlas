@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD Status"
+  short_description: "Read-only consolidated status"
+  default_prompt: "Use $sdd-status for a read-only snapshot of the SDD Composy state."

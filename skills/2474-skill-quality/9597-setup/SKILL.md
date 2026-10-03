@@ -1,0 +1,76 @@
+---
+description: "Verify where this repository's skills live for skill-quality, the resolved skills_root, and explain how to change the personal skills_root option through Claude Code. Use when: 'set up skill-quality', 'configure skill-quality', or the checker reports a missing skills directory. Check-only: verifies, reports, and prints reconfiguration guidance; there is nothing setup may write here. Re-runnable and safe."
+argument-hint: "[check]"
+user-invocable: true
+disable-model-invocation: true
+---
+
+## Purpose
+
+Check-only setup under the Check-only carve-out (`docs/plugin-philosophy.md` "Setup is explicit
+and repeatable" in the marketplace repository): this plugin's configuration surface contains no
+writable artifact, so `check` resolves and verifies the skills root and prints the reconfiguration
+guidance below, and no `apply` is offered because there is nothing it could conformingly write.
+`skills_root` is a personal `userConfig` scalar owned by Claude Code's native configuration
+surface. Claude Code prompts for it when the plugin is enabled, stores non-sensitive options in
+user settings, and ignores `pluginConfigs` entries in a project's `.claude/settings.json` or
+`.claude/settings.local.json`. Releases before 2.1.207 read those entries.
+This skill never writes it.
+
+Official contract, verified 2026-09-06 against Claude Code 2.1.263:
+<https://code.claude.com/docs/en/plugins-reference#user-configuration>. Recheck when that page
+stops naming the three settings sources it reads `pluginConfigs` from, or when a release note
+names `pluginConfigs` scope.
+
+Action routing: no argument or `check` runs the check. Non-interactive, never prompts.
+
+## `check` (read-only)
+
+Read the rendered `${user_config.skills_root}` value. Never inspect or edit settings files or
+`pluginConfigs` directly. Resolve the candidate root, verify it, and report PASS/FAIL/INFO with one
+remediation per FAIL. Do not modify anything.
+
+1. **Resolve the root** in order: configured `skills_root`; else `${CLAUDE_PROJECT_DIR}/.claude/skills`;
+   else repository directories containing child `SKILL.md` files. Report which rung resolved (INFO when
+   the zero-config default `.claude/skills` applies).
+2. **Verify** the resolved root exists and enumerates skills (child `SKILL.md` files). PASS with the
+   directory and skill count; FAIL when it is absent or empty, with the resolution result in the
+   remediation line. Never claim success for a missing directory.
+
+## Reconfiguration guidance (printed by `check`; the operator applies it)
+
+This skill has no legitimate write of its own. `skills_root` lives in Claude Code's native config
+surface, which setup must not hand-edit (Check-only carve-out, native `userConfig` class), so
+`check` closes by routing rather than writing:
+
+- **Skills not found / wrong root (FAIL):** if the skills live somewhere other than the resolved root,
+  the personal `skills_root` should point there. Reconfigure through the path below, then rerun `check`.
+- **Reconfiguring the personal option:** through Claude Code's native flow, per the marketplace's
+  plugin-reconfiguration convention
+  (<https://github.com/melodic-software/claude-code-plugins/blob/main/docs/conventions/plugin-reconfiguration/README.md>,
+  which owns the verified-version record): interactive `/plugin configure skill-quality@<marketplace>`
+  any time, or headless `claude plugin install skill-quality@<marketplace> -s <scope> --config skills_root=<dir>`
+  (repeatable per key). Against an already-installed plugin it prints `already installed` and
+  still writes the value. Do **not** uninstall to reconfigure: that drops this plugin's entire
+  stored `pluginConfigs` entry, resetting every option in the README's Options reference to its
+  manifest default. `-s` defaults to `user`; pass the scope `claude plugin list` reports, and run
+  from that project's directory for a `project`/`local` scope, or the rerun adds a second
+  install record at the scope passed and enables the plugin there; the value itself always
+  lands in user settings. A rejected value prints a warning yet exits 0, so read the output.
+  This skill never writes user settings or `pluginConfigs`.
+- **One-run override (no persistence):** for a single run against a different root, the checker also
+  honors the `CHECK_SKILL_SKILLS_ROOT` environment variable; do not persist that variable on the user's
+  behalf.
+
+After any reconfiguration, rerun `check` **in a fresh session** and verify by invoking
+`/skill-quality:check` via the Skill tool, without turning setup into the full quality audit. The
+fresh session is not optional: the rendered `${user_config.skills_root}` is injected when this skill
+loads, so a same-session rerun still resolves the OLD root and would report a correct write as a
+failure. Re-running `check` when the root resolves and enumerates changes nothing and reports
+"already configured".
+
+## What this skill does NOT do
+
+- Write the plugin cache, Claude Code user settings, or `pluginConfigs`.
+- Persist the `CHECK_SKILL_SKILLS_ROOT` environment override.
+- Perform the full skill-quality audit, or invent organization-specific paths, IDs, or env-var prefixes.

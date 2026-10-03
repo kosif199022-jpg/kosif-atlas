@@ -1,0 +1,142 @@
+---
+description: "Audit MCP server tool definitions against design quality criteria. Use when: 'audit MCP tools', 'check MCP tool descriptions', 'review MCP server quality', 'tool annotations', 'readOnlyHint missing', 'parameter descriptions missing', 'check the _meta annotations', 'maxResultSizeChars', 'requiresUserInteraction', 'alwaysLoad', 'are my server instructions too long', 'mcp audit', or before shipping MCP server changes. Optional path argument targets a single server directory; omit to audit the whole project. Produces per-tool PASS/WARN/FAIL scorecard covering description completeness, parameters, naming, annotations, and the Claude Code `_meta` annotations, plus a server-level result for the server `instructions` size budget. Language-agnostic: Python (`mcp`), TypeScript, .NET. Not for: whether configured MCP servers are safe to run (/mcp-tools:audit-posture), or MCP config correctness and connection issues (/harness-config:audit)."
+argument-hint: "[path]"
+user-invocable: true
+disable-model-invocation: false
+context: fork
+background: false
+metadata:
+  workflow-stage: review
+  summary: Audit MCP tool definitions against design quality criteria
+---
+
+**Arguments.** `[path]`. A directory to scope the audit to (e.g. a single server dir), or omit for the whole project.
+
+## Purpose
+
+Evaluate MCP server tool definitions against design quality criteria drawn from three upstream
+authorities, cited (not recapped) so the current text always governs:
+
+- [MCP specification 2025-11-25: Tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools). The normative protocol (MUST / SHOULD / OPTIONAL requirements for names, schemas, annotations).
+- [Define tools: best practices for tool definitions](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#best-practices-for-tool-definitions). Tool-design guidance for descriptions, parameters, namespacing, and workflow-shaped granularity (correlate with [Anthropic: Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents)).
+- [Claude Code: Connect Claude Code to tools via MCP](https://code.claude.com/docs/en/mcp). Claude-Code-specific client behavior: `_meta` annotations and result-size limits. The dated pointer record for the values C17 and C18 turn on is in reference/checklist.md, "Client-behavior record".
+
+Produces a per-tool scorecard with actionable findings. Catches description gaps, missing annotations,
+and naming issues before they degrade LLM tool selection accuracy.
+
+This skill runs as a **blocking fork** (`context: fork`, `background: false`; what that changes is
+owned by the
+[invocation-context rubric](https://github.com/melodic-software/claude-code-plugins/blob/main/docs/conventions/invocation-context/README.md)).
+`$ARGUMENTS` (an optional path) and the working tree are the whole input.
+
+## Server discovery configuration
+
+Phase 1 enumerates MCP servers and their tool source files by scanning the project for the per-language
+tool markers. The `tool-marker`, `name-extraction`, `description-extraction`, and `meta-extraction`
+rules are upstream MCP-SDK conventions, stable across repos. See
+[reference/server-discovery.md](reference/server-discovery.md) for the per-language discovery rules and
+how servers are grouped.
+
+## Arguments
+
+Parse `$ARGUMENTS`:
+
+- **`<path>`**. Audit a single scope. A directory to narrow the scan to (typically one server's directory).
+- ***(empty)***. Audit every tool discovered under the project root.
+
+## Track progress
+
+For multi-server audit runs (Phases 1-3 across ≥2 servers), keep an in-response checklist of the three
+phases and tick each as it completes. Phase 2 may run subagent fan-out for ≥5 tools; check each
+subagent's evidence before accepting its verdicts, then consolidate them into the one Phase 3 report.
+
+## Workflow
+
+### Phase 1: Discover servers and tools
+
+Run `bash "${CLAUDE_PLUGIN_ROOT}/skills/audit/scripts/discover.sh"`, adding `--path <dir>` when
+`$ARGUMENTS` supplies a directory, to scope the scan to that directory.
+
+### Phase 2: Evaluate against checklist
+
+Read each `Tool file:` from Phase 1. Per the language rules in
+[reference/server-discovery.md](reference/server-discovery.md), extract descriptions, parameters,
+wire-level annotations (C12-C14), and the tool's `_meta` object (C17-C19). The last via
+**meta-extraction**, recording each key's JSON type and not merely its presence, because C18 turns on
+it. Load the detailed checklist from [reference/checklist.md](reference/checklist.md).
+
+Once per server, also resolve its `instructions` field. See **Server instructions** in
+[reference/server-discovery.md](reference/server-discovery.md) and evaluate C4's per-server clause
+against it. Phase 1's records are per-tool, so this is the only step that reaches it; its result lands
+in the server-level row of the Phase 3 report, not in any tool's table.
+
+Evaluate every criterion in the checklist against each tool, and C4's per-server clause once per
+server. Record each result as:
+
+- **PASS**. Criterion met
+- **WARN**. Criterion partially met or could be improved
+- **FAIL**. Criterion not met
+- **info**. An optimization opportunity rather than a defect; the severity `reference/checklist.md`
+  assigns to C8, C11, C14, and by default to C17-C19
+- **n/a**. The criterion has no subject here, so it cannot pass: a server whose construction site
+  declares no `instructions` gives C4's per-server clause nothing to size
+- **undetermined**. The subject was not reachable in the scanned scope (no server construction site
+  found), which is not the same as its being absent
+
+### Phase 3: Report
+
+Output a markdown report with this structure:
+
+```markdown
+# MCP Tool Audit Report
+
+**Date:** YYYY-MM-DD
+**Servers audited:** N
+**Tools audited:** N
+**Overall:** X pass, Y warn, Z fail, W info
+
+## Summary by server
+
+| Server | Tools | Pass | Warn | Fail | Info |
+|--------|-------|------|------|------|------|
+| <server-name> | N | ... | ... | ... | ... |
+
+## Findings by server
+
+### Server: <server-name> (<language>)
+
+Server-level criteria, the outcomes that belong to the server rather than to any one tool:
+
+| Criterion | Authority | Result | Details |
+|-----------|-----------|--------|---------|
+| C4 Server `instructions` within size budget | OPINION | n/a | Construction site declares no `instructions` |
+
+#### Tool: <tool_name>
+
+| Criterion | Authority | Result | Details |
+|-----------|-----------|--------|---------|
+| C1 Description has "what" | ANTHROPIC | WARN | Missing "when to use" context |
+| C9 Name charset/length valid | SPEC-SHOULD | PASS | |
+| C12 readOnlyHint set | SPEC-OPTIONAL | WARN | Read-only tool lacks the hint |
+| C18 requiresUserInteraction is JSON `true` | OPINION | FAIL | Declared as the string `"true"`, so silently ignored |
+| ... | ... | ... | ... |
+
+(repeat for each tool)
+```
+
+**Prioritize FAIL items**. Highest-value improvements. WARN items are suggestions and info items are
+optimizations. The `Overall` line and the summary table count every outcome recorded for a server:
+its tools' criterion rows and its server-level rows, across the four severity buckets. `n/a` and
+`undetermined` are not severities: they record that a criterion had no subject, or none reachable, so
+they appear only in the server-level criterion table and never count as a pass. A missing annotation
+is never FAIL. Annotations are
+OPTIONAL in the spec (C12-C14) or Claude-Code-specific advisories (C17-C19); only a declared value
+Claude Code silently ignores can FAIL (C18).
+
+## What this skill does NOT do
+
+- Does not modify tool definitions. It reports. Use findings to guide manual improvements.
+- Does not test tool functionality. Use MCP Inspector for that.
+- Does not evaluate MCP resources. Only tools.
+- Does not judge whether the servers in your Claude Code configuration are safe to run (floating
+  versions, publisher provenance, local stdio versus remote). Use `/mcp-tools:audit-posture` for that.

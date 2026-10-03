@@ -1,0 +1,74 @@
+{
+  "name": "review-guide",
+  "version": "1.0.0",
+  "eligibility": {
+    "triggers": [
+      "controller enters the review stage with a reconciled candidate diff and complete evidence",
+      "a human reviewer requests a structured review record for a packet"
+    ],
+    "antiTriggers": [
+      "the reviewer would be the packet's implementer",
+      "the candidate has not passed quality and reconcile predicates",
+      "the request is to fix findings rather than record them"
+    ]
+  },
+  "io": {
+    "inputs": [
+      { "name": "candidateDiff", "type": "{ baseSha, resultSha, changedFiles: string[] }" },
+      { "name": "packet", "type": "PacketPlan packet { id, criteria, allowedPaths }" },
+      { "name": "evidenceBundle", "type": "{ redProof, greenProof, qualityRecord: QualityRecord }" }
+    ],
+    "outputs": [
+      { "name": "findings", "type": "{ severity: 'blocking'|'major'|'minor', axis, path, reason }[] (factory finding schema)" },
+      { "name": "reviewRecord", "type": "{ axesCovered: string[], specFidelity: 'met'|'gap', summary }" }
+    ]
+  },
+  "allowed": {
+    "tools": ["read", "grep", "list", "run_tests"],
+    "paths": ["**"],
+    "sideEffects": []
+  },
+  "authorityExclusions": ["git_write", "github_write", "approval", "policy_change", "merge", "release", "deploy", "controller_state"],
+  "procedure": [
+    "Check specification fidelity first: every packet criterion against the diff, independent of style.",
+    "Select audits by detected scope (tests, security-sensitive paths, performance-sensitive paths).",
+    "Review the five axes: correctness, readability and simplicity, architecture, security, performance.",
+    "Consolidate into severity-ranked findings in the factory schema; one finding per defect.",
+    "Grade only what the packet could have changed: a finding whose path is outside the packet's allowedPaths is minor and reported as a run condition, never blocking or major (OI-51).",
+    "Emit the review record for the human reviewer's verdict; do not approve."
+  ],
+  "completion": [
+    "review record lists axes covered and spec-fidelity result",
+    "every blocking finding has a path and a concrete failure scenario",
+    "review.no-unresolved-blocking-finding is decidable from the record"
+  ],
+  "evidence": [
+    "findings list",
+    "review record",
+    "commands run during review with exit codes"
+  ],
+  "failure": {
+    "handoff": "If evidence is incomplete or the diff exceeds allowedPaths, return a single blocking finding to the controller; the human reviewer's verdict (reviewer.review-verdict-approved) remains the only approval."
+  },
+  "provenance": {
+    "derived": true,
+    "sources": [
+      { "repository": "https://github.com/addyosmani/agent-skills", "revision": "df1edb2e05487d0aa6d93c747141e0aed1187f25", "license": "MIT", "licenseFile": "upstream/addy/LICENSE", "path": "skills/code-review-and-quality/SKILL.md", "upstreamDigest": "8f3cabca581bbf7cb5f0add3f7454e7a4523f9d4353a6a4a217e6fa515309612" },
+      { "repository": "https://github.com/mattpocock/skills", "revision": "0ab1b63a410a03d3627979a109c8695de27af954", "license": "MIT", "licenseFile": "upstream/matt/LICENSE", "path": "skills/engineering/code-review/SKILL.md", "upstreamDigest": "47f4e52c21694def9c7c11cbfbf891ca35eac7a93e395797515be3c8a409ae50" },
+      { "repository": "https://github.com/helderberto/agent-skills", "revision": "6f94e940f79d478782683ce81f2c9f83acad6e56", "license": "MIT", "licenseFile": "upstream/helder/LICENSE", "path": "skills/review/SKILL.md", "upstreamDigest": "024161ccc31bf69e592ea9eced1b9edd1dd82e6ebfeea0705d698a01d1f88102" },
+      { "repository": "https://github.com/helderberto/agent-skills", "revision": "6f94e940f79d478782683ce81f2c9f83acad6e56", "license": "MIT", "licenseFile": "upstream/helder/LICENSE", "path": "skills/code-review/SKILL.md", "upstreamDigest": "838ba310ce79bc06a372e0b65f199c48ef2aa60ac9f7a5859af6cf929eaca8b1" }
+    ]
+  },
+  "patterns": {
+    "adopted": [
+      "five-axis review and structural remedies (Addy)",
+      "specification fidelity checked separately from style (Matt)",
+      "scope-detected audit selection and consolidated severity (Helderberto)"
+    ],
+    "rejected": [
+      "spawning parallel reviewer agents (v2 §6 capability)",
+      "approving, merging, or posting PR comments",
+      "applying fixes or changing policy or controller state during review"
+    ]
+  }
+}

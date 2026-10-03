@@ -1,0 +1,81 @@
+{
+  "pipeline_id": "adversarial-9-stage",
+  "name": "Adversarial Pipeline",
+  "description": "For controversial or high-stakes pieces. Adds a Devil's Advocate pre-mortem between research and outlining. Forces the piece to reckon with opposition before structure is set.",
+  "best_for": [],
+  "note": "No default content type. User selects explicitly or orchestrator proposes when the thesis is provocative.",
+  "stages": [
+    {
+      "stage": 1,
+      "name": "Strategy",
+      "roles": ["strategist"],
+      "parallel": false,
+      "gate": { "min_score": 7, "action": "send_back" }
+    },
+    {
+      "stage": 2,
+      "name": "Research + Reaction + Frame",
+      "roles": ["researcher", "avatar-reviewer:pass-1", "analogist"],
+      "parallel": true,
+      "gate": {
+        "researcher": { "source_verification_min": 9, "action": "block" },
+        "avatar-reviewer": { "verdict_fail": "surface_to_user" },
+        "analogist": { "min_score": 6, "action": "drop_if_below" }
+      }
+    },
+    {
+      "stage": 2.5,
+      "name": "Devil's Advocate",
+      "roles": ["skeptic:pre-mortem"],
+      "parallel": false,
+      "note": "Skeptic receives thesis + dossier BEFORE outlining. Writes the strongest counter-argument. Output goes to Outliner so structure can account for opposition. Uses steel-man variant if available.",
+      "gate": { "min_score": 7, "action": "surface_to_user" }
+    },
+    {
+      "stage": 3,
+      "name": "Structure",
+      "roles": ["outliner"],
+      "parallel": false,
+      "inputs_note": "Outliner receives thesis, dossier, avatar pass-1, AND the Devil's Advocate output.",
+      "gate": { "min_score": 7, "action": "send_back" }
+    },
+    {
+      "stage": 3.5,
+      "name": "Emotional Design",
+      "roles": ["emotional-architect"],
+      "parallel": false,
+      "gate": { "min_score": 7, "action": "surface_to_user" }
+    },
+    {
+      "stage": 4,
+      "name": "Draft",
+      "roles": ["drafter"],
+      "parallel": false,
+      "gate": { "min_score": 7, "action": "send_back" }
+    },
+    {
+      "stage": 5,
+      "name": "Attack + Reaction",
+      "roles": ["skeptic", "avatar-reviewer:pass-2"],
+      "parallel": true,
+      "gate": null
+    },
+    {
+      "stage": 6,
+      "name": "Polish",
+      "roles": ["line-editor"],
+      "parallel": false,
+      "gate": { "min_score": 9, "action": "surface_to_user" }
+    },
+    {
+      "stage": 7,
+      "name": "Compression Test",
+      "roles": ["compression-agent"],
+      "parallel": false,
+      "gate": { "compression_pass": true, "action": "surface_to_user" }
+    }
+  ],
+  "total_roles": 12,
+  "avg_min_score": null,
+  "runs": 0
+}

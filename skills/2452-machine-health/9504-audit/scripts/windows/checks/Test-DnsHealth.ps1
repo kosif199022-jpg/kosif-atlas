@@ -1,0 +1,77 @@
+#Requires -Version 7.4
+<#
+.SYNOPSIS
+Check: DNS resolution + default-gateway reachability. Emits a CheckResult JSON on stdout.
+#>
+[CmdletBinding()]
+param([switch]$Human)
+
+Set-StrictMode -Version 3.0
+$ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot '..\lib\Write-HealthResult.ps1')
+
+$id = 'dns-health'
+$category = 'network'
+$commands = @(
+    'Resolve-DnsName microsoft.com -Type A -DnsOnly -QuickTimeout'
+    'Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Sort-Object RouteMetric | Select-Object -First 1 | Where-Object NextHop -NE 0.0.0.0 | ForEach-Object { Test-Connection -TargetName $_.NextHop -Count 1 -TimeoutSeconds 1 }'
+)
+
+$FailureSummary = 'DNS health check failed.'
+$PassThru = $false
+$CheckBody = {
+    $targets = @('microsoft.com', 'github.com')
+    $failures = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($t in $targets) {
+        try {
+            $results = @(Resolve-DnsName -Name $t -Type A -DnsOnly -QuickTimeout -ErrorAction Stop)
+            if ($results.Count -eq 0) { $failures.Add($t) }
+        } catch {
+            $failures.Add($t)
+            Write-Verbose "Test-DnsHealth: $t resolution failed. $($_.Exception.Message)"
+        }
+    }
+
+    $gatewayReachable = $null
+    $gateway = $null
+    try {
+        $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop |
+            Sort-Object RouteMetric | Select-Object -First 1
+        $gateway = $route.NextHop
+        if ($gateway -and $gateway -ne '0.0.0.0') {
+            $gatewayReachable = [bool](Test-Connection -TargetName $gateway -Count 1 -Quiet `
+                    -TimeoutSeconds 1 -ErrorAction SilentlyContinue)
+        }
+    } catch {
+        Write-Verbose "Test-DnsHealth: gateway probe failed. $($_.Exception.Message)"
+    }
+
+    # Order matters: test DNS failures (WARN) before "gateway unknown" (INFO), or real
+    # DNS problems are under-reported whenever the gateway state is unknown.
+    $severity = 'OK'
+    $summary = "DNS OK ($($targets.Count)/$($targets.Count)); gateway $gateway reachable."
+    if ($gatewayReachable -eq $false) {
+        $severity = 'CRIT'
+        $summary = "Default gateway $gateway unreachable."
+    } elseif ($failures.Count -gt 0) {
+        $severity = 'WARN'
+        $gatewayNote = $null -eq $gatewayReachable ? ' (gateway unknown)' : ''
+        $summary = "DNS resolution failed for: $($failures -join ', ').$gatewayNote"
+    } elseif ($null -eq $gatewayReachable) {
+        $severity = 'INFO'
+        $summary = "DNS $($targets.Count - $failures.Count)/$($targets.Count) resolved; gateway unknown."
+    }
+
+    $result = New-HealthResult -Id $id -Category $category -Os 'windows' `
+        -Severity $severity -Summary $summary -Commands $commands `
+        -Detail @{
+        targets_total     = $targets.Count
+        targets_failed    = $failures.Count
+        targets_failures  = @($failures)
+        default_gateway   = $gateway
+        gateway_reachable = $gatewayReachable
+    } `
+        -NeedsAdmin $false -RanSuccessfully $true
+}
+. (Join-Path $PSScriptRoot '..\lib\Invoke-HealthCheckEnvelope.ps1')

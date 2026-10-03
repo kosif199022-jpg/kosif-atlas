@@ -1,0 +1,180 @@
+> Source: https://chat-sdk.dev/adapters/vendor-official/novu.md
+
+---
+title: Novu
+description: Multi-channel adapter for Chat SDK backed by Novu. Put your agent in front of customers on Slack, Microsoft Teams, WhatsApp, Telegram, and email with one handler set, while Novu manages credentials, identity, and delivery.
+tagline: Put your Chat SDK agent in front of customers on Slack, Teams, WhatsApp, Telegram, and email. Novu manages the credentials, identity, and delivery for every channel.
+package: @novu/chat-sdk-adapter
+---
+
+# Novu
+
+
+## Install
+
+
+## Quick start
+
+Wire the adapter into your Chat SDK app:
+
+```typescript
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createNovuAdapter } from "@novu/chat-sdk-adapter";
+
+const novu = createNovuAdapter();
+
+const chat = new Chat({
+  userName: "support",
+  adapters: { novu },
+  state: createMemoryState(),
+});
+
+chat.onNewMention(async (thread, message) => {
+  await thread.post(`Hi! You said: ${message.text}`);
+});
+
+chat.onSubscribedMessage(async (thread, message) => {
+  await thread.post(`echo: ${message.text}`);
+});
+
+await chat.initialize();
+```
+
+Then connect your agent to a real channel. Run the command below and pick Slack, Email, Telegram, WhatsApp, or Microsoft Teams:
+
+```bash
+npx novu connect --runtime chat-sdk
+```
+
+The CLI authenticates your Novu account, creates your bridge agent, and writes `NOVU_SECRET_KEY` and `NOVU_AGENT_IDENTIFIER` to your env. It also provisions the provider integration, helps you set up the bot entity, and stores multi-tenant user OAuth credentials. See [Platform setup](#platform-setup) for the full flow.
+
+## Platform setup
+
+Novu handles OAuth, token storage and rotation, and Slack Connect for each channel, so no platform secrets live in your app. `npx novu connect --runtime chat-sdk` runs an interactive flow:
+
+1. Authenticate: sign in to Novu, or pass `--secret-key` for an existing account.
+2. Create or reuse a bridge agent. Use one agent per Chat SDK app.
+3. Pick a channel: Slack, Email, Telegram, WhatsApp, Microsoft Teams, or skip for now.
+4. Finish the handoff: the CLI creates the provider integration and guides you through the last step, such as Slack OAuth, a BotFather token, or sending a test email.
+
+What the CLI sets up for each channel:
+
+| Channel         | What the CLI sets up                                                                            |
+| --------------- | ----------------------------------------------------------------------------------------------- |
+| Slack           | Creates the Slack app (manifest quick-setup), stores OAuth credentials, opens the install flow  |
+| Email           | Provisions a unique agent email inbox (see [Email](#email))                                     |
+| Telegram        | Links your @BotFather bot token                                                                 |
+| WhatsApp        | Opens the Novu dashboard to finish WhatsApp Business provider setup                             |
+| Microsoft Teams | Opens the Novu dashboard to configure Azure Bot credentials and the customer admin-consent flow |
+
+Re-run `npx novu connect --runtime chat-sdk` to add another channel or refresh credentials. Each run creates a new agent unless you pick an existing one.
+
+## Configuration
+
+Set these through the environment (the CLI writes them for you) or pass them to `createNovuAdapter({ ... })`:
+
+
+### Environment variables
+
+| Variable                | Required                                                | Description                                                 |
+| ----------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
+| `NOVU_SECRET_KEY`       | Yes, unless both `apiKey` and `bridgeSecret` are passed | Novu secret key, used for both `apiKey` and `bridgeSecret`. |
+| `NOVU_AGENT_IDENTIFIER` | Yes, unless `agentIdentifier` is passed                 | Your bridge agent ID.                                       |
+| `NOVU_API_BASE_URL`     | No                                                      | API base URL. Defaults to `https://api.novu.co`.            |
+
+## Channels
+
+One handler set serves Slack, Microsoft Teams, WhatsApp, Telegram, and email, with no per-channel code.
+
+## Novu context
+
+Every channel resolves to a single Novu subscriber mapped to your own user, and Novu records delivery status and the full conversation history for every message. Inside any handler, `getNovuContext(thread)` gives you access to this Novu data:
+
+```typescript
+import { getNovuContext } from "@novu/chat-sdk-adapter";
+
+chat.onSubscribedMessage(async (thread, message) => {
+  const ctx = getNovuContext(thread);
+
+  const subscriber = await ctx.getSubscriber(); // email, phone, locale, custom data
+  const history = await ctx.getHistory(); // canonical transcript, ideal for LLM context
+  const ticketId = await ctx.getMetadata("ticketId");
+
+  if (subscriber?.data?.plan === "enterprise") {
+    await thread.post("Priority support enabled.");
+  }
+});
+```
+
+## Proactive multi-channel notifications
+
+Your agent can push notifications outside an active conversation by triggering a Novu workflow. Define the workflow once in Novu with the channels you want (Slack, email, WhatsApp, and so on), and a single `trigger` call delivers to every step in that workflow.
+
+By default, the trigger targets the subscriber on the current conversation. Pass explicit recipients to notify someone else or a topic:
+
+```typescript
+import { getNovuContext } from "@novu/chat-sdk-adapter";
+
+chat.onSubscribedMessage(async (thread, message) => {
+  const ctx = getNovuContext(thread);
+
+  // Notify the same user on every channel in the "order-shipped" workflow.
+  await ctx.trigger("order-shipped", {
+    payload: {
+      orderId: "1234",
+      trackingUrl: "https://example.com/track/1234",
+    },
+  });
+
+  // Escalate to a different subscriber on a separate workflow.
+  await ctx.trigger("manager-alert", {
+    to: { subscriberId: "manager-42" },
+    payload: { reason: message.text },
+  });
+
+  // Fan out to a Novu topic.
+  await ctx.trigger("incident-broadcast", {
+    to: { type: "Topic", topicKey: "on-call" },
+    payload: { severity: "high" },
+  });
+});
+```
+
+When the user replies on any channel Novu delivered to, the message routes back through the same bridge to your existing handlers, so one agent loop handles both proactive notifications and conversational replies.
+
+Create workflows in the [Novu dashboard](https://docs.novu.co) or through the API, then reference them by workflow ID from your agent.
+
+## Email
+
+Pick **Email** in the connect channel picker, or re-run `npx novu connect --runtime chat-sdk` and choose it from the menu.
+
+Novu provisions a unique inbound address for your agent, for example `my-agent-abc@agentconnect.sh`. Anyone can email that address. Novu normalizes the thread and forwards it to your Chat SDK bridge, your agent replies from the same inbox, and the conversation continues over email like any other channel.
+
+Unlike Slack or Telegram, an email conversation starts with the user sending the first message. The CLI opens a pre-filled draft so you can send a test email and confirm the connection.
+
+The shared `@agentconnect.sh` address works without further setup. For production, configure your own inbound domain in the [Novu dashboard](https://docs.novu.co) (Domains → add domain → verify DNS) to route mail to your agent on `@yourcompany.com` while keeping the same bridge handlers.
+
+Use `getNovuContext(thread).getEmailContext()` inside handlers for email-specific metadata such as the routing domain and thread headers.
+
+## Feature support
+
+
+## Resources
+
+* Adapter reference: [@novu/chat-sdk-adapter](https://www.npmjs.com/package/@novu/chat-sdk-adapter)
+* [Novu docs](https://docs.novu.co)
+* [Novu official website](https://novu.co)
+
+### Example app
+
+[novu-chat-sdk-example](https://github.com/novuhq/novu-chat-sdk-example) is a complete Next.js boilerplate with a live bridge route, setup UI, bridge-status panel, and a handler set covering every capability. It ships one bot that exercises each handler. Message it on any connected channel:
+
+| Message      | Demonstrates                                                     |
+| ------------ | ---------------------------------------------------------------- |
+| *(any text)* | Echo reply tagged with the originating platform                  |
+| `card`       | Posting an interactive Chat SDK card                             |
+| `whoami`     | `getNovuContext()`: subscriber profile and unified user identity |
+| `resolve`    | Resolving the Novu conversation from the agent                   |
+
+Handler coverage: `onNewMention`, `onSubscribedMessage`, `onAction` (button clicks), and `onReaction`.

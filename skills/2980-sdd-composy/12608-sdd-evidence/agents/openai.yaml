@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD Evidence"
+  short_description: "Evidence manifests for a task"
+  default_prompt: "Use $sdd-evidence to discover, build, verify, or export a task's evidence manifest."

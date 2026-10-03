@@ -1,0 +1,21 @@
+{
+  "name": "compass",
+  "version": "0.3.0",
+  "description": "Multi-mode software engineering coach: architect, advisor, reviewer, refactor, legacy, and explainer workflows. Auto-writes ADRs to docs/adr/.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/compass",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "software-engineering",
+    "architecture",
+    "design-patterns",
+    "solid",
+    "ddd",
+    "adr",
+    "development"
+  ]
+}

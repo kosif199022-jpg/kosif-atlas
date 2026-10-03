@@ -1,0 +1,20 @@
+{
+  "name": "dev-flow",
+  "version": "0.7.0",
+  "description": "Conductor for the dev pipeline: detects a task's tier (bug / feature / architecture / client), prints the exact chain of sub-skills it will run and skip with reasons, confirms, then drives them in order. Matches ceremony to stakes.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/dev-flow",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "workflow-orchestration",
+    "dev-chain",
+    "task-routing",
+    "worktree",
+    "skill-conductor",
+    "engineering-workflow"
+  ]
+}

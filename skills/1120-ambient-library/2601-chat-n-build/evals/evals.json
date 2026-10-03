@@ -1,0 +1,110 @@
+{
+  "skill_name": "chat-n-build",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "fire up a dashboard for my client intake process",
+      "should_trigger": true,
+      "expected_output": "Runs dash status/init/serve, shows the page (preview_start in Claude Code), fills process.md from what the user said, builds the first tabs with dash apply, greets in one line.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "show this on the dashboard",
+      "should_trigger": true,
+      "expected_output": "Puts the just-produced content into a widget via dash set/patch with --msg, points the user at it with dash view; never edits state.json by hand.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "add a kanban for my leads",
+      "should_trigger": true,
+      "expected_output": "No built-in type fits: reads widget-authoring.md, dash widget new kanban, edits and checks the JS, uses it, checks dash errors. Does not ask first.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "advance the pipeline",
+      "should_trigger": true,
+      "expected_output": "Checks dash events first, marks the active stage done and the next active in one dash apply, switches the tab, logs one line.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "what's on the dashboard right now?",
+      "should_trigger": true,
+      "expected_output": "ASK mode: answers from dash status / dash get; writes nothing.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "I clicked approve on the dashboard, go",
+      "should_trigger": true,
+      "expected_output": "Runs dash events, begins the pending event, does the work, acks it; handles it before the typed message.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "turn this article process into a skill I can reuse",
+      "should_trigger": true,
+      "expected_output": "Runs dash skillify --dry-run, shows kept strings, asks what is per-run content, re-runs with --drop/--blank, writes, then edits the generated SKILL.md description and gotchas.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "put the review findings on the board and highlight the blockers",
+      "should_trigger": true,
+      "expected_output": "Creates or patches a table widget with the findings, dash view --highlight on it, one log line.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "start a new run of my article pipeline from the skill",
+      "should_trigger": true,
+      "expected_output": "dash init <run> --from <skill>, serves and shows it, reads the copied process.md.",
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "build me a React dashboard for our sales data",
+      "should_trigger": false,
+      "expected_output": "Does not trigger: this is writing web-framework code, not operating a live chat-driven dashboard.",
+      "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "make a chart of this CSV",
+      "should_trigger": false,
+      "expected_output": "Does not trigger: one-off data visualization.",
+      "files": []
+    },
+    {
+      "id": 12,
+      "prompt": "open my Grafana dashboard",
+      "should_trigger": false,
+      "expected_output": "Does not trigger: a hosted monitoring tool.",
+      "files": []
+    },
+    {
+      "id": 13,
+      "prompt": "write a Streamlit app that shows model metrics",
+      "should_trigger": false,
+      "expected_output": "Does not trigger: framework app code.",
+      "files": []
+    },
+    {
+      "id": 14,
+      "prompt": "fix the layout bug in our admin dashboard's CSS",
+      "should_trigger": false,
+      "expected_output": "Does not trigger: editing an existing product's code.",
+      "files": []
+    },
+    {
+      "id": 15,
+      "prompt": "summarize this Looker report for me",
+      "should_trigger": false,
+      "expected_output": "Does not trigger: reading an external BI tool.",
+      "files": []
+    }
+  ]
+}

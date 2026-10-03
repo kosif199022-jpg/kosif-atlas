@@ -1,0 +1,173 @@
+{
+  "skill_name": "setup",
+  "evals": [
+    {
+      "id": 1,
+      "name": "checks-without-touching-settings",
+      "prompt": "/context-guard:setup check",
+      "expected_output": "Reports jq presence, the installed shim state, and the zones.json state from the pre-computed context block rather than re-issuing those probes, reports the statusline wiring state (including legacy version-pinned plugin-cache wiring) and live-session snapshot freshness against the 10-minute staleness rule, prints the exact settings.json statusline edit for the operator, and edits nothing.",
+      "files": [],
+      "expectations": [
+        "Cites the pre-computed values verbatim as the evidence for the jq, shim, and zones.json findings: the resolved jq path or 'absent', the shim-revision marker of each file present with the cmp verdict, and the zones.json contents or its absent/unreadable token",
+        "Reads settings.json only; never writes settings, pluginConfigs, or the snapshot directory",
+        "Reports PASS/FAIL/INFO with one remediation line per FAIL",
+        "Prints the settings.json edit naming the shim's fixed ~/.claude/context-guard/bin/ path, never a version-pinned plugin-cache path",
+        "Surfaces the dotfiles-tracking reminder for the operator-owned edit"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "flags-legacy-version-pinned-wiring",
+      "prompt": "/context-guard:setup check\n\nMy settings.json statusLine command is: bash \"~/.claude/plugins/cache/melodic-software/context-guard/0.1.0/scripts/statusline-tee.sh\" ~/.claude/statusline/render.sh — and that file exists right now.",
+      "expected_output": "Names the wiring as legacy version-pinned even though the file exists today: it stops teeing at the next version bump and breaks the whole statusline once the old version directory is pruned. Prints the shim wiring as the fix, with apply first if the shim is not installed.",
+      "files": [],
+      "expectations": [
+        "Does not treat current file existence as evidence the wiring is healthy",
+        "Names both failure modes: silent tee stop on version bump, and statusline breakage after the ~14-day prune",
+        "Prints the shim-based replacement wiring and sequences apply before the settings edit when the shim is absent",
+        "Does not apply the settings edit itself"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "reads-null-fields-as-expected-state",
+      "prompt": "/context-guard:setup check\n\nThe live session's snapshot is fresh but used_percentage is null.",
+      "expected_output": "Reports the fresh-but-null snapshot as INFO — a documented early-session or post-/compact statusline state in which the resolver correctly answers unknown — not as a failure to fix.",
+      "files": [],
+      "expectations": [
+        "Classifies null used_percentage / current_usage on a fresh snapshot as documented fail-open behavior",
+        "Does not tell the operator to rewire or reinstall anything for it",
+        "Cites the reader contract as the owner of the fail-open rule"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "apply-preserves-unrecognized-keys-and-custom-bands",
+      "prompt": "/context-guard:setup apply\n\nMy zones.json already exists with custom valid bands (40/70) and carries a custom display_color key my statusline reads.",
+      "expected_output": "Bare apply is repair-only: leaves the valid custom bands (40/70) untouched and reports them, preserves the unrecognized display_color key and its value (semantic preservation — lexical formatting may normalize), names 'apply defaults' as the explicit route to the shipped defaults, and confirms a second identical apply would be a no-op.",
+      "files": [],
+      "expectations": [
+        "Writes only inside ~/.claude/context-guard/ — zones.json plus the shim — and nothing else (a fully valid zones file may mean no zones write at all)",
+        "Does NOT overwrite valid custom band values on a bare apply; names apply defaults as the explicit shipped-defaults mode",
+        "Preserves unrecognized keys rather than rewriting the file from the template",
+        "States idempotency (second run = no content change)"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "apply-installs-shim-byte-identically-and-idempotently",
+      "prompt": "/context-guard:setup apply",
+      "expected_output": "Copies the shipped statusline-shim.sh byte-identically to ~/.claude/context-guard/bin/statusline-shim.sh alongside the zones.json seed/repair, reports each write (or reports no change on a second identical run), states that the shim is inert until the operator wires it, and prints the wiring edit as the next step.",
+      "files": [],
+      "expectations": [
+        "Writes only inside ~/.claude/context-guard/ — never settings.json, the snapshot directory, or the sibling rate-limit-guard directory",
+        "Installed shim is byte-identical to the shipped source, not a rewritten or templated variant",
+        "Second identical apply reports no content change",
+        "States that installing the shim starts nothing until the settings.json wiring is applied by the operator"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "composes-without-double-wrapping",
+      "prompt": "/context-guard:setup check\n\nMy statusLine command is already: bash ~/.claude/rate-limit-guard/bin/statusline-shim.sh ~/.claude/statusline/render.sh — I configured rate-limit-guard first. Both plugins are installed, but I have never run /context-guard:setup apply.",
+      "expected_output": "Runs scripts/compose-statusline-wiring.sh over the current statusLine value rather than peeling the sibling-shim prefix by hand, and reports what it printed. Because this plugin's own shim is not installed yet, it reports that and names apply as the remediation rather than printing wiring naming a file that does not exist.",
+      "files": [],
+      "expectations": [
+        "Invokes scripts/compose-statusline-wiring.sh with the current statusLine value and one --wrap per shim the wiring should carry, instead of recovering the renderer in prose",
+        "Never prints a combined form naming a shim path that is not installed; gates the combined --wrap list on the rate-limit-guard shim existing, or directs the operator to run that plugin's apply first",
+        "Explains that a duplicated tee runs and writes on every refresh and adds another ~0.6-0.9 s per refresh",
+        "Still edits nothing: the wiring the script printed is for the operator to apply"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "uninstall-order-unwrap-before-delete",
+      "prompt": "/context-guard:setup check\n\nHow do I back this out completely? I want to remove the plugin and everything it put on my machine.",
+      "expected_output": "Gives the two operator cleanup steps in a REQUIRED order: unwrap the statusLine command first, then delete ~/.claude/context-guard/.",
+      "files": [],
+      "expectations": [
+        "States the order explicitly and gives the reason: deleting the directory first leaves settings.json invoking a missing file, so bash exits 127 and the whole statusline goes down",
+        "Does not present the two steps as order-independent",
+        "Notes that uninstalling the plugin itself is safe on its own — the shim degrades to running the wrapped command"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "rerun-does-not-compound-the-sh-c-wrap",
+      "prompt": "/context-guard:setup check\n\nMy statusLine command is already: bash ~/.claude/context-guard/bin/statusline-shim.sh sh -c 'THEME=dark my-statusline --flag' — I ran this skill once before and applied what it printed. Both the shim and the plugin are installed.",
+      "expected_output": "Invokes scripts/compose-statusline-wiring.sh with --wrap 'bash ~/.claude/context-guard/bin/statusline-shim.sh' and reports its result: the script exits 0 and prints wiring byte-identical to what is already in settings.json, so the operator has nothing to apply.",
+      "files": [],
+      "expectations": [
+        "Runs scripts/compose-statusline-wiring.sh rather than peeling the shim prefix and the sh -c adapter in prose",
+        "Reports the script's composed value verbatim, carrying exactly one sh -c layer and one shim invocation",
+        "Reads the script's exit code: a non-zero exit is reported with the one-line reason it printed, never worked around by composing the edit by hand",
+        "Reports the wiring as already correct because the composed value equals the configured one, rather than presenting an identical line as a change to apply"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "genuine-sh-c-renderer-is-not-peeled",
+      "prompt": "/context-guard:setup check\n\nI have never run this skill. My statusLine command is: sh -c 'ulimit -n' — I wrote that myself because ulimit is a shell builtin and will not run any other way. The plugin is installed.",
+      "expected_output": "Invokes scripts/compose-statusline-wiring.sh and reports its result: the script preserves the operator's own sh -c 'ulimit -n' and prints bash ~/.claude/context-guard/bin/statusline-shim.sh sh -c 'ulimit -n'.",
+      "files": [],
+      "expectations": [
+        "Runs scripts/compose-statusline-wiring.sh rather than deciding in prose whether the sh -c layer was generated by an earlier run or written by the operator",
+        "Reports the script's composed value verbatim, with one shim invocation and exactly one sh -c layer",
+        "Attributes the preserved layer to the operator's own renderer, which is how the script treats a single sh -c over a merely-quoted command",
+        "Does not re-derive or second-guess the script's peel decision in prose"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "multiple-generated-layers-collapse-in-one-run",
+      "prompt": "/context-guard:setup check\n\nMy statusLine command is: bash ~/.claude/context-guard/bin/statusline-shim.sh sh -c 'sh -c '\\''THEME=dark my-statusline'\\''' — two earlier runs of this skill each added a layer. Both the shim and the plugin are installed.",
+      "expected_output": "Invokes scripts/compose-statusline-wiring.sh ONCE and reports its result: all three layers come off in that one call and the composed wiring carries exactly one sh -c layer, bash ~/.claude/context-guard/bin/statusline-shim.sh sh -c 'THEME=dark my-statusline'.",
+      "files": [],
+      "expectations": [
+        "Runs scripts/compose-statusline-wiring.sh exactly once, never peeling a layer by hand and re-running the script on the remainder",
+        "Reports the script's composed value verbatim, with exactly one sh -c layer and one shim invocation",
+        "Cites the script's --explain lines (renderer and layers-peeled: 3) when saying how many layers came off, rather than counting them in prose",
+        "Does not present the input's nesting as something the operator has to unwrap before the script can run"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "adapter-hiding-a-sibling-shim-is-peeled",
+      "prompt": "/context-guard:setup check\n\nMy statusLine command is: bash ~/.claude/context-guard/bin/statusline-shim.sh sh -c 'bash ~/.claude/rate-limit-guard/bin/statusline-shim.sh my-renderer --format '\\''a b'\\''' — I wired rate-limit-guard first and ran this skill once, back when it wrapped anything quoted. Both plugins are installed and both shims are present.",
+      "expected_output": "Invokes scripts/compose-statusline-wiring.sh with a --wrap for each shim and reports its result: the sealed rate-limit-guard shim is exposed and named exactly once, giving bash ~/.claude/context-guard/bin/statusline-shim.sh bash ~/.claude/rate-limit-guard/bin/statusline-shim.sh my-renderer --format 'a b'.",
+      "files": [],
+      "expectations": [
+        "Runs scripts/compose-statusline-wiring.sh rather than reasoning in prose about whether the adapter was generated by an earlier run",
+        "Passes a --wrap prefix for BOTH shims, because the script strips every shim prefix it finds and an unlisted sibling shim is dropped rather than preserved",
+        "Reports the script's composed value verbatim, with the rate-limit-guard shim named exactly once",
+        "Explains that a duplicated tee runs and writes on every refresh and adds another ~0.6-0.9 s per refresh"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "bare-builtin-renderer-gets-a-shell",
+      "prompt": "/context-guard:setup check\n\nI have never run this skill. My statusLine command is: ulimit '-n' — I wrote it that way myself; the quotes are just habit. The plugin is installed.",
+      "expected_output": "Invokes scripts/compose-statusline-wiring.sh and reports its result: the script selects the shell-wrapped variant, bash ~/.claude/context-guard/bin/statusline-shim.sh sh -c 'ulimit '\\''-n'\\''', because the command word resolves as a builtin rather than an executable.",
+      "files": [],
+      "expectations": [
+        "Runs scripts/compose-statusline-wiring.sh rather than deciding the wrap form in prose",
+        "Reports the script's composed value verbatim, already escaped, with no template quotes left for the operator to fix",
+        "Names the not-an-executable trigger as the reason, which is what the script's --explain wrap line reports",
+        "Does not justify the wrap by the presence of quotes; bare quoting is not a trigger and the script does not treat it as one"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "shell-syntax-sealed-inside-quotes-is-not-a-trigger",
+      "prompt": "/context-guard:setup check\n\nI have never run this skill. My statusLine command is: my-statusline --format 'a | b' — the pipe is part of the format string, not a pipeline. The plugin is installed.",
+      "expected_output": "Invokes scripts/compose-statusline-wiring.sh and reports its result: the plain wrapped form, bash ~/.claude/context-guard/bin/statusline-shim.sh my-statusline --format 'a | b', with no sh -c adapter.",
+      "files": [],
+      "expectations": [
+        "Runs scripts/compose-statusline-wiring.sh rather than testing the pipe for top-level syntax in prose",
+        "Reports the script's composed value verbatim, with no sh -c adapter",
+        "Cites the script's --explain wrap line (plain) as the evidence, not its own reading of the quoting",
+        "Does not add an adapter the script did not select"
+      ]
+    }
+  ]
+}

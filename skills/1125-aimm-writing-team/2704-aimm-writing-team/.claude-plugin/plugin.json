@@ -1,0 +1,11 @@
+{
+  "name": "aimm-writing-team",
+  "description": "Autonomous multi-role team (Researcher, Strategist, Writer, Editor, Publisher) for thought-leadership articles; use for explicit role commands like \"Use Strategist mode\" or a full AIMM article run.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coach Lou"
+  },
+  "homepage": "https://github.com/coachlou/ambient-library",
+  "repository": "https://github.com/coachlou/ambient-library",
+  "license": "MIT"
+}

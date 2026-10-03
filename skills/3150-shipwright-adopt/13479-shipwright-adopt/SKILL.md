@@ -1,0 +1,298 @@
+---
+name: shipwright-adopt
+description: |
+  Onboards an EXISTING repository (brownfield) into the Shipwright SDLC.
+  Analyzes the codebase (stack, routes, conventions, git history), generates
+  CLAUDE.md + .shipwright/agent_docs + planning specs + compliance artifacts + all six
+  shipwright_*_config.json, and writes a baseline E2E suite from a
+  Playwright crawl when possible. After completion, /shipwright-iterate
+  takes over for all future changes. The phase-router UserPromptSubmit
+  hook is plugin-owned (registered in shipwright-iterate's own
+  hooks.json); no project-level install is performed.
+
+  TRIGGER when: user wants to onboard a brownfield repo, add Shipwright to
+  an existing project, run /shipwright-adopt, import a legacy codebase, or
+  bootstrap Shipwright on code that already exists.
+
+  DO NOT TRIGGER when: shipwright_run_config.json already exists (use
+  /shipwright-iterate), the user is starting a fresh greenfield project
+  (use /shipwright-project), or the task is a normal SDLC operation
+  (build/test/deploy/changelog/compliance).
+license: MIT
+compatibility: Requires uv (Python 3.11+), a git repository, and optionally
+  Node + @playwright/test for route-discovery via crawl.
+---
+
+# /shipwright-adopt — Onboarding Workflow
+
+This skill runs **once per repository**. After it completes, the project
+behaves like a natively-built Shipwright project and all other skills
+(`/shipwright-iterate`, `/shipwright-compliance`, `/shipwright-test`,
+`/shipwright-deploy`) work as expected.
+
+The Kern below is the thin index — each step's authoritative procedure
+lives in `references/step-*.md`. Load the matching reference when the
+corresponding step fires.
+
+## Flags
+
+```
+/shipwright-adopt [--dry-run]
+                  [--brief <path|payload>]
+                  [--profile <name>]
+                  [--scope full_app|library|cli]
+                  [--include-nested]
+                  [--exclude-path <path>]...
+                  [--skip-crawl]
+                  [--crawl-base-url <url>]
+                  [--crawl-auth-token <token>]
+                  [--crawl-max-depth <n>]
+                  [--crawl-max-pages <n>]
+                  [--no-backfill-events]
+                  [--no-sync]
+                  [--planning-split <name>]   # default: 01-adopted
+```
+
+## Procedure (Steps A–H)
+
+### Step A.0 — Bloat Baseline (must run first)
+
+Generate `shipwright_bloat_baseline.json` BEFORE any other artifact write, so
+the Stop-Gate hook has a baseline on the first Stop event:
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/lib/baseline_generator.py" \
+  --project-root <cwd>
+```
+
+### Step A — Pre-flight
+
+Run `setup_adopt.py`. Halt on `ok=false`. Ask via `AskUserQuestion` about nested
+projects (default: Exclude) and existing artifacts (default: Continue —
+preservation is on by default):
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/checks/setup_adopt.py" \
+  --project-root <cwd> [--exclude-path <p>]...
+```
+
+Full procedure → [references/step-a-preflight.md](references/step-a-preflight.md).
+
+### Step B — Codebase Analysis (Layer 1)
+
+Write the structured snapshot — stack, profile-match, conventions, CI,
+test frameworks, folder layers, AST features, git summary, nested
+projects. Pure read-only:
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/tools/analyze_codebase.py" \
+  --project-root <cwd> [--exclude-path <p>]... [--profile-hint <name>] \
+  --output <cwd>/.shipwright/adopt/snapshot.json
+```
+
+Full procedure → [references/step-b-codebase-analysis.md](references/step-b-codebase-analysis.md). Detector heuristics → [references/codebase-analysis.md](references/codebase-analysis.md).
+⚠️ **Cross-repo contract — `snapshot.json` has an EXTERNAL consumer.** The Command Center WebUI ([shipwright-webui](https://github.com/svenroth-ai/shipwright-webui)) renders it field-for-field on its adopt screen; **a change to this shape requires a corresponding WebUI change** (a key renamed or dropped, at any depth, does not fail loudly there — it renders a half-empty card). It is a **versioned contract**, and `tests/test_snapshot_contract.py` enforces the bump against `origin/main`, so you are not asked to remember this → [references/cross-repo-contract.md](references/cross-repo-contract.md).
+
+### Step B.5 — Playwright Route-Discovery (Layer 1.5, optional)
+
+Gated on web-capable language + one of (`commands.dev` set, non-generic
+profile, multi-service detected); three branches (matched-profile,
+generic+multi-service, single-service fallback). `playwright_setup` /
+`route_crawler` pivot into the primary frontend service dir; API mocking
+(`SHIPWRIGHT_CRAWL_MOCK_API`) passes GETs through and stubs only writes.
+
+Full procedure → [references/step-b5-route-discovery.md](references/step-b5-route-discovery.md).
+Crawl-vs-AST fallback rules → [references/feature-inference.md](references/feature-inference.md).
+
+### Step B.8 — Semantic Enrichment (Layer 2, inline)
+
+Read snapshot + routes + sample files (README, top route files, domain files,
+top-5 commit bodies, crawl screenshots). Write `.shipwright/adopt/enrichment.json`
+(strict schema). Code > Prose; don't invent; ASCII box-drawing for diagrams; no
+marketing copy. `generate_adoption_artifacts.py` validates strictly and fails
+loud on a malformed file; a missing one → deterministic minimal fallback with a
+`_fallback: true` marker.
+
+Full procedure → [references/step-b8-semantic-enrichment.md](references/step-b8-semantic-enrichment.md).
+
+### Step C — Interview (AskUserQuestion, only when Layer 1 is unsure)
+
+One question per turn; ask only when the answer cannot be inferred from Layer 1
+(low profile confidence, scope ambiguity, nested-project policy, missing
+test/build commands). Also present `enrichment.product_description` for edit.
+
+**Brief pre-fill (K2d, optional).** With `--brief`, run the shared intake FIRST;
+skip prompts it pre-fills (`product_description` → `enrichment.product_description`),
+keep `profile`/`scope` scan-gated (detection over questions). No brief → unchanged.
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/lib/adopt_brief_intake.py" --brief "<path|payload>"
+```
+
+Full procedure → [references/step-c-interview.md](references/step-c-interview.md).
+When-to-ask-vs-infer → [references/interview-protocol.md](references/interview-protocol.md).
+
+### Step D — Dry-Run Branch (if `--dry-run`)
+
+Skip Steps E–H. Invoke `dry_run_reporter.plan_standard_writes(...)` and exit 0.
+Full procedure → [references/step-d-dry-run.md](references/step-d-dry-run.md).
+
+### Step E — Artifact Generation
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/tools/generate_adoption_artifacts.py" \
+  --project-root <cwd> [--no-sync] [--no-backfill-events] \
+  [--scope <full_app|library|cli>] [--profile <name>] [--split-name <name>]
+```
+
+Writes, in order: `CLAUDE.md` · agent_docs · planning spec (with the
+**derived-and-unconfirmed provenance block**) · `.shipwright/adopt/derived-catalogue.json`
+· six configs (`shipwright_run_config.json` LAST) · events.jsonl · baseline E2E
+spec · visual docs (Tier 5) · prior-art harvest · sibling-test ACs · TODO/FIXME
+inventory · cross-links · security / CI / CodeQL / Claude-Review scaffolds ·
+`AUTOMERGE_SETUP.md` (LAST — its Required-Check names are parsed from the
+workflow files just written). Vite DX templates are offer-only, never
+auto-applied; existing configs are never overwritten. Immediately after the generator, seed deterministic brownfield ownership via `uv run "${CLAUDE_PLUGIN_ROOT}/../../shared/scripts/tools/area_catalog.py" seed-brownfield --project-root <cwd> --source adopt`; never overload the requirements-honesty artifact.
+
+Full procedure → [references/step-e-artifact-generation.md](references/step-e-artifact-generation.md).
+Template slot mapping → [references/artifact-templates.md](references/artifact-templates.md).
+Nested-project policy → [references/nested-project-policy.md](references/nested-project-policy.md).
+
+### Step E.5 — Env Scaffold (`.env.local`)
+
+After the artifact generator returns, adopt MUST scaffold `<project_root>/.env.local`
+via `shared/scripts/validate_env.py::init_env_file(project_root, "all", profile_dir,
+include_framework=True)` (result in `results["env_local"]`). Idempotent (never
+overwrites); `.gitignore` enforced FIRST (on failure → `action: skipped`, writes
+nothing); comment-prefixed entries only. Keys = profile `required_env_vars[...]`
++ framework `OPENROUTER_API_KEY` / `OPENAI_API_KEY`.
+
+Full procedure → [references/step-e5-env-scaffold.md](references/step-e5-env-scaffold.md).
+
+### Step E.6 — Canonical Gitignore Propagation (MANDATORY)
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/../../shared/scripts/lib/gitignore_canon.py" \
+  --project-root <project_root>
+```
+
+Merges the canonical `.shipwright/` artifact-ignore block (SSoT:
+`shared/templates/shipwright-gitignore.template`) into the project's `.gitignore`.
+**Idempotent + additive** — a line-level merge inside a managed BEGIN/END block,
+so re-running self-heals an already-adopted repo (transient artifacts ignored,
+canonical SDLC-doc homes stay tracked).
+
+Full procedure → [references/step-e-artifact-generation.md](references/step-e-artifact-generation.md) (Step E.6 section).
+
+### Step E.16 — Triage Inbox Scaffold
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/../../shared/scripts/tools/scaffold_triage_inbox.py" \
+  --project-root <project_root> --json
+```
+
+Idempotent — writes `.shipwright/triage.jsonl` (the **tracked** SSoT backlog,
+re-included by the E.6 canonical block so it ships in the Step H commit),
+`.shipwright/agent_docs/triage_inbox.md`, and ignores only the `.lock` + GC
+`.bak`. Result in `results["triage_inbox"]`. Steps E.17/E.18 file into it.
+
+Full procedure → [references/step-e16-triage-inbox.md](references/step-e16-triage-inbox.md).
+
+### Step E.17 — Traceability Baseline (before compliance seeding)
+
+Establish the requirement→test traceability baseline (TT7) — after Step E, BEFORE
+Step F (whose collector emits the manifest from the tags this writes):
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/tools/seed_traceability_baseline.py" \
+  --project-root <cwd> [--split-name 01-adopted] [--decisions <fixture>] [--dry-run]
+```
+
+Scaffolds the `@FR` convention into `.claude/rules/`, runs the TT6 backfill (advisory
+split-match only — never `--repo-follows-split-convention`), takes a **repo-wide** skip
+inventory, and files orphan/skip candidates as tracked triage. Zero-test repos backfill
+clean. An ambiguous FR is asked via `AskUserQuestion`, or resolved from `--decisions`
+unattended (the tool never stalls).
+
+Full procedure → [references/step-e17-traceability-baseline.md](references/step-e17-traceability-baseline.md).
+
+### Step E.18 — Inherited Baseline + Confirmation Follow-up (before Step F)
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/tools/record_inherited_baseline.py"   --project-root <cwd> [--failures-json <path>] [--dry-run]
+```
+
+Writes `shipwright_known_failures.json` in the shape the shared reader
+`shared/scripts/known_failures.py` parses — inherited failures, plus
+`inherited_coverage_gaps` **beside** them (a missing test never feeds
+`baseline_failure_count`, which buys forgiveness for a red run). Files the
+follow-up to question the derived catalogue with a person
+(`shared/requirement-elicitation.md`) and one per non-empty gap class — the
+destination a brownfield journey-coverage gap routes to instead of blocking.
+Sole owner of triage filing here; runs after E.16 scaffolds the Inbox. No
+`--failures-json` ⇒ `baseline_observed: false`, never a confident zero.
+
+Full procedure → [references/step-e18-inherited-baseline.md](references/step-e18-inherited-baseline.md).
+
+### Step F — Compliance Seeding
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/tools/seed_adopt_compliance.py" \
+  --project-root <cwd>
+```
+
+Populates SBOM, change-history, traceability-matrix, test-evidence, dashboard.
+Full procedure → [references/step-f-compliance-seeding.md](references/step-f-compliance-seeding.md).
+
+### Step G — Layer-3 Review
+
+Run `review_runner.run_review(...)` from `scripts/lib/review_runner.py`. Writes
+`.shipwright/adopt/review.md`. Without an API key: `status: skipped, reason:
+no_api_key` (acceptable). HIGH/MAJOR hallucination findings → AskUserQuestion:
+fix / accept with caveat / abort.
+
+Full procedure → [references/step-g-layer3-review.md](references/step-g-layer3-review.md).
+
+### Step H — Validate, Commit, Handoff
+
+Validate via `validate_adoption.py` — hard-stop on `errors[]` (which now include the two honesty artifacts), surface `warnings[]`. **Stamp the seeded evidence immediately before committing** (`refresh_compliance_docs.py --stamp-adopted --base <commit_at_adoption>`) — not in Step F, since Step G sits between — then prove it against the commit with `--verify-commit`.
+Build the commit message via `lib.adopt_commit_template.build_adopt_commit_message`; `unconfirmed_fr_count` is **required** and read from `.shipwright/adopt/derived-catalogue.json`. The handoff banner reports how many requirements are derived-and-unconfirmed, names the follow-up, states that the committed evidence refreshes at releases and on demand, and derives the "Edit .env.local" list from `results["env_local"]["missing_keys"]` (profile `required_env_vars` + framework keys; NOT hardcoded), rendering whenever it is non-empty.
+
+Full procedure → [references/step-h-validate-commit-handoff.md](references/step-h-validate-commit-handoff.md).
+
+## Backfilling `shipwright_iterate_config.json` on already-adopted projects
+
+See [references/backfill-iterate-config.md](references/backfill-iterate-config.md).
+
+## Backfilling `phase_tasks[]` on already-adopted projects
+
+See [references/backfill-phase-tasks.md](references/backfill-phase-tasks.md).
+
+## References
+
+- `references/step-a-preflight.md` — Step A.0 + Step A pre-flight
+- `references/step-b-codebase-analysis.md` — Step B codebase analysis
+- `references/step-b5-route-discovery.md` — Step B.5 Playwright crawl
+- `references/step-b8-semantic-enrichment.md` — Step B.8 Layer-2 enrichment
+- `references/step-c-interview.md` — Step C AskUserQuestion protocol
+- `references/step-d-dry-run.md` — Step D dry-run branch
+- `references/step-e-artifact-generation.md` — Step E artifact writes
+- `references/step-e5-env-scaffold.md` — Step E.5 .env.local scaffold
+- `references/step-e16-triage-inbox.md` — Step E.16 triage inbox
+- `references/step-e17-traceability-baseline.md` — Step E.17 traceability baseline (backfill + tag convention + skip inventory)
+- `references/step-e18-inherited-baseline.md` — Step E.18 inherited baseline + catalogue-confirmation follow-up
+- `references/step-f-compliance-seeding.md` — Step F compliance
+- `references/step-g-layer3-review.md` — Step G Layer-3 review
+- `references/step-h-validate-commit-handoff.md` — Step H validate / commit / handoff
+- `references/backfill-iterate-config.md` — backfill helper for pre-2026-05-05 adopts
+- `references/backfill-phase-tasks.md` — backfill helper for pre-2026-09-09 adopts (phase_tasks[])
+- `references/integration.md` — Phase-Quality / cross-plugin / marketplace wiring
+- `references/codebase-analysis.md` — detector heuristics and edge cases
+- `references/feature-inference.md` — Playwright crawl vs AST fallback rules
+- `references/interview-protocol.md` — when to ask, when to infer
+- `references/artifact-templates.md` — template slot mapping
+- `references/nested-project-policy.md` — webui-style nested-project handling
+
+## Integration
+
+See [references/integration.md](references/integration.md) — Phase-Quality
+audit registration, cross-plugin doc pointers, marketplace registration.

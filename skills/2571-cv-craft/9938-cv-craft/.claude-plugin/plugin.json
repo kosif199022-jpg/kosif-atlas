@@ -1,0 +1,20 @@
+{
+  "name": "cv-craft",
+  "version": "0.4.0",
+  "description": "Maintain a canonical master CV in Markdown and produce tailored, ATS-friendly resumes and recruiter-screen prep packs from job descriptions.",
+  "author": {
+    "name": "Matheus Malagris",
+    "url": "https://github.com/mqmalagris"
+  },
+  "homepage": "https://github.com/mqmalagris/agent-skills/tree/main/skills/cv-craft",
+  "repository": "https://github.com/mqmalagris/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "cv",
+    "resume",
+    "ats",
+    "job-search",
+    "recruiter",
+    "career"
+  ]
+}

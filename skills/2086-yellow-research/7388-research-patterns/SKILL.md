@@ -1,0 +1,191 @@
+---
+name: research-patterns
+user-invocable: false
+description: "Reference conventions for how yellow-research derives slugs, formats reports, and saves output under docs/research/. Use when authoring or modifying yellow-research commands or agents that write research output."
+---
+
+# Research Patterns
+
+## What It Does
+
+Reference conventions for how yellow-research derives slugs, formats reports,
+and saves output under `docs/research/`.
+
+## When to Use
+
+Use when authoring or modifying yellow-research commands or agents that write
+research output.
+
+## Usage
+
+Reference the sections below as preloaded context — this skill documents
+conventions; it is not an executable workflow.
+
+## Slug Naming
+
+Convert the research topic to a slug for the output filename:
+
+- Characters: `[a-z0-9-]` only — lowercase, hyphens, no spaces or special chars
+- Max length: 40 characters
+- Examples:
+  - "React Server Components 2026" → `react-server-components-2026`
+  - "How does EXA neural search work?" → `exa-neural-search`
+  - "Competitor analysis: Notion vs Linear" → `notion-vs-linear-competitor`
+- Collision handling: if `docs/research/<slug>.md` exists, append `-2`, `-3`
+
+## Output Location
+
+All deep research saves to: `docs/research/<slug>.md`
+
+Create the directory if it doesn't exist:
+
+```bash
+mkdir -p docs/research
+```
+
+## Output Format
+
+```markdown
+# <Topic Title>
+
+**Date:** YYYY-MM-DD
+**Sources:** Perplexity, EXA, Tavily (list which were used)
+
+## Summary
+
+[2-3 sentence executive summary]
+
+## Key Findings
+
+### <Subtopic 1>
+
+[Findings with source citations]
+
+### <Subtopic 2>
+
+[Findings with source citations]
+
+## Sources
+
+- [Source Title](URL) — brief note on what was found here
+```
+
+## Source Selection Guide
+
+| Query Type                     | Primary Source                   | Secondary                    |
+| ------------------------------ | -------------------------------- | ---------------------------- |
+| Library / framework docs       | Context7 (user-level MCP)        | EXA `get_code_context_exa`   |
+| Code examples, GitHub patterns | EXA `get_code_context_exa`       | GitHub grep                  |
+| Keyword-tight general web      | Ceramic `ceramic_search`         | EXA `web_search_exa`         |
+| Recent news, current events    | Perplexity `perplexity_search`   | Tavily `tavily_search`       |
+| Competitive / company research | EXA `company_research_exa`       | Perplexity                   |
+| Deep technical report          | Perplexity `perplexity_research` | Tavily `tavily_research`     |
+| AST / structural code patterns | ast-grep `find_code`             | ast-grep `find_code_by_rule` |
+| Long-horizon async report      | Parallel `createDeepResearch`    | EXA `deep_researcher_start`  |
+| Specific URL content           | EXA `crawling_exa`               | Tavily `tavily_extract`      |
+
+**Ceramic note:** Ceramic is a **lexical** search engine (English only,
+1–50-word keyword queries). Before sending a topic to `ceramic_search`,
+rewrite it into a concise keyword-form query — drop "how do I", "what is",
+filler words; keep proper nouns, technical terms, version numbers. See
+`https://docs.ceramic.ai/api/search/best-practices.md`. The Ceramic MCP at
+`https://mcp.ceramic.ai/mcp` authenticates via OAuth 2.1 (browser flow on
+first use) — same UX as Parallel Task, no API key in plugin.json.
+
+## When to Compound Findings
+
+After `/research:deep`, run `/compound` if the findings include:
+
+- A novel architectural pattern worth sharing with the team
+- A critical gotcha or anti-pattern discovered
+- An institutional decision that will recur (e.g., "we use X instead of Y
+  because...")
+- A bug root cause that took significant investigation
+
+Routine informational research does not need to be compounded.
+
+## Graceful Degradation
+
+If an MCP server is unavailable (key not set, connection error, rate limit):
+
+- Log a brief note: "Skipping [source] — unavailable"
+- Continue with remaining sources
+- Never fail completely if at least 1 source is available
+- If all sources fail, surface the error clearly
+
+## API Key Setup
+
+EXA / Tavily / Perplexity API keys are stored in `userConfig` (system
+keychain). Each MCP starts through a `bin/start-<server>.sh` wrapper that
+uses the userConfig value and falls back to the `EXA_API_KEY`,
+`TAVILY_API_KEY` or `PERPLEXITY_API_KEY` shell env var; userConfig wins when
+both are set. With neither, Perplexity hard-fails at startup (tools
+disappear entirely); EXA and Tavily start but tool calls error at
+invocation.
+
+To configure (one-time, no restart needed):
+
+```text
+/plugin disable yellow-research
+/plugin enable yellow-research
+```
+
+Claude Code prompts for each key. Answer the ones you want; dismiss the
+rest. Stored in OS keychain (or `~/.claude/.credentials.json` at 0600 on
+minimal Linux).
+
+Get keys from:
+
+- EXA: https://exa.ai/
+- Tavily: https://tavily.com/
+- Perplexity: https://www.perplexity.ai/settings/api
+
+The **Parallel Task** and **Ceramic** servers use OAuth (no API key
+needed). Claude Code handles authentication automatically — you'll be
+prompted to authorize on first use of each.
+
+Power users who already export the keys in their shell rc can skip the
+userConfig prompts; the wrappers read the shell env vars directly. userConfig
+is preferred: the keychain keeps the key out of your shell environment.
+
+## MCP Tool Name Verification
+
+After installing yellow-research, always verify actual tool names before writing
+agent code or troubleshooting:
+
+```text
+ToolSearch keyword: "exa"
+Tool name: mcp__plugin_yellow-research_exa__...
+
+ToolSearch keyword: "tavily"
+Tool name: mcp__plugin_yellow-research_tavily__...
+
+ToolSearch keyword: "perplexity"
+Tool name: mcp__plugin_yellow-research_perplexity__...
+
+ToolSearch keyword: "parallel"
+Tool name: mcp__plugin_yellow-research_parallel__...
+
+ToolSearch keyword: "ceramic_search"
+Tool name: mcp__plugin_yellow-research_ceramic__ceramic_search
+
+ToolSearch keyword: "ast-grep__find_code"
+Tool name: mcp__plugin_yellow-research_ast-grep__find_code
+
+ToolSearch keyword: "ast-grep__find_code_by_rule"
+Tool name: mcp__plugin_yellow-research_ast-grep__find_code_by_rule
+
+ToolSearch keyword: "ast-grep__dump_syntax_tree"
+Tool name: mcp__plugin_yellow-research_ast-grep__dump_syntax_tree
+
+ToolSearch keyword: "ast-grep__test_match_code_rule"
+Tool name: mcp__plugin_yellow-research_ast-grep__test_match_code_rule
+```
+
+Naming convention: `mcp__plugin_yellow-research_<server>__<tool>`.
+
+Or run `/mcp` in Claude Code to see all registered tools.
+
+**Never trust LLM-generated tool names** — they may be fictitious. Empirical
+verification is required. If names differ from what's in agents/commands, update
+the `allowed-tools` lists and any MCP tool references in agent bodies.
