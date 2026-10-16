@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="952" viewBox="0 0 1240 952" role="img" aria-label="KOSIF Atlas skill chart">
+<rect width="100%" height="100%" fill="#0b1220"/>
+<text x="50" y="55" fill="#f8fafc" font-size="32" font-weight="bold" font-family="Arial,sans-serif">KOSIF ATLAS / SKILL MAP</text>
+<text x="50" y="86" fill="#94a3b8" font-size="16" font-family="Arial,sans-serif">Live source: repository index.csv + index-copyleft.csv</text>
+<rect x="50" y="109" width="278" height="86" rx="12" fill="#18263c"/>
+<text x="68" y="138" fill="#93c5fd" font-size="14" font-family="Arial,sans-serif">Indexed skills</text>
+<text x="68" y="176" fill="white" font-size="28" font-weight="bold" font-family="Arial,sans-serif">14,793</text>
+<rect x="345" y="109" width="278" height="86" rx="12" fill="#18263c"/>
+<text x="363" y="138" fill="#93c5fd" font-size="14" font-family="Arial,sans-serif">Plugins</text>
+<text x="363" y="176" fill="white" font-size="28" font-weight="bold" font-family="Arial,sans-serif">3,027</text>
+<rect x="640" y="109" width="278" height="86" rx="12" fill="#18263c"/>
+<text x="658" y="138" fill="#93c5fd" font-size="14" font-family="Arial,sans-serif">Copyleft skills</text>
+<text x="658" y="176" fill="white" font-size="28" font-weight="bold" font-family="Arial,sans-serif">85</text>
+<rect x="935" y="109" width="278" height="86" rx="12" fill="#18263c"/>
+<text x="953" y="138" fill="#93c5fd" font-size="14" font-family="Arial,sans-serif">Blocked flags</text>
+<text x="953" y="176" fill="white" font-size="28" font-weight="bold" font-family="Arial,sans-serif">0</text>
+<text x="50" y="224" fill="white" font-size="19" font-family="Arial,sans-serif">Top plugins by skill count</text>
+<text x="50" y="258" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">google-workspace</text>
+<rect x="330" y="242" width="470" height="22" rx="4" fill="#38bdf8"/>
+<text x="811" y="259" fill="white" font-size="13" font-family="Arial,sans-serif">285</text>
+<text x="50" y="292" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">tonone</text>
+<rect x="330" y="276" width="351" height="22" rx="4" fill="#38bdf8"/>
+<text x="692" y="293" fill="white" font-size="13" font-family="Arial,sans-serif">213</text>
+<text x="50" y="326" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">lvtd-skills</text>
+<rect x="330" y="310" width="348" height="22" rx="4" fill="#38bdf8"/>
+<text x="689" y="327" fill="white" font-size="13" font-family="Arial,sans-serif">211</text>
+<text x="50" y="360" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">posthog</text>
+<rect x="330" y="344" width="272" height="22" rx="4" fill="#38bdf8"/>
+<text x="613" y="361" fill="white" font-size="13" font-family="Arial,sans-serif">165</text>
+<text x="50" y="394" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">digital-marketing-pro</text>
+<rect x="330" y="378" width="269" height="22" rx="4" fill="#38bdf8"/>
+<text x="610" y="395" fill="white" font-size="13" font-family="Arial,sans-serif">163</text>
+<text x="50" y="428" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">spec-tree</text>
+<rect x="330" y="412" width="226" height="22" rx="4" fill="#38bdf8"/>
+<text x="567" y="429" fill="white" font-size="13" font-family="Arial,sans-serif">137</text>
+<text x="50" y="462" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">universal-design-principles</text>
+<rect x="330" y="446" width="226" height="22" rx="4" fill="#38bdf8"/>
+<text x="567" y="463" fill="white" font-size="13" font-family="Arial,sans-serif">137</text>
+<text x="50" y="496" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">ambient-library</text>
+<rect x="330" y="480" width="221" height="22" rx="4" fill="#38bdf8"/>
+<text x="562" y="497" fill="white" font-size="13" font-family="Arial,sans-serif">134</text>
+<text x="50" y="530" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">zoom-plugin</text>
+<rect x="330" y="514" width="195" height="22" rx="4" fill="#38bdf8"/>
+<text x="536" y="531" fill="white" font-size="13" font-family="Arial,sans-serif">118</text>
+<text x="50" y="564" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">vercel</text>
+<rect x="330" y="548" width="181" height="22" rx="4" fill="#38bdf8"/>
+<text x="522" y="565" fill="white" font-size="13" font-family="Arial,sans-serif">110</text>
+<text x="50" y="598" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">marketing-skills</text>
+<rect x="330" y="582" width="162" height="22" rx="4" fill="#38bdf8"/>
+<text x="503" y="599" fill="white" font-size="13" font-family="Arial,sans-serif">98</text>
+<text x="50" y="632" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">scandit-sdk</text>
+<rect x="330" y="616" width="145" height="22" rx="4" fill="#38bdf8"/>
+<text x="486" y="633" fill="white" font-size="13" font-family="Arial,sans-serif">88</text>
+<text x="50" y="666" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">azure</text>
+<rect x="330" y="650" width="135" height="22" rx="4" fill="#38bdf8"/>
+<text x="476" y="667" fill="white" font-size="13" font-family="Arial,sans-serif">82</text>
+<text x="50" y="700" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">claude-octopus</text>
+<rect x="330" y="684" width="104" height="22" rx="4" fill="#38bdf8"/>
+<text x="445" y="701" fill="white" font-size="13" font-family="Arial,sans-serif">63</text>
+<text x="50" y="734" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">twilio-developer-kit</text>
+<rect x="330" y="718" width="91" height="22" rx="4" fill="#38bdf8"/>
+<text x="432" y="735" fill="white" font-size="13" font-family="Arial,sans-serif">55</text>
+<text x="50" y="768" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">zoom</text>
+<rect x="330" y="752" width="87" height="22" rx="4" fill="#38bdf8"/>
+<text x="428" y="769" fill="white" font-size="13" font-family="Arial,sans-serif">53</text>
+<text x="50" y="802" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">patternfly</text>
+<rect x="330" y="786" width="82" height="22" rx="4" fill="#38bdf8"/>
+<text x="423" y="803" fill="white" font-size="13" font-family="Arial,sans-serif">50</text>
+<text x="50" y="836" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">plugin-creator</text>
+<rect x="330" y="820" width="81" height="22" rx="4" fill="#38bdf8"/>
+<text x="422" y="837" fill="white" font-size="13" font-family="Arial,sans-serif">49</text>
+<text x="870" y="233" fill="white" font-size="19" font-family="Arial,sans-serif">License classes</text>
+<text x="870" y="262" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">(unknown): 14,708</text>
+<text x="870" y="293" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">copyleft: 85</text>
+<text x="870" y="366" fill="white" font-size="19" font-family="Arial,sans-serif">Security verdicts</text>
+<text x="870" y="395" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">REVIEW_BEFORE_INSTALL: 9,508</text>
+<text x="870" y="426" fill="#cbd5e1" font-size="13" font-family="Arial,sans-serif">READ_ONLY_OK: 5,285</text>
+<text x="50" y="924" fill="#64748b" font-size="13" font-family="Arial,sans-serif">Generated from index metadata, not an executable dependency graph</text>
+</svg>
