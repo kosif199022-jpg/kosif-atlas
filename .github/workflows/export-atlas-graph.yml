@@ -1,0 +1,49 @@
+name: Export KOSIF Atlas skill graph
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "index.csv"
+      - "index-copyleft.csv"
+      - "tools/export_atlas_graph.py"
+      - ".github/workflows/export-atlas-graph.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-graph-export-main
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout indexes and exporter (sparse)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          sparse-checkout: |
+            index.csv
+            index-copyleft.csv
+            tools/
+            reports/atlas-graph/
+          sparse-checkout-cone-mode: false
+
+      - name: Create interactive report and graph
+        run: python3 tools/export_atlas_graph.py --out reports/atlas-graph
+
+      - name: Commit generated exports to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f reports/atlas-graph/index.html reports/atlas-graph/graph.svg reports/atlas-graph/summary.json reports/atlas-graph/plugins.csv
+          if git diff --cached --quiet; then
+            echo "Graph exports are already up to date."
+          else
+            git commit -m "docs: refresh skill graph exports [skip ci]"
+            git push origin HEAD:main
+          fi
